@@ -217,13 +217,13 @@ export function Coop() {
 
   /* ── Render ─────────────────────────────────────────────────── */
 
-  const S: Record<string, React.CSSProperties> = {
-    root:  { padding: "20px 16px", maxWidth: 480, margin: "0 auto", fontFamily: "monospace" },
-    back:  { background: "none", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", fontSize: 12, marginBottom: 16 },
-    card:  { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14, padding: "20px 18px" },
-    h2:    { fontSize: 17, fontWeight: 900, color: "#fff", margin: "0 0 6px" },
-    muted: { fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 },
-    input: { padding: "10px 14px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff", fontFamily: "monospace", fontSize: 14, width: "100%", outline: "none" },
+  const S = {
+    root:  { padding: "20px 16px", maxWidth: 480, margin: "0 auto", fontFamily: "monospace" } as React.CSSProperties,
+    back:  { background: "none", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", fontSize: 12, marginBottom: 16 } as React.CSSProperties,
+    card:  { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14, padding: "20px 18px" } as React.CSSProperties,
+    h2:    { fontSize: 17, fontWeight: 900, color: "#fff", margin: "0 0 6px" } as React.CSSProperties,
+    muted: { fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 } as React.CSSProperties,
+    input: { padding: "10px 14px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff", fontFamily: "monospace", fontSize: 14, width: "100%", outline: "none" } as React.CSSProperties,
     btn:   (bg: string): React.CSSProperties => ({
       display: "inline-flex", alignItems: "center", justifyContent: "center",
       padding: "9px 18px", borderRadius: 10,
