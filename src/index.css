@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ink text-white font-display;
+    background-image: radial-gradient(
+        circle at 20% 10%,
+        rgba(255, 77, 109, 0.08),
+        transparent 60%
+      ),
+      radial-gradient(
+        circle at 80% 85%,
+        rgba(123, 255, 203, 0.05),
+        transparent 60%
+      );
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono uppercase tracking-wide;
+  }
+  .card {
+    @apply bg-panel border border-line rounded-2xl;
+  }
+  .raised {
+    @apply bg-raised border border-line rounded-xl;
+  }
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-full font-bold uppercase text-sm tracking-wide transition-all active:translate-y-0.5;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-ink hover:brightness-110 shadow-punch;
+  }
+  .btn-ghost {
+    @apply btn bg-raised border border-line text-white/80 hover:text-white;
+  }
+  .btn-gold {
+    @apply btn bg-gold text-ink hover:brightness-110 shadow-punch;
+  }
+  /* bouncing face animation */
+  @keyframes bob {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+  .bob {
+    animation: bob 2.4s ease-in-out infinite;
+  }
+  @keyframes wiggle {
+    0%, 100% {
+      transform: rotate(-2deg);
+    }
+    50% {
+      transform: rotate(2deg);
+    }
+  }
+  .wiggle {
+    animation: wiggle 1.6s ease-in-out infinite;
+  }
+  @keyframes pulsebeat {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.06);
+    }
+  }
+  .pulsebeat {
+    animation: pulsebeat 0.5s ease-in-out infinite;
+  }
+  .scan {
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent 0 3px,
+      rgba(255, 255, 255, 0.02) 3px 4px
+    );
+  }
+}
