@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../store/useStore";
+import { useAuth } from "../lib/auth";
 import { TamagotchiFace } from "./TamagotchiFace";
 import { playSong, renderSongToWav, stopSong } from "../audio/engine";
 import { SAVE_SONG_XP } from "../data/achievements";
@@ -23,7 +24,9 @@ export function NameAndSave() {
     addXP,
     checkAndUnlockAchievements,
   } = useStore();
+  const { isGuest, endGuestSession } = useAuth();
   const [playing, setPlaying] = useState(false);
+  const [showGuestGate, setShowGuestGate] = useState(false);
 
   if (!activeTemplate) return null;
 
@@ -76,6 +79,14 @@ export function NameAndSave() {
   }
 
   function handleSave() {
+    // Guest sessions don't persist. If they try to save, show a "sign up to
+    // save" gate instead — this is the moment the signup friction is worth it.
+    if (isGuest) {
+      stopSong();
+      setPlaying(false);
+      setShowGuestGate(true);
+      return;
+    }
     stopSong();
     setPlaying(false);
     finalizeSong(coopPeerName ? [coopPeerName] : []);
@@ -162,6 +173,79 @@ export function NameAndSave() {
           </button>
         </div>
       </div>
+
+      {/* Guest-mode gate — only rendered when a guest tries to save. */}
+      {showGuestGate && (
+        <div
+          onClick={() => setShowGuestGate(false)}
+          style={{
+            position: "fixed", inset: 0,
+            background: "rgba(0,0,0,0.75)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 10000, padding: 20,
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 360,
+              background: "#13111d",
+              border: "1px solid rgba(124,58,237,0.35)",
+              borderRadius: 16,
+              padding: "24px 22px",
+              fontFamily: "monospace",
+              boxShadow: "0 20px 80px rgba(0,0,0,0.6), 0 0 40px rgba(124,58,237,0.15)",
+            }}
+          >
+            <div style={{ fontSize: 28, textAlign: "center", marginBottom: 8 }}>💿</div>
+            <div style={{
+              fontSize: 16, fontWeight: 900, letterSpacing: "0.08em",
+              color: "#fff", textAlign: "center", textTransform: "uppercase",
+              marginBottom: 8,
+            }}>
+              Save your hook
+            </div>
+            <div style={{
+              fontSize: 11, color: "rgba(255,255,255,0.55)",
+              textAlign: "center", lineHeight: 1.6, marginBottom: 18,
+            }}>
+              You're in guest mode — nothing is saved yet. Create a free
+              account to keep this song in your inventory and pick up where
+              you left off.
+            </div>
+            <button
+              onClick={endGuestSession}
+              style={{
+                width: "100%", padding: "11px 0",
+                background: "rgba(124,58,237,0.9)",
+                border: "none", borderRadius: 10,
+                color: "#fff", fontFamily: "monospace",
+                fontSize: 12, fontWeight: 900, letterSpacing: "0.1em",
+                cursor: "pointer",
+                textTransform: "uppercase",
+                boxShadow: "0 0 24px rgba(124,58,237,0.4)",
+              }}
+            >
+              sign up to save →
+            </button>
+            <button
+              onClick={() => setShowGuestGate(false)}
+              style={{
+                width: "100%", padding: "8px 0", marginTop: 8,
+                background: "transparent",
+                border: "none",
+                color: "rgba(255,255,255,0.35)",
+                fontFamily: "monospace",
+                fontSize: 10, letterSpacing: "0.1em",
+                cursor: "pointer",
+              }}
+            >
+              keep tinkering
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

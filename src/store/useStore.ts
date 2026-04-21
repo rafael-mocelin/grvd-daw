@@ -82,6 +82,8 @@ interface State {
   skinId: SkinId;
   isPlaying: boolean;
   canvasZoom: number;  // 0 = auto-compute on first CanvasBoard mount
+  /** Admin-only override — when set, shell uses this mood instead of derived. null = normal. */
+  moodOverride: Mood | null;
 
   // Lifetime stats
   longestStreak: number;
@@ -118,6 +120,8 @@ interface State {
   toggleLogbook: () => void;
   toggleStats: () => void;
   setSkin: (id: SkinId) => void;
+  /** Admin-only: force a specific mood for testing. Pass null to clear. */
+  setMoodOverride: (m: Mood | null) => void;
   reset: () => void;
 
   // Gamification actions
@@ -183,6 +187,7 @@ export const useStore = create<State>((set, get) => ({
   skinId: "void" as SkinId,
   isPlaying: false,
   canvasZoom: 0,
+  moodOverride: null,
   longestStreak: 0,
   longestSessionMs: 0,
   totalSongsAbandoned: 0,
@@ -427,6 +432,7 @@ export const useStore = create<State>((set, get) => ({
   toggleLogbook: () => set({ showLogbook: !get().showLogbook }),
   toggleStats: () => set({ showStats: !get().showStats }),
   setSkin: (id) => set({ skinId: id }),
+  setMoodOverride: (m) => set({ moodOverride: m }),
 
   reset: () =>
     set({

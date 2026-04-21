@@ -22,7 +22,7 @@ import { NeedsMeters } from "./NeedsMeters";
 import { SOUNDS, getSound } from "../data/sounds";
 import type { LayerKind } from "../data/types";
 import { KIND_LABEL } from "../data/types";
-import { playSong, previewLayer, stopPreview, stopSong, updateMuteState } from "../audio/engine";
+import { ensureAudio, playSong, previewLayer, stopPreview, stopSong, updateMuteState } from "../audio/engine";
 import { LAYER_XP } from "../data/achievements";
 
 export function StackingView() {
@@ -112,6 +112,11 @@ export function StackingView() {
   }
 
   async function handleTogglePlay() {
+    /* iOS/Safari: Tone.start() must be INVOKED inside the synchronous
+     * portion of a user gesture. Calling ensureAudio() without awaiting
+     * it here kicks off the unlock promise on the right stack frame;
+     * later async audio work can safely assume the context is live. */
+    ensureAudio();
     if (playing) { stopSong(); setPlaying(false); return; }
     if (!activeTemplate || !layers.length) return;
     stopPreview();
@@ -126,6 +131,9 @@ export function StackingView() {
     clickX?: number,
     clickY?: number
   ) {
+    /* Prime iOS audio context synchronously — picking a sound leads to
+     * startPlayback() which needs the context already unlocked. */
+    ensureAudio();
     const tpl = activeTemplate;
     if (!tpl) return;
     const existing = existingForKind(kind);
@@ -421,6 +429,10 @@ export function StackingView() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            // iOS unlock: fire-and-forget ensureAudio() inside
+                            // the synchronous gesture handler so Tone's audio
+                            // context starts on the right stack frame.
+                            ensureAudio();
                             if (isThisPreviewing) {
                               // Second click stops preview
                               stopPreview();

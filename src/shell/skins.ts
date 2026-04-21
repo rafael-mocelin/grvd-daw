@@ -13,11 +13,16 @@
 /* -------------------------------------------------------------------------- */
 
 export const SHELL = {
-  TOP: 62,      // height of top shell section (px)
-  BOTTOM: 118,  // height of bottom shell section (px)
-  LEFT: 46,     // width of left shell side (px)
-  RIGHT: 46,    // width of right shell side (px)
-  SCREEN_RADIUS: 6, // border-radius of the screen inset
+  TOP: 96,              // height of top shell section (px) — bigger to fit Corner Eyes
+  BOTTOM: 118,          // height of bottom shell section (px)
+  LEFT: 46,             // width of left shell side (px)
+  RIGHT: 46,            // width of right shell side (px)
+  SCREEN_RADIUS: 20,    // border-radius of the screen inset (visible rounding)
+  OUTER_RADIUS: 28,     // border-radius of the bottom corners of the shell
+  TOP_CORNER_RADIUS: 44,// border-radius of the top corners — matches the eye housing
+                         // so the shell's top corners physically wrap around the eyes.
+  EYE_HOUSING_SIZE: 88, // outer diameter of the shell-colored bezel that houses each eye
+  EYE_INNER_SIZE: 66,   // the eye's own SVG size inside the housing
 } as const;
 
 /* -------------------------------------------------------------------------- */
