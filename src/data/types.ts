@@ -84,6 +84,8 @@ export interface Song {
   createdAt: number;
   vocalBlobUrl?: string; // if they recorded a vocal
   pitchScore?: number; // 0..100 from the karaoke minigame
+  /** Per-section mute state from the Arrange view, keyed by "kind:sectionId". */
+  arrangeMutes?: Record<string, boolean>;
 }
 
 export interface ArtistCard {

@@ -17,7 +17,7 @@
  *   to the correct section column in the ruler.
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { useStore } from "../store/useStore";
 import { getSound } from "../data/sounds";
 import { KIND_LABEL } from "../data/types";
@@ -93,14 +93,16 @@ export function ArrangeView() {
     isPlaying,
     setIsPlaying,
     totalXP,
+    arrangeMutes,
+    setArrangeMutes,
   } = useStore();
 
   /*
-   * muted[kind:sectionId] = true → that layer is silent in that section.
-   * Keyed by layer.KIND (not layer.id) so swapping a sound never loses
-   * the mute state — kind is the stable identity across swaps.
+   * arrangeMutes lives in the Zustand store so it survives re-renders,
+   * is included when the song is saved, and stays consistent across tabs.
+   * Keyed by "kind:sectionId" — kind is stable across sound swaps.
    */
-  const [muted, setMuted] = useState<Record<string, boolean>>({});
+  const muted = arrangeMutes;
 
   /* playhead visual position in bars (within the unlocked timeline) */
   const [headBars, setHeadBars] = useState(0);
@@ -269,7 +271,7 @@ export function ArrangeView() {
   /* toggle mute for a layer in a specific section (keyed by kind) */
   function toggleSectionMute(layerKind: string, sectionId: string) {
     const key = `${layerKind}:${sectionId}`;
-    setMuted((m) => ({ ...m, [key]: !m[key] }));
+    setArrangeMutes({ ...arrangeMutes, [key]: !arrangeMutes[key] });
   }
 
   /* play / stop */
@@ -292,7 +294,7 @@ export function ArrangeView() {
           bars: unlockedBars,          // span HOOK+CHORUS = 8 bars
           keyRoot: activeTemplate?.keyRoot ?? "C",
           templateId: activeTemplate?.id ?? "",
-          layers: layers.filter((l) => l.kind !== "vocal"),
+          layers: [...layers],         // include vocal layer — engine handles null buffer gracefully
           tags: [],
           collaborators: [],
           createdAt: Date.now(),

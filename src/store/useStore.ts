@@ -56,6 +56,10 @@ interface State {
   vocalBuffer: AudioBuffer | null;
   vocalBlobUrl: string | null;
   pitchScore: number | null;
+  vocalPitchContour: number[] | null;   // frame-level MIDI notes from estimatePitchContour
+  vocalAutotuneEnabled: boolean;        // true = snap to key during playback
+  /** Per-section mute state for ArrangeView, keyed "kind:sectionId". */
+  arrangeMutes: Record<string, boolean>;
 
   // 60-second timer
   sessionStartedAt: number | null; // ms timestamp when player picked a template
@@ -99,7 +103,9 @@ interface State {
   setRecipeIndex: (i: number) => void;
   skipKind: () => void;
   undoLast: () => void;
-  setVocal: (buffer: AudioBuffer | null, blobUrl: string | null, pitchScore: number | null) => void;
+  setVocal: (buffer: AudioBuffer | null, blobUrl: string | null, pitchScore: number | null, pitchContour?: number[]) => void;
+  toggleVocalAutotune: () => void;
+  setArrangeMutes: (m: Record<string, boolean>) => void;
   setSongName: (name: string) => void;
   finalizeSong: (collaborators?: string[]) => Song;
   abandon: () => void;
@@ -158,6 +164,9 @@ export const useStore = create<State>((set, get) => ({
   vocalBuffer: null,
   vocalBlobUrl: null,
   pitchScore: null,
+  vocalPitchContour: null,
+  vocalAutotuneEnabled: true,   // autotune ON by default
+  arrangeMutes: {},
   sessionStartedAt: null,
 
   inventory: [],
@@ -250,23 +259,43 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
-  setVocal: (buffer, blobUrl, pitchScore) => {
+  setVocal: (buffer, blobUrl, pitchScore, pitchContour) => {
     if (buffer !== null) {
+      // Add (or refresh) a vocal layer so it appears in ArrangeView
+      const existing = get().layers;
+      const hasVocal = existing.some((l) => l.kind === "vocal");
+      const vocalLayer: Layer = {
+        id: `vocal-${Date.now()}`,
+        kind: "vocal",
+        variant: "hook",
+        soundId: "vocal-recorded",
+      };
+      const newLayers = hasVocal
+        ? existing.map((l) => l.kind === "vocal" ? { ...vocalLayer } : l)
+        : [...existing, vocalLayer];
       set((s) => ({
         vocalBuffer: buffer,
         vocalBlobUrl: blobUrl,
         pitchScore,
+        vocalPitchContour: pitchContour ?? null,
         vocalCount: s.vocalCount + 1,
+        layers: newLayers,
       }));
     } else {
-      set({ vocalBuffer: buffer, vocalBlobUrl: blobUrl, pitchScore });
+      // Remove vocal layer when skipping
+      const newLayers = get().layers.filter((l) => l.kind !== "vocal");
+      set({ vocalBuffer: null, vocalBlobUrl: null, pitchScore, vocalPitchContour: null, layers: newLayers });
     }
   },
+
+  toggleVocalAutotune: () => set((s) => ({ vocalAutotuneEnabled: !s.vocalAutotuneEnabled })),
+
+  setArrangeMutes: (m) => set({ arrangeMutes: m }),
 
   setSongName: (name) => set({ songName: name }),
 
   finalizeSong: (collaborators = []) => {
-    const { activeTemplate, layers, songName, vocalBlobUrl, pitchScore, tamagotchi, player, sessionStartedAt, longestSessionMs, longestStreak } = get();
+    const { activeTemplate, layers, songName, vocalBlobUrl, pitchScore, arrangeMutes, tamagotchi, player, sessionStartedAt, longestSessionMs, longestStreak } = get();
     if (!activeTemplate) throw new Error("No template active.");
     const song: Song = {
       id: `song-${Date.now()}`,
@@ -281,6 +310,7 @@ export const useStore = create<State>((set, get) => ({
       createdAt: Date.now(),
       vocalBlobUrl: vocalBlobUrl ?? undefined,
       pitchScore: pitchScore ?? undefined,
+      arrangeMutes: Object.keys(arrangeMutes).length > 0 ? { ...arrangeMutes } : undefined,
     };
     // needs update: finishing a song feeds creativity + energy a bit
     const newTam: Tamagotchi = {
@@ -331,6 +361,9 @@ export const useStore = create<State>((set, get) => ({
       vocalBuffer: null,
       vocalBlobUrl: null,
       pitchScore: null,
+      vocalPitchContour: null,
+      vocalAutotuneEnabled: true,
+      arrangeMutes: {},
       sessionStartedAt: null,
       tamagotchi: newTam,
       isPlaying: false,
@@ -405,6 +438,9 @@ export const useStore = create<State>((set, get) => ({
       vocalBuffer: null,
       vocalBlobUrl: null,
       pitchScore: null,
+      vocalPitchContour: null,
+      vocalAutotuneEnabled: true,
+      arrangeMutes: {},
       sessionStartedAt: null,
       isPlaying: false,
       // note: totalXP / unlockedAchievements persist across sessions

@@ -16,7 +16,7 @@ import { useRef, useState } from "react";
 import { useStore } from "../store/useStore";
 import { getSound } from "../data/sounds";
 import { KIND_LABEL } from "../data/types";
-import { setLayerVolume } from "../audio/engine";
+import { setLayerVolume, setVocalAutotuneEnabled } from "../audio/engine";
 
 /* -------------------------------------------------------------------------- */
 /* Data                                                                         */
@@ -186,10 +186,15 @@ export function MixerView() {
     setVolumes((vv) => ({ ...vv, [id]: v }));
     setLayerVolume(id, (v / 100) * 1.5);
   }
-  function toggleFX(id: string, fx: FXName) {
+  function toggleFX(id: string, fx: FXName, layerKind: string) {
     setActiveFX((a) => {
       const cur = new Set(a[id] ?? []);
+      const nowActive = !cur.has(fx);
       cur.has(fx) ? cur.delete(fx) : cur.add(fx);
+      // AT on vocal: wire to the live PitchShift node in the engine
+      if (fx === "AT" && layerKind === "vocal") {
+        setVocalAutotuneEnabled(nowActive);
+      }
       return { ...a, [id]: cur };
     });
   }
@@ -303,7 +308,7 @@ export function MixerView() {
               {fxList.map((f) => (
                 <button
                   key={f}
-                  onClick={() => toggleFX(layer.id, f)}
+                  onClick={() => toggleFX(layer.id, f, layer.kind)}
                   title={FX_LABELS[f]}
                   style={{
                     padding: "2px 5px",
