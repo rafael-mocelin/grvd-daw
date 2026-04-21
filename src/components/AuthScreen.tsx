@@ -1,6 +1,16 @@
 /**
- * AuthScreen — login / signup gate.
- * Matches the dark monospace aesthetic of the rest of the app.
+ * AuthScreen — first-impression gate.
+ *
+ * Priority order on this screen:
+ *   1. "Try it" — primary call-to-action. Drops the user into the app as
+ *      a guest, no account needed. Progress is in-memory only; refreshing
+ *      the page wipes everything. Best path for first-timers.
+ *   2. Log in / Sign up — secondary path for returning users or people
+ *      ready to save their work.
+ *
+ * The whole "sign up before anything" flow was walled-off behind a tab
+ * switcher previously; now signup is only nagged when the user actually
+ * tries to save a song.
  */
 
 import { useState } from "react";
@@ -9,7 +19,7 @@ import { useAuth } from "../lib/auth";
 type Mode = "login" | "signup";
 
 export function AuthScreen() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, continueAsGuest } = useAuth();
 
   const [mode,     setMode]     = useState<Mode>("login");
   const [email,    setEmail]    = useState("");
@@ -66,7 +76,7 @@ export function AuthScreen() {
       fontFamily: "monospace",
     }}>
       {/* Logo / wordmark */}
-      <div style={{ marginBottom: 32, textAlign: "center" }}>
+      <div style={{ marginBottom: 24, textAlign: "center" }}>
         <div style={{ fontSize: 36, marginBottom: 6 }}>🎛️</div>
         <div style={{
           fontSize: 22, fontWeight: 900, letterSpacing: "0.15em",
@@ -79,13 +89,53 @@ export function AuthScreen() {
         </div>
       </div>
 
-      {/* Card */}
+      {/* Primary CTA — try first, sign up later */}
+      <button
+        onClick={continueAsGuest}
+        style={{
+          width: "100%", maxWidth: 360,
+          padding: "14px 0",
+          background: "rgba(124,58,237,0.9)",
+          border: "none", borderRadius: 12,
+          color: "#fff", fontFamily: "monospace",
+          fontSize: 14, fontWeight: 900, letterSpacing: "0.1em",
+          cursor: "pointer",
+          boxShadow: "0 0 32px rgba(124,58,237,0.45)",
+          textTransform: "uppercase",
+        }}
+      >
+        try it →
+      </button>
+      <div style={{
+        marginTop: 8, marginBottom: 20,
+        fontSize: 10, color: "rgba(255,255,255,0.4)",
+        letterSpacing: "0.06em", textAlign: "center",
+        maxWidth: 320,
+      }}>
+        make a song. customize your DAW. no account needed.
+        <br />
+        sign up only when you want to save your work.
+      </div>
+
+      {/* Divider */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 12,
+        width: "100%", maxWidth: 360, marginBottom: 16,
+      }}>
+        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", letterSpacing: "0.2em" }}>
+          OR
+        </div>
+        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+      </div>
+
+      {/* Card — login / signup for returning users */}
       <div style={{
         width: "100%", maxWidth: 360,
         background: "rgba(255,255,255,0.03)",
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: 16,
-        padding: "28px 24px",
+        padding: "24px 24px",
       }}>
         {/* Tab switcher */}
         <div style={{

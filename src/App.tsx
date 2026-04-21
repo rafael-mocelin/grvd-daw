@@ -11,6 +11,7 @@ import { CanvasBoard } from "./components/CanvasBoard";
 import { XPFlash } from "./components/XPFlash";
 import { AchievementToast } from "./components/AchievementToast";
 import { AuthScreen } from "./components/AuthScreen";
+import { AdminPanel } from "./components/AdminPanel";
 import { loadSamples } from "./audio/engine";
 import { useAuth } from "./lib/auth";
 import { useSync } from "./lib/useSync";
@@ -22,13 +23,14 @@ import { useSync } from "./lib/useSync";
  */
 const CANVAS_STAGES = new Set(["stack", "vocal", "name"]);
 
-/** Inner app — only rendered when the user is authenticated. */
-function AuthenticatedApp() {
+/** Inner app — rendered for both signed-in users AND guests. */
+function AppCore() {
   const { stage, showLogbook, applyDailyDecay, setUserId } = useStore();
   const { user } = useAuth();
   const [samplesReady, setSamplesReady] = useState(false);
 
-  // Keep userId in the store so finalizeSong can upsert without importing auth
+  // Keep userId in the store so finalizeSong can upsert without importing auth.
+  // For guests this will be null, and db writes are no-ops everywhere.
   useEffect(() => {
     setUserId(user?.id ?? null);
   }, [user, setUserId]);
@@ -38,7 +40,8 @@ function AuthenticatedApp() {
     loadSamples().then(() => setSamplesReady(true));
   }, [applyDailyDecay]);
 
-  // Load + sync user data to/from Supabase
+  // Load + sync user data to/from Supabase. useSync no-ops when user is null
+  // (guest mode), so calling it here unconditionally is safe.
   useSync();
 
   return (
@@ -69,13 +72,15 @@ function AuthenticatedApp() {
       {/* Global overlays — rendered via portals to document.body */}
       <XPFlash />
       <AchievementToast />
+      {/* Admin-only debug panel (no-op for non-admin users) */}
+      <AdminPanel />
     </>
   );
 }
 
-/** Root — shows AuthScreen until the user is logged in. */
+/** Root — shows AuthScreen until the user is logged in OR a guest session starts. */
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, isGuest } = useAuth();
 
   if (loading) {
     return (
@@ -94,6 +99,7 @@ export default function App() {
     );
   }
 
-  if (!user) return <AuthScreen />;
-  return <AuthenticatedApp />;
+  // Gate: must be a real user OR an active guest session.
+  if (!user && !isGuest) return <AuthScreen />;
+  return <AppCore />;
 }
