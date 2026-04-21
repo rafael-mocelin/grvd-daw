@@ -150,6 +150,30 @@ export function getBpm() { return currentTransportBpm; }
 export function isStarted() { return audioStarted; }
 
 /* -------------------------------------------------------------------------- */
+/* Master analyser — shell face visuals tap this for audio-reactivity          */
+/* -------------------------------------------------------------------------- */
+
+let masterAnalyser: Tone.Analyser | null = null;
+
+/**
+ * Lazy-create a single Tone.Analyser hooked to the master output
+ * (Tone.getDestination()). Callers can read .getValue() every frame
+ * to drive visuals (eye pupils, chest pulse, etc.).
+ *
+ * Safe to call before audio is started — the analyser returns zeros
+ * until Tone's context actually produces signal. Created at most once.
+ */
+export function getMasterAnalyser(): Tone.Analyser {
+  if (!masterAnalyser) {
+    masterAnalyser = new Tone.Analyser("waveform", 256);
+    // Tap destination non-destructively — the analyser is a parallel sink,
+    // it does not alter the sound the user hears.
+    Tone.getDestination().connect(masterAnalyser);
+  }
+  return masterAnalyser;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Utilities                                                                   */
 /* -------------------------------------------------------------------------- */
 
