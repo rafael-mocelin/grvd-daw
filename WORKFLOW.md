@@ -7,10 +7,10 @@ This is your everyday guide. Read it once, bookmark it, come back when you forge
 You have **three places** your code lives:
 
 1. **`main`** on GitHub — the deployable version. Vercel auto-deploys from here. Treat it like production. You never work directly on main.
-2. **`dev`** on GitHub — your daily working branch. This is where you experiment, add features, break things.
-3. **`feature/<name>`** branches — short-lived branches for bigger changes you're nervous about. Merge them into `dev` when they work.
+2. **`develop`** on GitHub — your daily working branch. This is where you experiment, add features, break things.
+3. **`feature/<name>`** branches — short-lived branches for bigger changes you're nervous about. Merge them into `develop` when they work.
 
-Why this split? Because "main" is always safe. If you break `dev`, `main` still works — Vercel keeps serving the last good version. If you break `feature/foo`, you just delete the branch. No damage.
+Why this split? Because "main" is always safe. If you break `develop`, `main` still works — Vercel keeps serving the last good version. If you break `feature/foo`, you just delete the branch. No damage.
 
 ## The golden rule
 
@@ -18,7 +18,7 @@ Why this split? Because "main" is always safe. If you break `dev`, `main` still 
 
 ```bash
 cd ~/grvd/daw-v2
-git checkout dev
+git checkout develop
 git pull
 ```
 
@@ -27,7 +27,7 @@ git pull
 ```bash
 # 1. Start your session — always on dev
 cd ~/grvd/daw-v2
-git checkout dev
+git checkout develop
 git pull
 
 # 2. Work on code, save files (edit in VS Code, Cursor, whatever)
@@ -59,7 +59,7 @@ When you're about to do something you're nervous about (big refactor, new depend
 
 ```bash
 # create + switch to a feature branch off dev
-git checkout dev
+git checkout develop
 git pull
 git checkout -b feature/new-drum-machine
 
@@ -69,10 +69,10 @@ git commit -m "wip: drum machine prototype"
 git push -u origin feature/new-drum-machine
 ```
 
-If it works, merge it back into `dev`:
+If it works, merge it back into `develop`:
 
 ```bash
-git checkout dev
+git checkout develop
 git pull
 git merge feature/new-drum-machine
 git push
@@ -83,16 +83,16 @@ git push origin --delete feature/new-drum-machine      # delete remote branch
 If it doesn't work, just throw it away:
 
 ```bash
-git checkout dev
+git checkout develop
 git branch -D feature/new-drum-machine                 # delete local (forced)
 git push origin --delete feature/new-drum-machine      # delete remote
 ```
 
-No harm done. `dev` is untouched.
+No harm done. `develop` is untouched.
 
 ## Shipping to production (dev → main)
 
-When `dev` is stable and you want Vercel to deploy it:
+When `develop` is stable and you want Vercel to deploy it:
 
 ```bash
 git checkout main

@@ -53,6 +53,19 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [onDone]);
 
+  /**
+   * Tap-to-dismiss: skip straight to exit animation, then notify parent.
+   * doneRef guard prevents double-firing if the auto-timer finishes at
+   * roughly the same time as the click.
+   */
+  function handleDismiss() {
+    if (doneRef.current) return;
+    setPhase("exit");
+    setTimeout(() => {
+      if (!doneRef.current) { doneRef.current = true; onDone(); }
+    }, 400);
+  }
+
   if (!ach) return null;
 
   const tierColor = TIER_COLOR[ach.tier];
@@ -80,6 +93,11 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
       `}</style>
 
       <div
+        onClick={handleDismiss}
+        role="button"
+        aria-label={`Dismiss ${ach.name} achievement`}
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleDismiss(); } }}
         style={{
           position: "fixed",
           left: TOAST_LEFT,
@@ -90,7 +108,12 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
           transform: translateX,
           opacity,
           transition: "transform 0.45s cubic-bezier(0.22,1,0.36,1), opacity 0.4s ease, bottom 0.35s ease",
-          pointerEvents: "none",
+          // "auto" while visible so the tap registers; "none" during enter/exit
+          // so accidental grazes against the slide-in animation don't dismiss.
+          pointerEvents: phase === "visible" ? "auto" : "none",
+          cursor: "pointer",
+          // iOS: suppress the grey tap-highlight flash on the toast card
+          WebkitTapHighlightColor: "transparent",
         }}
       >
         {/* Card background */}
