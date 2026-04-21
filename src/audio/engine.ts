@@ -22,6 +22,63 @@ const layerVolumes     = new Map<string, Tone.Gain>();
 /** Linear gain value (0–1.5) remembered per layer for unmute restore */
 const layerGainValues  = new Map<string, number>();
 
+/* Autotune — live PitchShift node on the vocal player; toggled by Mixer AT button */
+let vocalPitchShift: Tone.PitchShift | null = null;
+let vocalPitchSemitones = 0;  // pre-calculated correction from last recording
+
+/** Enable / disable autotune on the currently playing vocal track. */
+export function setVocalAutotuneEnabled(enabled: boolean) {
+  if (vocalPitchShift) {
+    vocalPitchShift.wet.value = enabled ? 1 : 0;
+  }
+}
+
+/** Store the correction offset (semitones) so makeVocalPlayer can pre-load it. */
+export function setVocalPitchCorrection(semitones: number) {
+  vocalPitchSemitones = semitones;
+  if (vocalPitchShift) vocalPitchShift.pitch = semitones;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pitch correction helper                                                      */
+/* -------------------------------------------------------------------------- */
+
+const NOTE_TO_PC: Record<string, number> = {
+  C: 0, "C#": 1, D: 2, "D#": 3, E: 4, F: 5,
+  "F#": 6, G: 7, "G#": 8, A: 9, "A#": 10, B: 11,
+};
+// Minor scale intervals (relative to root)
+const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10];
+
+/**
+ * Given a pitch contour (MIDI notes, -1 = unvoiced) and a key root,
+ * return the semitone offset that snaps the median voiced pitch to the
+ * nearest note in the minor scale. Used to set the initial autotune correction.
+ */
+export function calculatePitchCorrection(pitches: number[], keyRoot: string): number {
+  const voiced = pitches.filter((p) => p > 0);
+  if (voiced.length === 0) return 0;
+
+  const sorted = [...voiced].sort((a, b) => a - b);
+  const medianMidi = sorted[Math.floor(sorted.length / 2)];
+  const rootPc = NOTE_TO_PC[keyRoot] ?? 9;
+  const pc = medianMidi % 12;
+  const relPc = ((pc - rootPc) + 12) % 12;
+
+  let closest = MINOR_SCALE[0];
+  let minDist = 13;
+  for (const interval of MINOR_SCALE) {
+    const dist = Math.min(Math.abs(relPc - interval), 12 - Math.abs(relPc - interval));
+    if (dist < minDist) { minDist = dist; closest = interval; }
+  }
+
+  const targetPc = (rootPc + closest) % 12;
+  let semitones = targetPc - pc;
+  if (semitones > 6)  semitones -= 12;
+  if (semitones < -6) semitones += 12;
+  return semitones;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Sample bank — loaded once at startup                                        */
 /* -------------------------------------------------------------------------- */
@@ -273,14 +330,98 @@ function makeMelody(melodyId: string) {
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/* Autotune helpers                                                             */
+/* -------------------------------------------------------------------------- */
+
+const CHROMATIC_PC = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+// Minor pentatonic intervals: root, m3, P4, P5, m7 — most common in hip-hop/trap
+const MINOR_PENTA = [0, 3, 5, 7, 10];
+
+/**
+ * Snap a MIDI note to the nearest note in the song's minor pentatonic key.
+ * Returns the corrected MIDI note number.
+ */
+function snapMidiToKey(midi: number, keyRoot: string): number {
+  const rootPc = CHROMATIC_PC.indexOf(keyRoot.replace("b", "#")); // normalize flats to sharps
+  if (rootPc < 0) return midi;
+  const pc = ((midi % 12) + 12) % 12;
+  let bestDiff = 12;
+  for (const interval of MINOR_PENTA) {
+    const keyPc = (rootPc + interval) % 12;
+    let diff = keyPc - pc;
+    if (diff > 6)  diff -= 12;
+    if (diff < -6) diff += 12;
+    if (Math.abs(diff) < Math.abs(bestDiff)) bestDiff = diff;
+  }
+  return midi + bestDiff;
+}
+
+/**
+ * Schedule frame-by-frame pitch correction on an already-created PitchShift node.
+ * Creates a Tone.Part that loops at the same rate as the vocal buffer.
+ */
+function scheduleAutotune(
+  pitchShift: Tone.PitchShift,
+  contour: number[],
+  keyRoot: string,
+  bpm: number,
+  bufferBars: number,
+  layerId: string,
+) {
+  const secPerBar = (60 / bpm) * 4;
+  const CONTOUR_HOP = 0.03; // 30ms — matches estimatePitchContour hop
+  const events: Array<[string, number]> = [];
+  let prevCorr = 0;
+
+  contour.forEach((midi, i) => {
+    const t = i * CONTOUR_HOP;
+    if (t >= bufferBars * secPerBar) return; // don't schedule past buffer end
+
+    const corr = midi > 0
+      ? Math.round(snapMidiToKey(midi, keyRoot) - midi)
+      : prevCorr; // hold correction during unvoiced frames
+
+    // Only emit an event when the correction changes (reduces Part overhead)
+    if (corr !== prevCorr || i === 0) {
+      const bar   = Math.floor(t / secPerBar);
+      const beat  = Math.floor((t % secPerBar) / (secPerBar / 4));
+      const six   = Math.floor(((t % secPerBar) % (secPerBar / 4)) / (secPerBar / 16));
+      events.push([`${bar}:${beat}:${six}`, corr]);
+      prevCorr = corr;
+    }
+  });
+
+  if (events.length === 0) return;
+
+  const part = new Tone.Part((_, value) => {
+    pitchShift.pitch = value as number;
+  }, events);
+  part.loop = true;
+  part.loopEnd = `${bufferBars}m`;
+  part.start(0);
+  layerParts.set(`${layerId}-at`, part);   // stored so stopSong can dispose it
+}
+
+/* -------------------------------------------------------------------------- */
+/* Vocal player                                                                  */
+/* -------------------------------------------------------------------------- */
+
 function makeVocalPlayer(buffer: AudioBuffer | null) {
   if (!buffer) return null;
   const tBuf = Tone.ToneAudioBuffer.fromArray(buffer.getChannelData(0));
   const player = new Tone.Player(tBuf);
+
+  // Autotune via PitchShift — ON by default; Mixer AT button toggles wet 0↔1
+  // windowSize 80 ms = best trade-off between voice quality and latency artifact
+  const pitchShift = new Tone.PitchShift({ pitch: vocalPitchSemitones, windowSize: 0.08 });
+  pitchShift.wet.value = 1;     // active by default
+  vocalPitchShift = pitchShift; // keep global ref so setVocalAutotuneEnabled can toggle it
+
   const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.18 });
-  const gain = new Tone.Gain(0.9);
-  player.chain(reverb, gain, Tone.getDestination());
-  return { player, nodes: [player, reverb, gain] as Tone.ToneAudioNode[] };
+  const gain   = new Tone.Gain(0.9);
+  player.chain(pitchShift, reverb, gain, Tone.getDestination());
+  return { player, nodes: [player, pitchShift, reverb, gain] as Tone.ToneAudioNode[] };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -371,7 +512,7 @@ function buildVoice(
   layer: Layer,
   vocalBuffer: AudioBuffer | null,
   templateBpm?: number
-): { builder: VoiceBuilder | null; nodes: Tone.ToneAudioNode[]; isPlayer?: boolean; isFileLoop?: boolean } {
+): { builder: VoiceBuilder | null; nodes: Tone.ToneAudioNode[]; isPlayer?: boolean; isFileLoop?: boolean; isVocal?: boolean } {
   // File-backed sounds always take priority — kind doesn't matter for routing
   const sound = getSound(layer.soundId);
   if (sound?.fileUrl && sound.nativeBpm) {
@@ -389,7 +530,7 @@ function buildVoice(
     case "vocal": {
       const v = makeVocalPlayer(vocalBuffer);
       if (!v) return { builder: null, nodes: [] };
-      return { builder: null, nodes: v.nodes, isPlayer: true };
+      return { builder: null, nodes: v.nodes, isPlayer: true, isVocal: true };
     }
     default: return { builder: null, nodes: [] };
   }
@@ -405,7 +546,7 @@ export async function playSong(song: Song, vocalBuffer: AudioBuffer | null) {
   setBpm(song.bpm);
 
   for (const layer of song.layers) {
-    const { builder, nodes, isPlayer, isFileLoop } = buildVoice(layer, vocalBuffer, song.bpm);
+    const { builder, nodes, isPlayer, isFileLoop, isVocal } = buildVoice(layer, vocalBuffer, song.bpm);
     layerSynths.set(layer.id, nodes);
 
     // Insert a dedicated volume-control Gain between the chain output and destination.
@@ -429,9 +570,15 @@ export async function playSong(song: Song, vocalBuffer: AudioBuffer | null) {
 
     if (isPlayer) {
       const player = nodes[0] as Tone.Player;
+      // Vocal: loop based on the actual recording duration, not song.bars.
+      // A 4-bar hook recording loops every 4 bars so it plays over both HOOK and CHORUS.
+      let loopBars = song.bars;
+      if (isVocal && player.buffer?.duration) {
+        loopBars = Math.max(1, Math.round(player.buffer.duration * (song.bpm / 60) / 4));
+      }
       const part = new Tone.Part((time) => { player.start(time); }, [["0:0:0"]]).start(0);
       part.loop = true;
-      part.loopEnd = `${song.bars}m`;
+      part.loopEnd = `${loopBars}m`;
       layerParts.set(layer.id, part);
       continue;
     }
@@ -463,6 +610,7 @@ export async function playSong(song: Song, vocalBuffer: AudioBuffer | null) {
 }
 
 export function stopSong() {
+  vocalPitchShift = null;  // clear live ref; next playSong will recreate it
   Tone.getTransport().stop();
   Tone.getTransport().cancel(0);
   for (const p of layerParts.values()) {
@@ -623,7 +771,8 @@ export async function previewLayer(
 
   try {
     await ensureAudio();
-  } catch {
+  } catch (err) {
+    console.error("[previewLayer] audio context failed to start:", err);
     onDone?.();
     return;
   }
@@ -670,7 +819,8 @@ export async function previewLayer(
 
     try {
       player.start(Tone.now());
-    } catch {
+    } catch (err) {
+      console.error("[previewLayer] sample player failed to start:", err);
       cleanup();
       return;
     }
@@ -698,7 +848,8 @@ export async function previewLayer(
     for (let i = 0; i < 4; i++) {
       builder(now + i * 0.22, notes[i % notes.length]);
     }
-  } catch {
+  } catch (err) {
+    console.error("[previewLayer] synth preview failed to schedule:", err);
     cleanup();
     return;
   }
@@ -711,33 +862,246 @@ export async function previewLayer(
 /* Vocal recording                                                             */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Record from the microphone for up to maxSeconds.
+ *
+ * The capture path is intentionally minimal: MediaRecorder reads from the raw
+ * getUserMedia stream directly, bypassing the WebAudio graph entirely. The VU
+ * meter (if requested) reads from a CLONED audio track so it can never starve
+ * the recorder of signal.
+ *
+ * Why this shape: WebAudio routing for mic capture (parallel taps, series
+ * through AnalyserNode, MediaStreamDestination, etc.) is fragile across
+ * device + browser + OS combinations. Reading the raw stream is the one path
+ * that works everywhere.
+ *
+ * @param maxSeconds Hard cap on recording duration.
+ * @param onLevel    Optional callback fired ~20×/sec with RMS 0–1 for VU.
+ */
 export async function recordVocal(
-  maxSeconds: number
+  maxSeconds: number,
+  onLevel?: (rms: number) => void
 ): Promise<{ blob: Blob; buffer: AudioBuffer }> {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Recording not supported in this browser.");
+    throw new Error("Recording is not supported in this browser. Try Chrome, Edge, Firefox, or Safari.");
   }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const recorder = new MediaRecorder(stream);
+
+  // ── Acquire the mic stream ─────────────────────────────────────────────
+  // Tiered constraints, narrow → permissive. We prefer 2-channel capture
+  // because some multi-channel USB interfaces (e.g. Scarlett Solo 4th Gen,
+  // Apollo Twin, MOTU M-series) advertise 4+ channels to the OS — physical
+  // inputs PLUS loopback/aggregate channels — and browsers can pick the
+  // wrong pair without a strict constraint, yielding a stream that opens
+  // successfully but contains zero signal.
+  //
+  // If the strict 2-channel constraint fails (mono mics, mobile devices,
+  // some Bluetooth headsets), we fall through to looser constraints rather
+  // than rejecting the user.
+  const stream = await acquireMicStream();
+  console.log("[recordVocal] track settings:", stream.getAudioTracks()[0].getSettings());
+
+  // ── Pick a recording format the browser supports ───────────────────────
+  // Order: best quality / widest playback support first. audio/mp4 is the
+  // Safari/iOS path (it cannot decode webm/opus from MediaRecorder output).
+  const mimeType = pickRecorderMimeType();
+
+  let recorder: MediaRecorder;
+  try {
+    recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
+  } catch (err) {
+    stream.getTracks().forEach((t) => t.stop());
+    throw new Error("Could not start recorder — your browser may not support audio recording. " + (err instanceof Error ? err.message : ""));
+  }
+
+  // ── VU meter on a CLONED audio track ────────────────────────────────────
+  // Cloning the track gives the analyser its own independent consumer of the
+  // same source frames, so reading it cannot interfere with what the
+  // recorder is capturing from the original track.
+  const vu = onLevel ? setupVuMeter(stream, onLevel) : null;
+
   const chunks: BlobPart[] = [];
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
+  const cleanup = () => {
+    vu?.dispose();
+    stream.getTracks().forEach((t) => t.stop());
+  };
+
   return new Promise((resolve, reject) => {
+    let stopTimer: ReturnType<typeof setTimeout> | null = null;
+
     recorder.onstop = async () => {
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+      cleanup();
       try {
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        const ab = await blob.arrayBuffer();
-        const ctx = new (window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-        const buffer = await ctx.decodeAudioData(ab);
-        stream.getTracks().forEach((t) => t.stop());
+        if (chunks.length === 0) {
+          reject(new Error("No audio captured. Check that your browser has microphone permission for this site."));
+          return;
+        }
+        const blobType = mimeType || "audio/webm";
+        const blob = new Blob(chunks, { type: blobType });
+        if (blob.size < 500) {
+          reject(new Error("Recording was empty. Your microphone may be muted or another app may be using it."));
+          return;
+        }
+
+        const buffer = await decodeRecordedBlob(blob);
+        const maxAmp = peakAmplitude(buffer);
+
+        console.log(`[recordVocal] ${buffer.duration.toFixed(2)}s @ ${buffer.sampleRate}Hz, ${(blob.size / 1024).toFixed(0)}KB ${blobType}, maxAmp=${maxAmp.toFixed(4)}`);
+        if (maxAmp < 0.001) {
+          console.warn(
+            "[recordVocal] silent recording — the mic stream opened but contained no signal.\n" +
+            "Common causes:\n" +
+            " • Multi-channel USB interface (Scarlett 4th Gen, Apollo) exposing loopback channels: enable 'Combine Inputs' in the device's control software.\n" +
+            " • OS mic input level set to zero or device muted.\n" +
+            " • Another app (Zoom, Discord, OBS) holding exclusive access to the device.",
+          );
+        }
+
         resolve({ blob, buffer });
-      } catch (e) { reject(e); }
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error("Failed to decode the recording."));
+      }
     };
-    recorder.onerror = (e) => reject(e);
-    recorder.start();
-    setTimeout(() => { if (recorder.state !== "inactive") recorder.stop(); }, maxSeconds * 1000);
+
+    recorder.onerror = (e) => {
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+      cleanup();
+      reject(e instanceof Error ? e : new Error("Recorder error."));
+    };
+
+    recorder.start(100);  // 100ms timeslice keeps memory bounded for long takes
+    stopTimer = setTimeout(() => {
+      if (recorder.state !== "inactive") recorder.stop();
+    }, maxSeconds * 1000);
   });
+}
+
+/**
+ * Acquire a mic stream with a fallback chain that handles the long tail of
+ * device quirks: multi-channel USB interfaces, mono devices, mobile, BT.
+ */
+async function acquireMicStream(): Promise<MediaStream> {
+  const baseAudio = {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
+
+  // 1) Best case: 2-channel exact (forces the actual mic inputs on multi-ch
+  //    interfaces; won't satisfy mono devices).
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: { ...baseAudio, channelCount: { exact: 2 } },
+    });
+  } catch { /* fall through */ }
+
+  // 2) Mono devices and BT headsets: drop the channel constraint, keep the
+  //    no-processing flags so vocals stay intact when the beat plays.
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: baseAudio });
+  } catch { /* fall through */ }
+
+  // 3) Last resort: accept whatever the browser hands back, including any
+  //    auto-applied processing. Some mobile browsers reject 'audio: object'
+  //    entirely and only accept the boolean shorthand.
+  return navigator.mediaDevices.getUserMedia({ audio: true });
+}
+
+/**
+ * Pick the most widely-playable recording mimeType the browser supports.
+ * Returns "" if no preferred type is supported (caller falls back to default).
+ */
+function pickRecorderMimeType(): string {
+  const candidates = [
+    "audio/webm;codecs=opus", // Chrome, Edge, Firefox — best quality
+    "audio/webm",
+    "audio/ogg;codecs=opus",  // Firefox legacy
+    "audio/mp4",              // Safari / iOS
+    "audio/mp4;codecs=mp4a.40.2",
+  ];
+  for (const t of candidates) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) {
+      return t;
+    }
+  }
+  return "";
+}
+
+/**
+ * Set up a VU meter that reads from a clone of the recording track.
+ * Returns null if setup fails — recording continues silently in that case.
+ */
+function setupVuMeter(stream: MediaStream, onLevel: (rms: number) => void) {
+  try {
+    const audioCtx = Tone.getContext().rawContext as AudioContext;
+    // Don't await Tone.start() here — recordVocal is invoked from a user
+    // gesture handler upstream and Tone has typically already been started
+    // by sound preview or playback. If the context is suspended we still get
+    // valid time-domain data after it resumes; the meter will just be flat
+    // briefly.
+    const clonedTrack = stream.getAudioTracks()[0].clone();
+    const vuStream = new MediaStream([clonedTrack]);
+    const source = audioCtx.createMediaStreamSource(vuStream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    const timer = setInterval(() => {
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) { const d = (v - 128) / 128; sum += d * d; }
+      onLevel(Math.sqrt(sum / buf.length));
+    }, 50);
+
+    return {
+      dispose() {
+        clearInterval(timer);
+        try { source.disconnect(); } catch { /* ignore */ }
+        try { analyser.disconnect(); } catch { /* ignore */ }
+        try { vuStream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+      },
+    };
+  } catch (err) {
+    console.warn("[recordVocal] VU meter unavailable (recording continues):", err);
+    return null;
+  }
+}
+
+/**
+ * Decode the recorded blob to an AudioBuffer. Tries the live Tone context
+ * first (most efficient); falls back to a throwaway context if Tone's
+ * context is in a state that rejects the decode.
+ */
+async function decodeRecordedBlob(blob: Blob): Promise<AudioBuffer> {
+  const ab = await blob.arrayBuffer();
+  try {
+    const ctx = Tone.getContext().rawContext as AudioContext;
+    return await ctx.decodeAudioData(ab.slice(0));
+  } catch {
+    const tmpCtx = new AudioContext();
+    try {
+      return await tmpCtx.decodeAudioData(ab.slice(0));
+    } finally {
+      tmpCtx.close().catch(() => { /* ignore */ });
+    }
+  }
+}
+
+function peakAmplitude(buffer: AudioBuffer): number {
+  let max = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const ch = buffer.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) {
+      const abs = Math.abs(ch[i]);
+      if (abs > max) max = abs;
+    }
+  }
+  return max;
 }
 
 /**

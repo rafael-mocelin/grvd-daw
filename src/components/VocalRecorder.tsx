@@ -4,7 +4,7 @@
  * Karaoke timing is BPM-driven:
  *   - Each lyric line occupies BARS_PER_LINE bars of the beat
  *   - Total recording duration = verse.length × BARS_PER_LINE × (60/bpm) × 4
- *   - At 140 BPM, 8 lines × 1 bar = ~13.7 s  (vs fixed 16 s before)
+ *   - At 140 BPM, 4 lines × 2 bars = ~13.7 s  (each line ~3.4 s of breathing room)
  *
  * Syllable splitting uses a vowel-cluster regex (standard phonetics approach):
  *   "creating" → ["cre", "a", "ting"]  — each syllable lights up separately
@@ -17,7 +17,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store/useStore";
-import { estimatePitchContour, recordVocal, playSong, stopSong } from "../audio/engine";
+import {
+  estimatePitchContour,
+  recordVocal,
+  playSong,
+  stopSong,
+  calculatePitchCorrection,
+  setVocalPitchCorrection,
+} from "../audio/engine";
 import { VOCAL_XP } from "../data/achievements";
 
 /* -------------------------------------------------------------------------- */
@@ -111,16 +118,12 @@ function buildSyllableTimeline(verse: string[], lineSecs: number): SylItem[] {
 /* Constants                                                                     */
 /* -------------------------------------------------------------------------- */
 
-const BARS_PER_LINE = 1;  // each lyric line = 1 bar of the beat
+// 2 bars per line × 2 lines = 4 bars = exactly one HOOK section.
+// At 140 BPM that's ~6.9 s; at 90 BPM ~10.7 s — comfortable for beginners.
+const BARS_PER_LINE = 2;
 
 const DEFAULT_VERSE = [
   "step in the booth, it's time to create",
-  "stack the sounds, lock in the eight",
-  "every bar I drop is certified great",
-  "GRVD life we building something straight",
-  "no days off, I been grinding at night",
-  "every session got the melody right",
-  "from the bottom to the top, taking flight",
   "GRVD certified, yeah we at the light",
 ];
 
@@ -139,18 +142,28 @@ type FriendStatus = "active" | "nearby" | "offline";
 export function VocalRecorder() {
   const { activeTemplate, layers, setVocal, setStage, addXP } = useStore();
 
-  const [tab,     setTab]     = useState<"record" | "squad">("record");
-  const [phase,   setPhase]   = useState<"ready" | "recording" | "scoring" | "done">("ready");
-  const [elapsed, setElapsed] = useState(0);
-  const [score,   setScore]   = useState<number | null>(null);
-  const [contour, setContour] = useState<number[]>([]);
-  const [error,   setError]   = useState<string | null>(null);
-  const [toast,   setToast]   = useState<string | null>(null);
+  const [tab,          setTab]          = useState<"record" | "squad">("record");
+  const [phase,        setPhase]        = useState<"ready" | "recording" | "scoring" | "done">("ready");
+  const [elapsed,      setElapsed]      = useState(0);
+  const [score,        setScore]        = useState<number | null>(null);
+  const [contour,      setContour]      = useState<number[]>([]);
+  const [error,        setError]        = useState<string | null>(null);
+  const [toast,        setToast]        = useState<string | null>(null);
+  /** Live mic level 0–1 from the AnalyserNode. >0.01 = mic has signal. */
+  const [micLevel,     setMicLevel]     = useState(0);
+  /** User-edited lyrics. null = use template/default lyrics. */
+  const [customLyrics, setCustomLyrics] = useState<string[] | null>(null);
+  /** Whether the lyrics edit panel is open. */
+  const [isEditing,    setIsEditing]    = useState(false);
+  /** Working copy of lyrics while the edit panel is open. */
+  const [editLines,    setEditLines]    = useState<string[]>([]);
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const micLevelRef = useRef(setMicLevel);
 
-  const verse = activeTemplate?.verse ?? DEFAULT_VERSE;
-  const bpm   = activeTemplate?.bpm   ?? 140;
+  const defaultVerse = activeTemplate?.verse ?? DEFAULT_VERSE;
+  const verse = customLyrics ?? defaultVerse;
+  const bpm   = activeTemplate?.bpm ?? 140;
 
   // BPM-derived timing
   const barSecs    = (60 / bpm) * 4;                      // seconds per bar (4/4 time)
@@ -219,7 +232,10 @@ export function VocalRecorder() {
         }
       }, 40);  // ~25 fps — smooth enough for syllable-level highlighting
 
-      const { blob, buffer } = await recordVocal(recordSecs);
+      setMicLevel(0);
+      const { blob, buffer } = await recordVocal(recordSecs, (rms) => {
+        micLevelRef.current(rms);
+      });
 
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       stopSong();
@@ -230,6 +246,10 @@ export function VocalRecorder() {
       setContour(pitches);
       const s = scoreContour(pitches, tpl.keyRoot);
       setScore(s);
+      // Pre-calculate pitch correction so makeVocalPlayer can autotune on first play
+      const correction = calculatePitchCorrection(pitches, tpl.keyRoot);
+      setVocalPitchCorrection(correction);
+      setMicLevel(0);
       setVocal(buffer, url, s);
       addXP(VOCAL_XP, "vocal recorded");
       setElapsed(recordSecs);
@@ -237,6 +257,7 @@ export function VocalRecorder() {
     } catch (e) {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       stopSong();
+      setMicLevel(0);
       setError(e instanceof Error ? e.message : "Recording failed.");
       setPhase("ready");
       setElapsed(0);
@@ -346,6 +367,27 @@ export function VocalRecorder() {
             score={score}
             contour={contour}
             error={error}
+            micLevel={micLevel}
+            isEditing={isEditing}
+            editLines={editLines}
+            hasCustomLyrics={customLyrics !== null}
+            onOpenEdit={() => {
+              setEditLines([...verse]);
+              setIsEditing(true);
+            }}
+            onEditLine={(i, val) => setEditLines((lines) => {
+              const next = [...lines];
+              next[i] = val;
+              return next;
+            })}
+            onSaveEdit={() => {
+              setCustomLyrics([...editLines]);
+              setIsEditing(false);
+            }}
+            onResetLyrics={() => {
+              setCustomLyrics(null);
+              setIsEditing(false);
+            }}
             onRecord={handleRecord}
             onRedo={redo}
             onSkip={skip}
@@ -375,6 +417,14 @@ interface RecordTabProps {
   score: number | null;
   contour: number[];
   error: string | null;
+  micLevel: number;
+  isEditing: boolean;
+  editLines: string[];
+  hasCustomLyrics: boolean;
+  onOpenEdit: () => void;
+  onEditLine: (i: number, val: string) => void;
+  onSaveEdit: () => void;
+  onResetLyrics: () => void;
   onRecord: () => void;
   onRedo: () => void;
   onSkip: () => void;
@@ -383,12 +433,72 @@ interface RecordTabProps {
 
 function RecordTab({
   verse, phase, elapsed, recordSecs, sylTimeline, activeSylIdx, activeLineIdx,
-  bpm, score, contour, error, onRecord, onRedo, onSkip, onNext,
+  bpm, score, contour, error, micLevel,
+  isEditing, editLines, hasCustomLyrics,
+  onOpenEdit, onEditLine, onSaveEdit, onResetLyrics,
+  onRecord, onRedo, onSkip, onNext,
 }: RecordTabProps) {
   const progress = Math.min(elapsed / recordSecs, 1);
+  const canEdit  = phase === "ready";
 
   return (
     <div style={{ padding: "12px 14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── Lyrics edit panel ── */}
+      {isEditing && canEdit ? (
+        <div style={{
+          background: "rgba(124,58,237,0.08)",
+          border: "1px solid rgba(124,58,237,0.25)",
+          borderRadius: 12, padding: "12px 12px 10px",
+          display: "flex", flexDirection: "column", gap: 8,
+        }}>
+          <div style={{ fontFamily: "monospace", fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", color: "#a78bfa", textTransform: "uppercase" }}>
+            ✏️ edit your lyrics
+          </div>
+          {editLines.map((line, i) => (
+            <input
+              key={i}
+              value={line}
+              onChange={(e) => onEditLine(i, e.target.value)}
+              placeholder={`line ${i + 1}…`}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(124,58,237,0.3)",
+                borderRadius: 8, padding: "7px 10px",
+                fontFamily: "monospace", fontSize: 12, color: "#fff",
+                outline: "none",
+              }}
+            />
+          ))}
+          <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
+            <button onClick={onSaveEdit} style={primaryBtn}>use these lyrics ✓</button>
+            {hasCustomLyrics && (
+              <button onClick={onResetLyrics} style={ghostBtn}>reset to default</button>
+            )}
+            <button onClick={() => onResetLyrics()} style={{ ...ghostBtn, marginLeft: "auto" }}>cancel</button>
+          </div>
+        </div>
+      ) : (
+        /* ── Lyrics header row (karaoke + edit button) ── */
+        canEdit && (
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button
+              onClick={onOpenEdit}
+              style={{
+                fontFamily: "monospace", fontSize: 9, fontWeight: 800,
+                padding: "3px 10px", borderRadius: 10,
+                background: hasCustomLyrics ? "rgba(124,58,237,0.25)" : "rgba(255,255,255,0.06)",
+                border: `1px solid ${hasCustomLyrics ? "rgba(124,58,237,0.5)" : "rgba(255,255,255,0.12)"}`,
+                color: hasCustomLyrics ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                cursor: "pointer", letterSpacing: "0.08em",
+              }}
+            >
+              {hasCustomLyrics ? "✏️ my lyrics" : "✏️ edit lyrics"}
+            </button>
+          </div>
+        )
+      )}
 
       <KaraokeDisplay
         verse={verse}
@@ -447,11 +557,57 @@ function RecordTab({
       )}
 
       {phase === "recording" && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "8px 0" }}>
-          <RecordingDot />
-          <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#f87171" }}>
-            recording — rap along
-          </span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "8px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <RecordingDot />
+            <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#f87171" }}>
+              recording — rap along
+            </span>
+          </div>
+
+          {/* Live VU meter — shows whether the mic is actually capturing audio */}
+          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {/* Meter bar */}
+              <div style={{
+                flex: 1,
+                height: 8,
+                background: "rgba(255,255,255,0.07)",
+                borderRadius: 4,
+                overflow: "hidden",
+              }}>
+                <div style={{
+                  height: "100%",
+                  width: `${Math.min(micLevel * 6, 1) * 100}%`,  // ×6 so normal voice = mostly full
+                  background: micLevel < 0.01
+                    ? "rgba(255,255,255,0.15)"
+                    : micLevel < 0.05
+                    ? "#facc15"
+                    : "#4ade80",
+                  borderRadius: 4,
+                  transition: "width 0.05s, background 0.1s",
+                  boxShadow: micLevel > 0.01 ? "0 0 6px rgba(74,222,128,0.6)" : "none",
+                }} />
+              </div>
+              {/* Label */}
+              <span style={{
+                fontFamily: "monospace", fontSize: 8,
+                color: micLevel < 0.01 ? "#f87171" : "#4ade80",
+                width: 52, textAlign: "right", flexShrink: 0,
+              }}>
+                {micLevel < 0.01 ? "no signal" : micLevel < 0.05 ? "low" : "✓ hearing you"}
+              </span>
+            </div>
+            {micLevel < 0.01 && (
+              <div style={{
+                fontFamily: "monospace", fontSize: 9,
+                color: "rgba(255,87,87,0.7)",
+                textAlign: "center",
+              }}>
+                mic not detected — check browser mic permissions (🔒 icon in address bar)
+              </div>
+            )}
+          </div>
         </div>
       )}
 
