@@ -688,60 +688,136 @@ export function seekTransport(seconds: number) {
 
 /* -------------------------------------------------------------------------- */
 /* Offline render → WAV                                                        */
+/*                                                                             */
+/* Renders the full song through Tone.Offline at broadcast-quality settings   */
+/* (48 kHz / 24-bit / stereo) and returns a WAV blob ready for download.      */
+/*                                                                             */
+/* Covers the three voice shapes produced by buildVoice():                     */
+/*   • isFileLoop — Player with loop=true, fired once at t=0                  */
+/*   • isPlayer   — Vocal player, looped across song duration                 */
+/*   • builder    — Synth voices scheduled step-by-step                        */
+/*                                                                             */
+/* Awaits Tone.loaded() inside the offline callback so any samples / CDN      */
+/* files finish downloading before the transport starts, and extends the      */
+/* render by a 1.5-second tail so reverb/delay decays don't get chopped.      */
 /* -------------------------------------------------------------------------- */
+
+export interface RenderOptions {
+  /** Output sample rate. Default 48000 (broadcast standard). */
+  sampleRate?: number;
+  /** Output bit depth. 16 or 24. Default 24. */
+  bitDepth?: 16 | 24;
+  /** Seconds of silence appended for reverb/delay tail. Default 1.5. */
+  tailSeconds?: number;
+  /**
+   * Minimum render length in bars. The stored `song.bars` is the recipe
+   * length (usually 4 bars, the loop pattern) — if we rendered only that,
+   * the download would be under 10s for most BPMs. We loop the pattern up
+   * to this minimum to produce a usable track. Default 16 bars (≈25 s @ 150 BPM,
+   * roughly the 30-second target song length).
+   */
+  minBars?: number;
+}
 
 export async function renderSongToWav(
   song: Song,
-  vocalBuffer: AudioBuffer | null
+  vocalBuffer: AudioBuffer | null,
+  options: RenderOptions = {}
 ): Promise<Blob> {
-  const seconds = (song.bars * 4 * 60) / song.bpm;
+  const sampleRate = options.sampleRate ?? 48000;
+  const bitDepth   = options.bitDepth   ?? 24;
+  const tailSec    = options.tailSeconds ?? 1.5;
+  const minBars    = options.minBars    ?? 16;
+
+  // Loop the recipe pattern up to minBars so a 4-bar recipe becomes a
+  // full-length track. The pattern repeats identically (no arrangement).
+  const recipeBars = Math.max(1, song.bars);
+  const renderBars = Math.max(recipeBars, Math.ceil(minBars / recipeBars) * recipeBars);
+  const bodySec    = (renderBars * 4 * 60) / song.bpm;
+  const totalSec   = bodySec + tailSec;
+  const barSec     = (60 / song.bpm) * 4;
+
   const rendered = await Tone.Offline(async (ctx) => {
     ctx.transport.bpm.value = song.bpm;
+
     for (const layer of song.layers) {
-      const { builder, nodes, isPlayer } = buildVoice(layer, vocalBuffer);
+      const { builder, nodes, isPlayer, isFileLoop, isVocal } =
+        buildVoice(layer, vocalBuffer, song.bpm);
+
+      // File-backed loop — Tone.Player has loop=true, schedule a single start
+      if (isFileLoop && builder) {
+        ctx.transport.schedule((time) => { builder(time); }, 0);
+        continue;
+      }
+
+      // Vocal player — loop at the recording's natural length across the song
+      if (isPlayer && isVocal) {
+        const player = nodes[0] as Tone.Player;
+        const dur = player.buffer?.duration ?? 0;
+        const loopBars = dur > 0
+          ? Math.max(1, Math.round(dur / barSec))
+          : song.bars;
+        const loopSec = loopBars * barSec;
+        for (let t = 0; t < bodySec - 0.001; t += loopSec) {
+          ctx.transport.schedule((time) => { player.start(time); }, t);
+        }
+        continue;
+      }
+
+      // Non-vocal player path (unused currently but harmless)
       if (isPlayer) {
         const player = nodes[0] as Tone.Player;
         ctx.transport.schedule((time) => { player.start(time); }, 0);
         continue;
       }
+
+      // Synth pattern — step-by-step scheduling across the full render length
       if (!builder) continue;
       const steps = patternFor(layer.kind, layer.variant);
       const notes = noteSequenceFor(layer.kind, song.keyRoot);
-      for (let bar = 0; bar < song.bars; bar++) {
+      for (let bar = 0; bar < renderBars; bar++) {
         for (let step = 0; step < 16; step++) {
-          if (steps[step] === "x") {
-            const t = `${bar}:${Math.floor(step / 4)}:${step % 4}`;
-            const note = notes[(bar + Math.floor(step / 4)) % notes.length];
-            ctx.transport.schedule((time) => builder(time, note), t);
-          }
+          if (steps[step] !== "x") continue;
+          const t    = `${bar}:${Math.floor(step / 4)}:${step % 4}`;
+          const note = notes[(bar + Math.floor(step / 4)) % notes.length];
+          ctx.transport.schedule((time) => builder(time, note), t);
         }
       }
     }
+
+    // Ensure every freshly-created Tone.Player / Tone.Sampler finishes its
+    // network load BEFORE the transport starts. Without this, CDN-backed
+    // drums / piano / file loops silently produce no output in the export.
+    await Tone.loaded();
+
     ctx.transport.start(0);
-  }, seconds);
+  }, totalSec, 2, sampleRate);
 
   const audioBuffer = rendered.get() as AudioBuffer;
-  return encodeWav(audioBuffer);
+  return encodeWav(audioBuffer, bitDepth);
 }
 
-function encodeWav(buffer: AudioBuffer): Blob {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const bitDepth = 16;
+/**
+ * Encode an AudioBuffer as a PCM WAV blob.
+ * Supports 16-bit and 24-bit PCM (format code 1).
+ */
+function encodeWav(buffer: AudioBuffer, bitDepth: 16 | 24 = 24): Blob {
+  const numChannels    = buffer.numberOfChannels;
+  const sampleRate     = buffer.sampleRate;
   const bytesPerSample = bitDepth / 8;
-  const blockAlign = numChannels * bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const dataLength = buffer.length * blockAlign;
-  const bufferLength = 44 + dataLength;
-  const ab = new ArrayBuffer(bufferLength);
-  const view = new DataView(ab);
+  const blockAlign     = numChannels * bytesPerSample;
+  const byteRate       = sampleRate * blockAlign;
+  const frames         = buffer.length;
+  const dataLength     = frames * blockAlign;
+  const ab             = new ArrayBuffer(44 + dataLength);
+  const view           = new DataView(ab);
 
   writeString(view, 0, "RIFF");
   view.setUint32(4, 36 + dataLength, true);
   writeString(view, 8, "WAVE");
   writeString(view, 12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
+  view.setUint32(16, 16, true);           // fmt chunk size
+  view.setUint16(20, 1, true);            // format = PCM
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
@@ -750,17 +826,34 @@ function encodeWav(buffer: AudioBuffer): Blob {
   writeString(view, 36, "data");
   view.setUint32(40, dataLength, true);
 
-  let offset = 44;
   const channels: Float32Array[] = [];
   for (let c = 0; c < numChannels; c++) channels.push(buffer.getChannelData(c));
-  for (let i = 0; i < buffer.length; i++) {
-    for (let c = 0; c < numChannels; c++) {
-      let sample = Math.max(-1, Math.min(1, channels[c][i]));
-      sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-      view.setInt16(offset, sample, true);
-      offset += 2;
+
+  let offset = 44;
+
+  if (bitDepth === 16) {
+    for (let i = 0; i < frames; i++) {
+      for (let c = 0; c < numChannels; c++) {
+        const s = Math.max(-1, Math.min(1, channels[c][i]));
+        const v = s < 0 ? s * 0x8000 : s * 0x7fff;
+        view.setInt16(offset, v, true);
+        offset += 2;
+      }
+    }
+  } else {
+    // 24-bit little-endian signed PCM — pack into 3 bytes per sample
+    for (let i = 0; i < frames; i++) {
+      for (let c = 0; c < numChannels; c++) {
+        const s = Math.max(-1, Math.min(1, channels[c][i]));
+        const v = Math.round((s < 0 ? s * 0x800000 : s * 0x7fffff)) | 0;
+        view.setUint8(offset,     v         & 0xff);
+        view.setUint8(offset + 1, (v >> 8)  & 0xff);
+        view.setUint8(offset + 2, (v >> 16) & 0xff);
+        offset += 3;
+      }
     }
   }
+
   return new Blob([ab], { type: "audio/wav" });
 }
 
@@ -768,6 +861,24 @@ function writeString(view: DataView, offset: number, str: string) {
   for (let i = 0; i < str.length; i++) {
     view.setUint8(offset + i, str.charCodeAt(i));
   }
+}
+
+/**
+ * Trigger a browser download for a rendered WAV. Sanitises the file name.
+ */
+export function downloadWavBlob(blob: Blob, baseName: string) {
+  const safe = (baseName || "hook")
+    .replace(/[^a-z0-9 _.-]/gi, "")
+    .replace(/\s+/g, "_")
+    .slice(0, 80) || "hook";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${safe}.wav`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /* -------------------------------------------------------------------------- */
