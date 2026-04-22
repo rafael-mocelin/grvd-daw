@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "../store/useStore";
 import { stopSong } from "../audio/engine";
-import { SHELL, SKINS, nextSkin, type Skin, type SkinId } from "../shell/skins";
+import { SHELL, SKINS, type Skin } from "../shell/skins";
 import { StatsPanel } from "./StatsPanel";
 import { CornerEye } from "./CornerEye";
 import { MouthWave } from "./MouthWave";
@@ -204,8 +204,8 @@ export function DeviceShell({ children }: { children: ReactNode }) {
   const {
     tamagotchi, inventory, stage, setStage,
     sessionStartedAt, toggleLogbook, toggleStats, showStats,
-    skinId, setSkin, isPlaying, canvasZoom, setCanvasZoom,
-    totalXP, moodOverride,
+    skinId, canvasZoom, setCanvasZoom,
+    totalXP, moodOverride, dawTalk,
   } = useStore();
 
   // Live master audio level — drives Corner Eye pupil scaling & beat bars.
@@ -219,6 +219,26 @@ export function DeviceShell({ children }: { children: ReactNode }) {
   const MAX_ZOOM = 2.0;
 
   const inCanvas = CANVAS_STAGES.has(stage);
+
+  /* The mouth now stretches across the whole top shell. We measure the
+   * available row width with a ResizeObserver so the wave fills whatever
+   * space is between the left and right shell sides. */
+  const mouthRowRef = useRef<HTMLDivElement | null>(null);
+  const [mouthWidth, setMouthWidth] = useState<number>(720);
+  useEffect(() => {
+    const el = mouthRowRef.current;
+    if (!el) return;
+    const readWidth = () => {
+      const rect = el.getBoundingClientRect();
+      // 18px padding on each side, subtract to get inner usable width.
+      const inner = Math.max(280, Math.floor(rect.width - 36));
+      setMouthWidth(inner);
+    };
+    readWidth();
+    const ro = new ResizeObserver(readWidth);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Ctrl+scroll — delegate to canvas zoom in canvas stages, else UI zoom
   useEffect(() => {
@@ -361,49 +381,28 @@ export function DeviceShell({ children }: { children: ReactNode }) {
           />
         </div>
 
-        {/* CENTER: logo + skin selector + status LEDs — absolutely centered
-           between the two eye housings so they don't push the layout around. */}
-        <div style={{
-          position: "absolute",
-          top: 0, bottom: 0,
-          left: SHELL.EYE_HOUSING_SIZE + 8,
-          right: SHELL.EYE_HOUSING_SIZE + 8,
-          display: "flex", flexDirection: "column",
-          alignItems: "center", justifyContent: "center",
-          gap: 6,
-          minWidth: 0,
-          pointerEvents: "none", // only the button inside should be interactive
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <MoodLED color={glow} />
-            <span style={{
-              fontFamily: "monospace",
-              fontWeight: 900,
-              fontSize: 16,
-              letterSpacing: "0.45em",
-              textTransform: "uppercase",
-              color: skin.shellLight,
-              textShadow: `0 0 20px ${skin.accent}99, 0 0 6px ${skin.accent}55`,
-            }}>GRVD</span>
-            <MoodLED color={skin.accent} />
-          </div>
-          <button
-            onClick={() => setSkin(nextSkin(skinId))}
-            title="cycle skin"
-            style={{
-              fontFamily: "monospace", fontSize: 8, fontWeight: 900,
-              letterSpacing: "0.2em", textTransform: "uppercase",
-              color: skin.accent,
-              background: `${skin.accent}22`,
-              border: `1.5px solid ${skin.accent}55`,
-              borderRadius: 5, padding: "2px 10px",
-              cursor: "pointer", transition: "all 0.18s",
-              boxShadow: `0 0 8px ${skin.accent}33`,
-              pointerEvents: "auto",
-            }}
-          >
-            {skin.name}
-          </button>
+        {/* The GRVD logo + skin selector used to live here, centered between
+         * the eye housings. We removed them for a cleaner face — the mouth
+         * below the eyes now owns this row. Skin selection moved into the
+         * Admin Panel (see AdminPanel.tsx). */}
+
+        {/* MOUTH ROW — sits inside the top shell, below the eye row, and now
+         * stretches nearly the full width of the device for a big, expressive
+         * mouth. Measured with a ResizeObserver in an effect so it tracks
+         * window width live. The mouth doubles as a scrolling-text ticker. */}
+        <div
+          ref={mouthRowRef}
+          style={{
+            position: "absolute",
+            top: SHELL.EYE_ROW_HEIGHT,
+            bottom: 0,
+            left: 0, right: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "0 18px",
+            pointerEvents: "none",
+          }}
+        >
+          <MouthWave mood={mood} color={glow} width={mouthWidth} height={64} talk={dawTalk} />
         </div>
       </div>
 
@@ -534,9 +533,10 @@ export function DeviceShell({ children }: { children: ReactNode }) {
         </button>
 
         {/* ── Button row ──
-         * Three-zone layout: left flex, centered mouth (shrink-to-content),
-         * right flex. Left and right both use flex:1 with opposite justification
-         * so the mouth ends up EXACTLY centered regardless of the nav/beat sizes.
+         * The mouth has moved up into the top shell (below the eye row), so
+         * this bottom row now just holds nav buttons on the left and the
+         * beat indicator on the right. To roll the mouth back down, reinstate
+         * the three-zone layout and put <MouthWave … /> in the middle cell.
          */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* Left: nav buttons */}
@@ -546,32 +546,15 @@ export function DeviceShell({ children }: { children: ReactNode }) {
             <PhysBtn label="🎧" title="booth" onClick={() => setStage("booth")} active={stage === "booth"} skin={skin} />
           </div>
 
-          {/* Center: companion mouth — a live audio waveform in a display frame */}
-          <div style={{
-            flexShrink: 0,
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-          }}>
-            <MouthWave mood={mood} color={glow} width={340} height={64} />
-          </div>
-
-          {/* Right: beat indicator (replaces non-functional A/B/C) */}
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+          {/* Right: beat indicator — just the bars, no live/idle label */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
             <div style={{
               display: "flex", alignItems: "center",
               background: "rgba(0,0,0,0.25)",
               border: "1px solid rgba(255,255,255,0.06)",
               borderRadius: 8, padding: "4px 10px",
-              gap: 6,
             }}>
               <BeatIndicator accent={skin.accent} audioLevelRef={audioLevelRef} />
-              <span style={{
-                fontFamily: "monospace", fontSize: 7, fontWeight: 700,
-                color: isPlaying ? skin.accent : "rgba(255,255,255,0.15)",
-                letterSpacing: "0.08em", textTransform: "uppercase",
-                transition: "color 0.3s",
-              }}>
-                {isPlaying ? "live" : "idle"}
-              </span>
             </div>
           </div>
         </div>
@@ -634,17 +617,6 @@ function zoomBtnStyle(skin: Skin): React.CSSProperties {
     display: "flex", alignItems: "center", justifyContent: "center",
     fontFamily: "monospace", fontWeight: 700, transition: "all 0.1s",
   };
-}
-
-function MoodLED({ color }: { color: string }) {
-  return (
-    <div style={{
-      width: 6, height: 6, borderRadius: "50%",
-      background: color,
-      boxShadow: `0 0 10px ${color}, 0 0 4px ${color}`,
-      transition: "all 1.2s",
-    }} />
-  );
 }
 
 function ShellTexture({ skin }: { skin: Skin }) {

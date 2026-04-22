@@ -13,8 +13,19 @@
 /* -------------------------------------------------------------------------- */
 
 export const SHELL = {
-  TOP: 96,              // height of top shell section (px) — bigger to fit Corner Eyes
-  BOTTOM: 118,          // height of bottom shell section (px)
+  // The mouth now lives in the TOP shell, below the eye row — so TOP grew to
+  // fit an eye row (~112) + a mouth row (~98). BOTTOM shrank accordingly since
+  // the mouth is no longer down there. To roll back: TOP = 96, BOTTOM = 118,
+  // EYE_ROW_HEIGHT = unused, and re-add the MouthWave in the bottom button row.
+  //
+  // Spacing note (21 Apr 2026): bumped TOP 172 → 210 and EYE_ROW_HEIGHT 96 → 112
+  // so the mouth gets breathing room from both the eyes above and the screen
+  // below. With MouthWave height=64 inside a 98-tall row (flex-centered), that
+  // leaves ~17px padding above and below the mouth.
+  TOP: 210,             // height of top shell section (px) — eye row + mouth row
+  BOTTOM: 95,           // height of bottom shell section (px) — gamification + nav
+  EYE_ROW_HEIGHT: 112,  // height of the eye row inside the top shell (where the
+                         // eye housings live). The mouth sits below with padding.
   LEFT: 46,             // width of left shell side (px)
   RIGHT: 46,            // width of right shell side (px)
   SCREEN_RADIUS: 20,    // border-radius of the screen inset (visible rounding)
