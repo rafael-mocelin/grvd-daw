@@ -26,6 +26,7 @@ import { SHELL, SKINS, type Skin } from "../shell/skins";
 import { StatsPanel } from "./StatsPanel";
 import { CornerEye } from "./CornerEye";
 import { MouthWave } from "./MouthWave";
+import { ScreenTopBar } from "./EnergyMeter";
 import { useAudioLevel } from "../hooks/useAudioLevel";
 import { useSharedGaze } from "../hooks/useSharedGaze";
 import type { Mood } from "../data/types";
@@ -331,6 +332,8 @@ export function DeviceShell({ children }: { children: ReactNode }) {
             {children}
           </div>
         </div>
+        {/* Persistent Energy + XP strip at the top of the screen, above scroll content. */}
+        <ScreenTopBar />
       </div>
 
       {/* Screen edge ring */}
@@ -541,7 +544,7 @@ export function DeviceShell({ children }: { children: ReactNode }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* Left: nav buttons */}
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 8 }}>
-            <PhysBtn label="←" title="home" onClick={() => { stopSong(); setStage("crib"); }} active={stage === "crib"} skin={skin} />
+            <PhysBtn label="←" title="home" onClick={() => { stopSong(); setStage("home"); }} active={stage === "home"} skin={skin} />
             <PhysBtn label="📓" title="logbook" onClick={toggleLogbook} skin={skin} />
             <PhysBtn label="🎧" title="booth" onClick={() => setStage("booth")} active={stage === "booth"} skin={skin} />
           </div>
