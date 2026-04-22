@@ -11,7 +11,7 @@ import type {
 } from "../data/types";
 import type { SkinId } from "../shell/skins";
 import { ACHIEVEMENTS, getAchievement } from "../data/achievements";
-import { upsertSong } from "../lib/db";
+import { upsertSong, upsertStats, upsertTamagotchi, deleteAllSongs } from "../lib/db";
 
 /* -------------------------------------------------------------------------- */
 /* Stage machine — the 60-second journey                                       */
@@ -84,6 +84,12 @@ interface State {
   canvasZoom: number;  // 0 = auto-compute on first CanvasBoard mount
   /** Admin-only override — when set, shell uses this mood instead of derived. null = normal. */
   moodOverride: Mood | null;
+  /**
+   * The line the DAW is currently "saying" — rendered as a speech bubble
+   * above the MouthWave at the bottom of the shell. null when silent.
+   * Set transient (auto-clearing) lines via sayLine(msg, durationMs).
+   */
+  dawTalk: string | null;
 
   // Lifetime stats
   longestStreak: number;
@@ -122,7 +128,28 @@ interface State {
   setSkin: (id: SkinId) => void;
   /** Admin-only: force a specific mood for testing. Pass null to clear. */
   setMoodOverride: (m: Mood | null) => void;
+  /**
+   * Make the DAW say a line (rendered above the MouthWave). Pass null to clear.
+   * If durationMs > 0 the line auto-clears after that many ms (unless replaced
+   * by another sayLine call in the meantime). durationMs = 0 / undefined means
+   * the line persists until replaced or explicitly cleared.
+   */
+  sayLine: (msg: string | null, durationMs?: number) => void;
   reset: () => void;
+
+  /* ─────────── Admin resets (wipe gamification state) ─────────── */
+  /** Zero out total XP (level implicitly resets). Syncs to Supabase if signed in. */
+  adminResetXP: () => void;
+  /** Clear all unlocked achievements and any queued toasts. Syncs to Supabase. */
+  adminResetAchievements: () => void;
+  /** Zero out lifetime aggregate stats (streak, longest session, abandons, vocals). Syncs. */
+  adminResetLifetimeStats: () => void;
+  /** Delete every song in the inventory (and from Supabase, if signed in). */
+  adminResetInventory: () => void;
+  /** Reset the tamagotchi to a fresh newborn state. Syncs to Supabase. */
+  adminResetTamagotchi: () => void;
+  /** Nuclear option: runs every reset above in one shot. */
+  adminResetEverything: () => void;
 
   // Gamification actions
   addXP: (amount: number, label: string, x?: number, y?: number) => void;
@@ -188,6 +215,7 @@ export const useStore = create<State>((set, get) => ({
   isPlaying: false,
   canvasZoom: 0,
   moodOverride: null,
+  dawTalk: null,
   longestStreak: 0,
   longestSessionMs: 0,
   totalSongsAbandoned: 0,
@@ -434,6 +462,17 @@ export const useStore = create<State>((set, get) => ({
   setSkin: (id) => set({ skinId: id }),
   setMoodOverride: (m) => set({ moodOverride: m }),
 
+  sayLine: (msg, durationMs) => {
+    set({ dawTalk: msg });
+    if (msg && durationMs && durationMs > 0) {
+      // Only auto-clear if this specific message is still the one showing
+      // (a later sayLine() call would have replaced it).
+      setTimeout(() => {
+        if (get().dawTalk === msg) set({ dawTalk: null });
+      }, durationMs);
+    }
+  },
+
   reset: () =>
     set({
       stage: "crib",
@@ -451,6 +490,97 @@ export const useStore = create<State>((set, get) => ({
       isPlaying: false,
       // note: totalXP / unlockedAchievements persist across sessions
     }),
+
+  /* ────────────────── Admin resets ──────────────────
+   * Each reset mutates the local store first, then fires a best-effort
+   * sync to Supabase when the user is signed in. If the user is a guest
+   * the sync is skipped (there's nothing to sync).
+   */
+
+  adminResetXP: () => {
+    set({ totalXP: 0, xpFlashQueue: [] });
+    const s = get();
+    if (s.userId) {
+      upsertStats(
+        {
+          totalXP: 0,
+          unlockedAchievements: s.unlockedAchievements,
+          longestStreak: s.longestStreak,
+          longestSessionMs: s.longestSessionMs,
+          totalSongsAbandoned: s.totalSongsAbandoned,
+          vocalCount: s.vocalCount,
+        },
+        s.userId
+      );
+    }
+  },
+
+  adminResetAchievements: () => {
+    set({ unlockedAchievements: [], achievementToastQueue: [] });
+    const s = get();
+    if (s.userId) {
+      upsertStats(
+        {
+          totalXP: s.totalXP,
+          unlockedAchievements: [],
+          longestStreak: s.longestStreak,
+          longestSessionMs: s.longestSessionMs,
+          totalSongsAbandoned: s.totalSongsAbandoned,
+          vocalCount: s.vocalCount,
+        },
+        s.userId
+      );
+    }
+  },
+
+  adminResetLifetimeStats: () => {
+    set({
+      longestStreak: 0,
+      longestSessionMs: 0,
+      totalSongsAbandoned: 0,
+      vocalCount: 0,
+    });
+    const s = get();
+    if (s.userId) {
+      upsertStats(
+        {
+          totalXP: s.totalXP,
+          unlockedAchievements: s.unlockedAchievements,
+          longestStreak: 0,
+          longestSessionMs: 0,
+          totalSongsAbandoned: 0,
+          vocalCount: 0,
+        },
+        s.userId
+      );
+    }
+  },
+
+  adminResetInventory: () => {
+    set({ inventory: [], booth: [] });
+    const s = get();
+    if (s.userId) deleteAllSongs(s.userId);
+  },
+
+  adminResetTamagotchi: () => {
+    const fresh: Tamagotchi = {
+      ...FRESH_TAMAGOTCHI,
+      lastSeenAt: Date.now(),
+    };
+    set({ tamagotchi: fresh, moodOverride: null });
+    const s = get();
+    if (s.userId) upsertTamagotchi(fresh, s.userId);
+  },
+
+  adminResetEverything: () => {
+    get().adminResetXP();
+    get().adminResetAchievements();
+    get().adminResetLifetimeStats();
+    get().adminResetInventory();
+    get().adminResetTamagotchi();
+    // Also return the in-session DAW to a clean crib state
+    get().reset();
+  },
 
   /* ────────────────── Gamification ────────────────── */
 

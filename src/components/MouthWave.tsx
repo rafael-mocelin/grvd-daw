@@ -24,12 +24,26 @@ export interface MouthWaveProps {
   width?: number;
   /** Rendered height of the display FRAME in px. Default 64. */
   height?: number;
+  /**
+   * Optional line the companion is "saying". When set, the waveform fades back
+   * and the text scrolls right-to-left across the mouth display like a
+   * marquee/ticker, re-appearing from the right each pass. null = silent.
+   */
+  talk?: string | null;
 }
 
 // How many points to sample across the waveform.
 const POINTS = 48;
 
-export function MouthWave({ mood, color, width = 340, height = 64 }: MouthWaveProps) {
+export function MouthWave({ mood, color, width = 340, height = 64, talk }: MouthWaveProps) {
+  // Active when there's actual text to say. The waveform dims so the text
+  // reads clearly; when silent, the wave comes back to full intensity.
+  const isTalking = !!talk && talk.trim().length > 0;
+  // Ticker speed: ~55 px/s. Total distance is 100% of the inner track width
+  // (parent width + text width). Using a heuristic on character count keeps
+  // short lines from zipping by too fast while long lines stay readable.
+  const scrollSeconds = Math.max(5.5, (talk?.length ?? 0) * 0.22);
+
   const pathRef = useRef<SVGPathElement | null>(null);
   const moodRef = useRef<Mood>(mood);
   useEffect(() => { moodRef.current = mood; }, [mood]);
@@ -188,6 +202,10 @@ export function MouthWave({ mood, color, width = 340, height = 64 }: MouthWavePr
           position: "absolute",
           left: INSET_X,
           top: INSET_Y,
+          // Fade the waveform back when the DAW is speaking so the text reads
+          // clearly — but keep a hint of movement underneath for life.
+          opacity: isTalking ? 0.22 : 1,
+          transition: "opacity 0.35s ease-out",
         }}
       >
         <path
@@ -202,6 +220,53 @@ export function MouthWave({ mood, color, width = 340, height = 64 }: MouthWavePr
           style={{ filter: `drop-shadow(0 0 5px ${color}cc)` }}
         />
       </svg>
+
+      {/* Speech ticker — scrolling text INSIDE the mouth frame.
+       * Mounts only while `talk` is set. The `key={talk}` ensures the CSS
+       * animation restarts from the right edge each time the line changes. */}
+      {isTalking && (
+        <div
+          key={talk}
+          style={{
+            position: "absolute",
+            left: INSET_X,
+            right: INSET_X,
+            top: 0,
+            bottom: 0,
+            display: "flex",
+            alignItems: "center",
+            overflow: "hidden",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              display: "inline-block",
+              whiteSpace: "nowrap",
+              // paddingLeft: 100% pushes the text fully past the right edge
+              // of the container, so it *enters* from the right when we
+              // translateX(-100%) across the span's full width.
+              paddingLeft: "100%",
+              fontFamily: "monospace",
+              fontSize: Math.min(16, Math.round(height * 0.36)),
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              color,
+              textShadow: `0 0 8px ${color}aa, 0 0 2px ${color}ff`,
+              animation: `mouthTicker ${scrollSeconds}s linear infinite`,
+              willChange: "transform",
+            }}
+          >
+            {talk}
+          </div>
+          <style>{`
+            @keyframes mouthTicker {
+              from { transform: translateX(0); }
+              to   { transform: translateX(-100%); }
+            }
+          `}</style>
+        </div>
+      )}
     </div>
   );
 }
