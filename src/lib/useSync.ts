@@ -18,7 +18,9 @@ import {
 
 export function useSync() {
   const { user } = useAuth();
-  const loadUserData = useStore((s) => s.loadUserData);
+  const loadUserData           = useStore((s) => s.loadUserData);
+  const loadPlayerEnergy       = useStore((s) => s.loadPlayerEnergy);
+  const loadUserTastemakerData = useStore((s) => s.loadUserTastemakerData);
 
   const tamagotchi          = useStore((s) => s.tamagotchi);
   const totalXP             = useStore((s) => s.totalXP);
@@ -41,10 +43,15 @@ export function useSync() {
         fetchSongs(user.id),
         fetchTamagotchi(user.id),
         fetchStats(user.id),
+        // Tastemaker-tier user-specific loads — catalog is loaded per-screen
+        // in the components that need it (Home / ListeningBooth) so guests
+        // can see drops too.
+        loadPlayerEnergy(),
+        loadUserTastemakerData(),
       ]);
       loadUserData({ songs, tamagotchi: tam ?? undefined, stats: stats ?? undefined });
     })();
-  }, [user, loadUserData]);
+  }, [user, loadUserData, loadPlayerEnergy, loadUserTastemakerData]);
 
   // ── Sync tamagotchi whenever it changes ──────────────────────
   useEffect(() => {

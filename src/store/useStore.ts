@@ -12,20 +12,98 @@ import type {
 import type { SkinId } from "../shell/skins";
 import { ACHIEVEMENTS, getAchievement } from "../data/achievements";
 import { upsertSong, upsertStats, upsertTamagotchi, deleteAllSongs } from "../lib/db";
+import {
+  fetchLiveEnergy,
+  fetchPublishedCatalog,
+  fetchUserRatings,
+  fetchUserEndorsements,
+  rateSongRpc,
+  endorseSongRpc,
+  spendEnergyRpc,
+  type PublishedSong,
+} from "../lib/game-db";
 
 /* -------------------------------------------------------------------------- */
 /* Stage machine — the 60-second journey                                       */
 /* -------------------------------------------------------------------------- */
 
 export type Stage =
-  | "crib" // DAW is asleep, waiting to be pulled out
+  | "home"     // Slice-1 Tastemaker landing — three-role CTA hub
+  | "crib"     // DAW is asleep, waiting to be pulled out (companion care)
   | "template" // picking a template
-  | "stack" // stacking the recipe
-  | "vocal" // recording the hook (optional)
-  | "name" // naming & exporting
-  | "done" // song added to inventory
-  | "booth" // Phase 4: Listening Booth
-  | "coop"; // Phase 4: co-production
+  | "stack"    // stacking the recipe
+  | "vocal"    // recording the hook (optional)
+  | "name"     // naming & exporting
+  | "done"     // song added to inventory
+  | "booth"    // Listening Booth (now serves published catalog for Tastemaker loop)
+  | "coop";    // Phase 4: co-production
+
+/* -------------------------------------------------------------------------- */
+/* Publish-tier energy economy                                                 */
+/*                                                                             */
+/* `energy` here is the *publish-tier fuel* — the scarce resource that gates   */
+/* endorsements, publishing songs, and (later) publishing templates. It is     */
+/* NOT the same thing as `tamagotchi.needs.energy`, which is the companion's   */
+/* tiredness meter (a visual mood driver only). They live on different state  */
+/* slices and don't interact.                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** Maximum stored energy. Stays fixed for Slice 1; may scale by level later. */
+export const ENERGY_MAX = 100;
+
+/** Regen interval: 1 unit every 5 minutes (matches server-side RPC default). */
+export const ENERGY_REGEN_MS = 5 * 60 * 1000;
+
+/** Energy costs for publish-tier actions. Must mirror the server-side guards. */
+export const ENERGY_COSTS = {
+  endorse:         15,
+  publishSong:     40,
+  publishTemplate: 40,
+  visitCrib:       3,
+  inviteToCrib:    5,
+} as const;
+
+/** Daily XP caps for free actions. Server enforces identical numbers via
+ *  earn_xp_capped — the client copy is advisory only (for optimistic UI). */
+export const XP_DAILY_CAPS = {
+  rate:   40, //  2 XP × 20 ratings/day
+  listen: 30, //  1 XP × 30 listens/day
+} as const;
+
+/**
+ * tastemakerRatingLine — companion reaction to a star rating.
+ *
+ * Returns a short ticker line, or null if the rating is unremarkable (e.g.
+ * a 3-star first pass). Called from rateSong so the companion feels
+ * present without being chatty.
+ */
+export function tastemakerRatingLine(
+  stars: number,
+  opts: { isFirst: boolean; isChange: boolean },
+): string | null {
+  if (opts.isChange) {
+    if (stars === 5) return "came around to it, huh";
+    if (stars === 1) return "cold reversal";
+    return "changing your mind?";
+  }
+  if (!opts.isFirst) return null; // same-star re-tap, stay quiet
+  if (stars === 5) return "5★ — early taste, we'll see if it sticks";
+  if (stars === 4) return "solid ears on you";
+  if (stars === 1) return "brutal. but fair.";
+  if (stars === 2) return "you're not feeling it. noted.";
+  return null; // 3-star first pass: unremarkable
+}
+
+/** Compute live energy from stored base + elapsed regen. Pure, no I/O. */
+export function computeLiveEnergy(
+  base: number,
+  updatedAtMs: number,
+  now: number = Date.now(),
+): number {
+  const elapsed = Math.max(0, now - updatedAtMs);
+  const regenUnits = Math.floor(elapsed / ENERGY_REGEN_MS);
+  return Math.min(ENERGY_MAX, base + regenUnits);
+}
 
 /* -------------------------------------------------------------------------- */
 /* Derived mood                                                                */
@@ -103,6 +181,22 @@ interface State {
   xpFlashQueue: Array<{ id: string; amount: number; label: string; x: number; y: number }>;
   vocalCount: number;
 
+  // ─────────── Tastemaker / publish-tier economy (Slice 1) ───────────
+  /** Base energy at last server sync. Compute live energy via computeLiveEnergy(energy, energyUpdatedAt). */
+  energy: number;
+  /** Millis timestamp of the last authoritative energy write. */
+  energyUpdatedAt: number;
+  /** Player level — affects publish caps in later slices. */
+  level: number;
+  /** Published catalog fetched from song_publication_stats (drops to listen + rate). */
+  publishedCatalog: PublishedSong[];
+  /** The current user's star ratings, keyed by songId. */
+  userRatings: Record<string, number>;
+  /** Song ids the current user has endorsed. */
+  userEndorsements: string[];
+  /** True while fetching the catalog — UI can show a loading state. */
+  catalogLoading: boolean;
+
   // ------- actions -------
   setStage: (s: Stage) => void;
   pickTemplate: (t: Template) => void;
@@ -158,6 +252,24 @@ interface State {
   popAchievementToast: () => void;
   checkAndUnlockAchievements: () => void;
 
+  // ─────────── Tastemaker actions (Slice 1) ───────────
+  /** Refresh live energy + level + total XP from the server. Safe to no-op for guests. */
+  loadPlayerEnergy: () => Promise<void>;
+  /** Fetch the published catalog view. */
+  loadPublishedCatalog: () => Promise<void>;
+  /** Fetch the user's own ratings + endorsements for UI state. */
+  loadUserTastemakerData: () => Promise<void>;
+  /** Rate a song 1–5 stars. Upserts server-side and awards capped XP. */
+  rateSong: (songId: string, stars: number) => Promise<void>;
+  /** Endorse a song (energy-gated, atomic). Returns true on success. */
+  endorseSong: (songId: string) => Promise<boolean>;
+  /**
+   * Client-side optimistic energy spend — matches the server RPC's effect
+   * locally so the meter animates immediately. Server authority still wins on
+   * next loadPlayerEnergy() refresh. Guests (no userId) mutate locally only.
+   */
+  spendEnergyOptimistic: (cost: number, eventType: string, targetId?: string, xp?: number) => Promise<{ success: boolean; message: string }>;
+
   // Supabase sync
   loadUserData: (data: {
     songs?: Song[];
@@ -187,7 +299,7 @@ const FRESH_TAMAGOTCHI: Tamagotchi = {
 };
 
 export const useStore = create<State>((set, get) => ({
-  stage: "crib",
+  stage: "home",
   activeTemplate: null,
   layers: [],
   recipeIndex: 0,
@@ -226,6 +338,15 @@ export const useStore = create<State>((set, get) => ({
   achievementToastQueue: [],
   xpFlashQueue: [],
   vocalCount: 0,
+
+  // Tastemaker / publish-tier economy
+  energy: ENERGY_MAX,           // guests start with a full bar; loadPlayerEnergy overwrites for real users
+  energyUpdatedAt: Date.now(),
+  level: 1,
+  publishedCatalog: [],
+  userRatings: {},
+  userEndorsements: [],
+  catalogLoading: false,
 
   // Auth
   userId: null,
@@ -475,7 +596,7 @@ export const useStore = create<State>((set, get) => ({
 
   reset: () =>
     set({
-      stage: "crib",
+      stage: "home",
       activeTemplate: null,
       layers: [],
       recipeIndex: 0,
@@ -488,7 +609,7 @@ export const useStore = create<State>((set, get) => ({
       arrangeMutes: {},
       sessionStartedAt: null,
       isPlaying: false,
-      // note: totalXP / unlockedAchievements persist across sessions
+      // note: totalXP / unlockedAchievements / energy persist across sessions
     }),
 
   /* ────────────────── Admin resets ──────────────────
@@ -684,6 +805,145 @@ export const useStore = create<State>((set, get) => ({
         get().unlockAchievement(ach.id);
       }
     }
+  },
+
+  /* ────────────────── Tastemaker actions (Slice 1) ────────────────── */
+
+  loadPlayerEnergy: async () => {
+    const uid = get().userId;
+    if (!uid) return; // guests stay on their full local bar
+    const live = await fetchLiveEnergy();
+    if (!live) return;
+    set({
+      energy:          live.liveEnergy,
+      energyUpdatedAt: new Date(live.energyUpdatedAt).getTime(),
+      level:           live.level,
+      totalXP:         live.totalXp,
+    });
+  },
+
+  loadPublishedCatalog: async () => {
+    set({ catalogLoading: true });
+    const rows = await fetchPublishedCatalog();
+    set({ publishedCatalog: rows, catalogLoading: false });
+  },
+
+  loadUserTastemakerData: async () => {
+    const uid = get().userId;
+    if (!uid) return;
+    const [ratings, endorsements] = await Promise.all([
+      fetchUserRatings(uid),
+      fetchUserEndorsements(uid),
+    ]);
+    set({ userRatings: ratings, userEndorsements: endorsements });
+  },
+
+  rateSong: async (songId, stars) => {
+    // Grab prior rating BEFORE we stomp it so we know if this is a change.
+    const priorStars = get().userRatings[songId];
+    const isChange   = priorStars !== undefined && priorStars !== stars;
+    const isFirst    = priorStars === undefined;
+
+    // Optimistic local write so the UI snaps instantly.
+    set((s) => ({ userRatings: { ...s.userRatings, [songId]: stars } }));
+
+    // Companion reaction based on what the user did. Short ticker line so
+    // the player feels heard. Only nudge on meaningful events — silent on
+    // middle-of-the-road ratings (2-3 stars on first try).
+    const line = tastemakerRatingLine(stars, { isFirst, isChange });
+    if (line) get().sayLine(line, 2200);
+
+    const uid = get().userId;
+    if (!uid) return; // guests only mutate locally
+    const result = await rateSongRpc(songId, stars);
+    if (result) {
+      set((s) => ({ totalXP: result.newXp || s.totalXP }));
+      // Optimistic aggregate bump on the local catalog row so UI shows the
+      // effect without a full refetch. Server-side view is still source of
+      // truth for everyone else.
+      set((s) => ({
+        publishedCatalog: s.publishedCatalog.map((row) => {
+          if (row.songId !== songId) return row;
+          // If the user had no prior rating, the aggregate gains a count.
+          // (We captured priorStars above before the optimistic write.)
+          return {
+            ...row,
+            ratingCount: isFirst ? row.ratingCount + 1 : row.ratingCount,
+          };
+        }),
+      }));
+    }
+  },
+
+  endorseSong: async (songId) => {
+    const uid = get().userId;
+    if (get().userEndorsements.includes(songId)) return false;
+    // Client-side affordability check (server also enforces atomically).
+    const liveNow = computeLiveEnergy(get().energy, get().energyUpdatedAt);
+    if (liveNow < ENERGY_COSTS.endorse) {
+      get().sayLine("not enough energy for that push", 2400);
+      return false;
+    }
+    // Optimistic energy deduction and endorsement list append
+    set((s) => ({
+      energy:          Math.max(0, liveNow - ENERGY_COSTS.endorse),
+      energyUpdatedAt: Date.now(),
+      userEndorsements: [...s.userEndorsements, songId],
+      publishedCatalog: s.publishedCatalog.map((r) =>
+        r.songId === songId ? { ...r, endorsementCount: r.endorsementCount + 1 } : r
+      ),
+    }));
+    if (!uid) return true; // guests can "endorse" locally but nothing persists
+    const result = await endorseSongRpc(songId, ENERGY_COSTS.endorse, 10);
+    if (!result || !result.success) {
+      // Roll back optimistic changes.
+      set((s) => ({
+        energy:          liveNow, // restore
+        energyUpdatedAt: Date.now(),
+        userEndorsements: s.userEndorsements.filter((id) => id !== songId),
+        publishedCatalog: s.publishedCatalog.map((r) =>
+          r.songId === songId ? { ...r, endorsementCount: Math.max(0, r.endorsementCount - 1) } : r
+        ),
+      }));
+      get().sayLine(result?.message ?? "couldn't push that one", 2400);
+      return false;
+    }
+    set({
+      energy:          result.newEnergy,
+      energyUpdatedAt: Date.now(),
+      totalXP:         result.newXp || get().totalXP,
+    });
+    // Low-energy warning if this push left the tank near-empty.
+    const postLine =
+      result.newEnergy < ENERGY_COSTS.endorse
+        ? "push sent 🔥 — tank's running low"
+        : "push sent 🔥 let's see who else hears it";
+    get().sayLine(postLine, 2600);
+    return true;
+  },
+
+  spendEnergyOptimistic: async (cost, eventType, targetId, xp = 0) => {
+    const liveNow = computeLiveEnergy(get().energy, get().energyUpdatedAt);
+    if (liveNow < cost) return { success: false, message: "Not enough energy" };
+    const uid = get().userId;
+    // Optimistic local deduction
+    set({
+      energy:          Math.max(0, liveNow - cost),
+      energyUpdatedAt: Date.now(),
+    });
+    if (!uid) return { success: true, message: "OK (local)" };
+    const result = await spendEnergyRpc(cost, eventType, targetId ?? null, xp);
+    if (!result || !result.success) {
+      // Roll back
+      set({ energy: liveNow, energyUpdatedAt: Date.now() });
+      return { success: false, message: result?.message ?? "Spend failed" };
+    }
+    set({
+      energy:          result.newEnergy,
+      energyUpdatedAt: Date.now(),
+      totalXP:         result.newXp || get().totalXP,
+    });
+    return { success: true, message: "OK" };
   },
 }));
 
