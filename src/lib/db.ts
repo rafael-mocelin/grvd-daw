@@ -59,6 +59,14 @@ export async function deleteSong(songId: string): Promise<void> {
   if (error) console.error("[db] deleteSong:", error.message);
 }
 
+/**
+ * Wipes every song row for this user. Admin reset only.
+ */
+export async function deleteAllSongs(userId: string): Promise<void> {
+  const { error } = await supabase.from("songs").delete().eq("user_id", userId);
+  if (error) console.error("[db] deleteAllSongs:", error.message);
+}
+
 /* -------------------------------------------------------------------------- */
 /* Tamagotchi state                                                            */
 /* -------------------------------------------------------------------------- */
