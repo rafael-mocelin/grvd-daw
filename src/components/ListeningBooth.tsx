@@ -1,239 +1,413 @@
-import { useEffect, useState } from "react";
-import { useStore } from "../store/useStore";
-import { playSong, stopSong } from "../audio/engine";
-import type { ArtistCard } from "../data/types";
-
 /**
- * Phase 4 — Listening Booth.
- * A physical location in the world where artist cards live asynchronously.
- * Any card you drop here "stays" for 24 hours. Other players browse.
+ * ListeningBooth — the Tastemaker-tier drop radio.
  *
- * In this prototype we seed a handful of NPC cards so the booth never
- * feels empty and so the player can experience what it's like to be a
- * Tastemaker (without us building a real server).
+ * Pulls from `song_publications` via the store's publishedCatalog and lets the
+ * player:
+ *   • Stream each track (plays the MP3/WAV published by the artist)
+ *   • Rate 1-5 stars (earns daily-capped XP via rate_song RPC)
+ *   • Endorse a track ("push it") which spends energy and earns XP
+ *
+ * Free actions: listen + rate. Energy-gated: endorse.
+ * Guests get the browsing/listening experience but mutations no-op server-side.
+ *
+ * Design goals:
+ *   • Tactile — each card feels like a 45 on a counter at a record shop
+ *   • Honest aggregates — ratingCount + avgStars + endorsementCount all visible
+ *   • Low-friction listening — one click plays; clicking another card swaps
  */
 
-const NPC_CARDS: ArtistCard[] = [
-  {
-    id: "npc-1",
-    name: "Jinx",
-    avatar: "🦊",
-    songId: "npc-song-1",
-    status: "looking for a vocalist for this beat",
-    tags: ["trap", "pop-rap"],
-    createdAt: Date.now() - 1000 * 60 * 20,
-  },
-  {
-    id: "npc-2",
-    name: "Lo-Tide",
-    avatar: "🌊",
-    songId: "npc-song-2",
-    status: "chopped this sample yesterday. feedback?",
-    tags: ["boom-bap", "rap"],
-    createdAt: Date.now() - 1000 * 60 * 60 * 3,
-  },
-  {
-    id: "npc-3",
-    name: "MADD",
-    avatar: "🖤",
-    songId: "npc-song-3",
-    status: "drill season. trying to link.",
-    tags: ["drill"],
-    createdAt: Date.now() - 1000 * 60 * 60 * 8,
-  },
-  {
-    id: "npc-4",
-    name: "Sunflower",
-    avatar: "🌻",
-    songId: "npc-song-4",
-    status: "pop hooks, bright energy.",
-    tags: ["pop-rap"],
-    createdAt: Date.now() - 1000 * 60 * 45,
-  },
-];
+import { useEffect, useRef, useState } from "react";
+import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
+import { stopSong } from "../audio/engine";
+import type { PublishedSong } from "../lib/game-db";
+
+/* -------------------------------------------------------------------------- */
+/* Root                                                                        */
+/* -------------------------------------------------------------------------- */
 
 export function ListeningBooth() {
-  const { booth, inventory, setStage, setCoopPeer } = useStore();
-  const allCards = [...booth, ...NPC_CARDS];
-  const [index, setIndex] = useState(0);
-  const [listenMs, setListenMs] = useState(0);
-  const [revealed, setRevealed] = useState(false);
-  const [matched, setMatched] = useState<ArtistCard | null>(null);
+  const publishedCatalog = useStore((s) => s.publishedCatalog);
+  const catalogLoading   = useStore((s) => s.catalogLoading);
+  const loadPublishedCatalog = useStore((s) => s.loadPublishedCatalog);
+  const userRatings      = useStore((s) => s.userRatings);
+  const userEndorsements = useStore((s) => s.userEndorsements);
+  const rateSong         = useStore((s) => s.rateSong);
+  const endorseSong      = useStore((s) => s.endorseSong);
+  const energy           = useStore((s) => s.energy);
+  const energyUpdatedAt  = useStore((s) => s.energyUpdatedAt);
+  const setStage         = useStore((s) => s.setStage);
+  const sayLine          = useStore((s) => s.sayLine);
 
-  const card = allCards[index];
+  const [nowPlayingId, setNowPlayingId] = useState<string | null>(null);
 
+  // Load on mount (works for guests too — catalog is public read).
   useEffect(() => {
-    setListenMs(0);
-    setRevealed(false);
-    if (!card) {
-      stopSong();
-      return;
+    // Ensure the DAW engine isn't still playing a recipe when we enter.
+    stopSong();
+    if (publishedCatalog.length === 0 && !catalogLoading) {
+      loadPublishedCatalog();
     }
-    // play the card's song: if it's a player card, find it in inventory;
-    // otherwise seed an NPC song.
-    const playerSong = inventory.find((s) => s.id === card.songId);
-    const song = playerSong ?? seedNpcSong(card);
-    playSong(song, null).catch(() => {
-      /* ignore autoplay errors */
-    });
-    const t = window.setInterval(() => {
-      setListenMs((ms) => ms + 250);
-    }, 250);
+    // Fresh-ears greeting
+    sayLine("fresh drops. tap a card to listen.", 2600);
+    // Make sure audio stops when leaving the booth.
     return () => {
-      stopSong();
-      window.clearInterval(t);
+      setNowPlayingId(null);
     };
-  }, [card, inventory]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => {
-    // Per the spec: info appears after 5 seconds of listening
-    if (listenMs >= 5000) setRevealed(true);
-  }, [listenMs]);
-
-  if (!card) {
-    return (
-      <div className="p-8 text-center">
-        <div className="text-muted">Booth is empty — drop a card first.</div>
-        <button className="btn-ghost mt-4" onClick={() => setStage("crib")}>
-          ← back to crib
-        </button>
-      </div>
-    );
-  }
-
-  function next() {
-    setIndex((i) => Math.min(allCards.length - 1, i + 1));
-  }
-  function like() {
-    // 60% chance of match with NPC; 100% if it's a player card
-    const isNpc = !!NPC_CARDS.find((n) => n.id === card!.id);
-    const matchProb = isNpc ? 0.6 : 1;
-    if (Math.random() < matchProb) {
-      setMatched(card);
-    } else {
-      next();
-    }
-  }
-
-  function sendToCoop() {
-    if (!matched) return;
-    setCoopPeer(matched.name, matched.avatar);
-    setMatched(null);
-    setStage("coop");
-  }
+  const liveEnergy = computeLiveEnergy(energy, energyUpdatedAt);
 
   return (
-    <div className="p-4 md:p-6 max-w-2xl mx-auto">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <div className="chip bg-gold/10 border border-gold/30 text-gold">
-            🎧 Listening Booth
-          </div>
-          <h2 className="font-display text-2xl font-bold">
-            first impression: the music
-          </h2>
-          <p className="text-muted text-xs font-mono">
-            card info unlocks after 5 seconds. listen before you judge.
-          </p>
-        </div>
-        <button
-          className="btn-ghost text-xs shrink-0"
-          onClick={() => setStage("crib")}
-        >
-          ← back
-        </button>
-      </div>
+    <div
+      style={{
+        padding: "34px 14px 80px", // top pad clears the ScreenTopBar
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        maxWidth: 640,
+        margin: "0 auto",
+      }}
+    >
+      <Header onBack={() => { setNowPlayingId(null); setStage("home"); }} />
 
-      {/* card */}
-      <div className="card p-6 flex flex-col items-center gap-4">
-        {/* progress bar */}
-        <div className="w-full h-2 bg-raised rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-accent to-accent2"
-            style={{ width: `${Math.min(100, (listenMs / 5000) * 100)}%` }}
-          />
-        </div>
-        <div className="text-[10px] font-mono uppercase text-white/50">
-          {revealed ? "revealed" : `listening… ${Math.floor(listenMs / 1000)}s / 5s`}
-        </div>
+      {catalogLoading && publishedCatalog.length === 0 && (
+        <div style={emptyState}>loading drops…</div>
+      )}
 
-        {revealed ? (
-          <>
-            <div className="text-6xl">{card.avatar}</div>
-            <div className="text-2xl font-display font-bold">{card.name}</div>
-            <div className="flex flex-wrap gap-1 justify-center">
-              {card.tags.map((t) => (
-                <span
-                  key={t}
-                  className="chip bg-raised border border-line text-white/70"
-                >
-                  #{t}
-                </span>
-              ))}
-            </div>
-            <div className="italic text-center text-white/80">
-              "{card.status}"
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col items-center gap-2 opacity-70">
-            <div className="text-6xl blur-md select-none">{card.avatar}</div>
-            <div className="text-sm font-mono text-white/50">
-              anonymous · let the beat speak first
-            </div>
-          </div>
-        )}
-
-        <div className="flex gap-3 mt-2">
-          <button className="btn-ghost" onClick={next}>
-            ← skip
-          </button>
-          <button className="btn-primary" onClick={like} disabled={!revealed}>
-            ♥ like
-          </button>
-        </div>
-      </div>
-
-      {/* match modal */}
-      {matched && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6">
-          <div className="card p-6 max-w-sm text-center flex flex-col items-center gap-4">
-            <div className="text-5xl">✨</div>
-            <h3 className="font-display text-2xl font-bold">match!</h3>
-            <p className="text-sm text-white/70">
-              {matched.name} liked you back. wanna cook together?
-            </p>
-            <div className="flex gap-2">
-              <button className="btn-ghost" onClick={() => setMatched(null)}>
-                later
-              </button>
-              <button className="btn-primary" onClick={sendToCoop}>
-                start collab →
-              </button>
-            </div>
-          </div>
+      {!catalogLoading && publishedCatalog.length === 0 && (
+        <div style={emptyState}>
+          no drops yet. check back soon — artists are cooking.
         </div>
       )}
+
+      {publishedCatalog.map((song) => (
+        <SongCard
+          key={song.songId}
+          song={song}
+          userStars={userRatings[song.songId]}
+          endorsed={userEndorsements.includes(song.songId)}
+          isPlaying={nowPlayingId === song.songId}
+          liveEnergy={liveEnergy}
+          onPlay={() => setNowPlayingId((id) => (id === song.songId ? null : song.songId))}
+          onRate={(stars) => rateSong(song.songId, stars)}
+          onEndorse={() => endorseSong(song.songId)}
+        />
+      ))}
     </div>
   );
 }
 
-/** Synthesize a stand-in song for NPC cards so they actually play something. */
-function seedNpcSong(card: ArtistCard) {
-  return {
-    id: card.songId,
-    name: `${card.name} — demo`,
-    bpm: card.tags.includes("boom-bap") ? 90 : card.tags.includes("drill") ? 148 : 120,
-    bars: 4,
-    keyRoot: "A",
-    templateId: "seed",
-    tags: card.tags,
-    collaborators: [card.name],
-    createdAt: card.createdAt,
-    layers: [
-      { id: "k", kind: "kick" as const, variant: card.tags.includes("boom-bap") ? "boom" : "trap", soundId: "seed-k" },
-      { id: "h", kind: "hat" as const, variant: "eighths", soundId: "seed-h" },
-      { id: "s", kind: "sample" as const, variant: card.tags.includes("drill") ? "dark-keys" : "soul-chop", soundId: "seed-s" },
-    ],
-  };
+/* -------------------------------------------------------------------------- */
+/* Header                                                                      */
+/* -------------------------------------------------------------------------- */
+
+function Header({ onBack }: { onBack: () => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+      <div>
+        <div
+          style={{
+            fontFamily: "monospace",
+            fontSize: 9,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            color: "#22d3ee",
+          }}
+        >
+          🎧 listening booth
+        </div>
+        <div
+          style={{
+            fontFamily: "'Space Grotesk', system-ui, sans-serif",
+            fontSize: 18,
+            fontWeight: 800,
+            color: "#fff",
+            marginTop: 2,
+          }}
+        >
+          fresh drops
+        </div>
+        <div
+          style={{
+            fontFamily: "monospace",
+            fontSize: 10,
+            color: "rgba(255,255,255,0.4)",
+            marginTop: 2,
+          }}
+        >
+          rate freely · push with energy
+        </div>
+      </div>
+      <button
+        onClick={onBack}
+        style={{
+          background: "rgba(255,255,255,0.06)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          color: "rgba(255,255,255,0.7)",
+          fontFamily: "monospace",
+          fontSize: 11,
+          padding: "6px 10px",
+          borderRadius: 8,
+          cursor: "pointer",
+          flexShrink: 0,
+        }}
+      >
+        ← back
+      </button>
+    </div>
+  );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Song card                                                                   */
+/* -------------------------------------------------------------------------- */
+
+function SongCard({
+  song,
+  userStars,
+  endorsed,
+  isPlaying,
+  liveEnergy,
+  onPlay,
+  onRate,
+  onEndorse,
+}: {
+  song: PublishedSong;
+  userStars: number | undefined;
+  endorsed: boolean;
+  isPlaying: boolean;
+  liveEnergy: number;
+  onPlay: () => void;
+  onRate: (stars: number) => void;
+  onEndorse: () => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Sync play/pause with isPlaying flag
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (isPlaying) {
+      el.play().catch(() => { /* autoplay blocked; user can tap again */ });
+    } else {
+      el.pause();
+      el.currentTime = 0;
+    }
+  }, [isPlaying]);
+
+  const avgStars = song.ratingCount > 0 ? song.avgStars.toFixed(1) : "–";
+  const canEndorse = !endorsed && liveEnergy >= ENERGY_COSTS.endorse;
+
+  return (
+    <div
+      style={{
+        background: "linear-gradient(135deg, rgba(34,211,238,0.06) 0%, rgba(0,0,0,0.35) 100%)",
+        border: isPlaying
+          ? "1.5px solid rgba(34,211,238,0.55)"
+          : "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 12,
+        padding: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        boxShadow: isPlaying
+          ? "0 0 18px rgba(34,211,238,0.25), 0 4px 14px rgba(0,0,0,0.45)"
+          : "0 2px 10px rgba(0,0,0,0.35)",
+        transition: "border-color 150ms ease, box-shadow 150ms ease",
+      }}
+    >
+      {/* Hidden audio element */}
+      {song.audioUrl && (
+        <audio
+          ref={audioRef}
+          src={song.audioUrl}
+          preload="none"
+          onEnded={onPlay /* toggle back off */}
+        />
+      )}
+
+      {/* Top row: play + title + artist */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          onClick={onPlay}
+          disabled={!song.audioUrl}
+          title={song.audioUrl ? (isPlaying ? "pause" : "play") : "no audio"}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            border: "none",
+            background: isPlaying
+              ? "linear-gradient(135deg, #22d3ee 0%, #3b82f6 100%)"
+              : "rgba(255,255,255,0.08)",
+            color: "#fff",
+            fontSize: 16,
+            cursor: song.audioUrl ? "pointer" : "not-allowed",
+            opacity: song.audioUrl ? 1 : 0.35,
+            flexShrink: 0,
+            boxShadow: isPlaying ? "0 0 14px rgba(34,211,238,0.5)" : "none",
+          }}
+        >
+          {isPlaying ? "▮▮" : "▶"}
+        </button>
+        <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              fontSize: 14,
+              fontWeight: 700,
+              color: "#fff",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {song.title}
+          </div>
+          <div
+            style={{
+              fontFamily: "monospace",
+              fontSize: 10,
+              color: "rgba(255,255,255,0.55)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {song.artistName}
+            {song.bpm ? ` · ${song.bpm} BPM` : ""}
+            {song.keyRoot ? ` · ${song.keyRoot}` : ""}
+            {song.durationSec ? ` · ${formatDuration(song.durationSec)}` : ""}
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom row: rating + aggregates + endorse */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <StarRater userStars={userStars} onRate={onRate} />
+        <div
+          style={{
+            fontFamily: "monospace",
+            fontSize: 10,
+            color: "rgba(255,255,255,0.5)",
+            display: "flex",
+            gap: 10,
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          <span title={`${song.ratingCount} ${song.ratingCount === 1 ? "rating" : "ratings"}`}>
+            ⭐ {avgStars} <span style={{ opacity: 0.6 }}>({song.ratingCount})</span>
+          </span>
+          <span title={`${song.endorsementCount} endorsements`}>
+            🔥 {song.endorsementCount}
+          </span>
+        </div>
+        <button
+          onClick={() => canEndorse && onEndorse()}
+          disabled={!canEndorse}
+          title={
+            endorsed
+              ? "already pushed"
+              : liveEnergy < ENERGY_COSTS.endorse
+                ? `need ${ENERGY_COSTS.endorse - liveEnergy} more energy`
+                : `push this drop (-${ENERGY_COSTS.endorse} ⚡)`
+          }
+          style={{
+            background: endorsed
+              ? "rgba(255,77,109,0.18)"
+              : canEndorse
+                ? "linear-gradient(135deg, #ff4d6d 0%, #facc15 100%)"
+                : "rgba(255,255,255,0.04)",
+            border: endorsed
+              ? "1px solid rgba(255,77,109,0.5)"
+              : canEndorse
+                ? "1px solid rgba(255,77,109,0.6)"
+                : "1px solid rgba(255,255,255,0.08)",
+            color: endorsed
+              ? "#ff4d6d"
+              : canEndorse
+                ? "#fff"
+                : "rgba(255,255,255,0.3)",
+            fontFamily: "monospace",
+            fontSize: 11,
+            fontWeight: 800,
+            padding: "6px 12px",
+            borderRadius: 8,
+            cursor: endorsed ? "default" : canEndorse ? "pointer" : "not-allowed",
+            flexShrink: 0,
+            boxShadow: canEndorse && !endorsed ? "0 0 10px rgba(255,77,109,0.3)" : "none",
+            transition: "all 120ms ease",
+          }}
+        >
+          {endorsed ? "🔥 pushed" : `push · ${ENERGY_COSTS.endorse}⚡`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Star rater                                                                  */
+/* -------------------------------------------------------------------------- */
+
+function StarRater({
+  userStars,
+  onRate,
+}: {
+  userStars: number | undefined;
+  onRate: (stars: number) => void;
+}) {
+  const [hover, setHover] = useState<number>(0);
+  const active = hover || userStars || 0;
+
+  return (
+    <div
+      style={{ display: "flex", alignItems: "center", gap: 2 }}
+      onMouseLeave={() => setHover(0)}
+    >
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          onMouseEnter={() => setHover(n)}
+          onClick={() => onRate(n)}
+          title={`rate ${n} star${n === 1 ? "" : "s"}`}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 16,
+            lineHeight: 1,
+            padding: "2px 1px",
+            color: n <= active ? "#facc15" : "rgba(255,255,255,0.2)",
+            filter: n <= active ? "drop-shadow(0 0 4px #facc15aa)" : "none",
+            transition: "color 80ms ease, filter 80ms ease",
+          }}
+        >
+          ★
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
+
+function formatDuration(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+const emptyState: React.CSSProperties = {
+  padding: "40px 20px",
+  textAlign: "center",
+  fontFamily: "monospace",
+  fontSize: 11,
+  color: "rgba(255,255,255,0.4)",
+  border: "1px dashed rgba(255,255,255,0.1)",
+  borderRadius: 12,
+};
