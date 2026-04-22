@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore } from "./store/useStore";
+import { Home } from "./components/Home";
 import { Crib } from "./components/Crib";
 import { TemplatePicker } from "./components/TemplatePicker";
 import { Done } from "./components/Done";
@@ -60,6 +61,7 @@ function AppCore() {
         {CANVAS_STAGES.has(stage) && <CanvasBoard />}
 
         {/* Full-screen single-view stages */}
+        {stage === "home"     && <Home />}
         {stage === "crib"     && <Crib />}
         {stage === "template" && <TemplatePicker />}
         {stage === "done"     && <Done />}
