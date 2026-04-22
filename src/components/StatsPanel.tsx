@@ -20,8 +20,10 @@ import { SKINS, SHELL } from "../shell/skins";
 interface SkillNode {
   id: string;
   icon: string;
+  /** Title shown under the icon (e.g. "First Wax"). */
   label: string;
-  hint: string;               // shown while locked
+  /** Subtitle — a short description of the achievement, always visible. */
+  subtitle: string;
   unlock: (s: ReturnType<typeof useStore.getState>) => boolean;
 }
 
@@ -31,14 +33,14 @@ const SKILL_TREE: SkillNode[] = [
     id: "first_song",
     icon: "💿",
     label: "First Wax",
-    hint: "Finish your first song",
+    subtitle: "Finish your first song",
     unlock: (s) => s.inventory.length >= 1,
   },
   {
     id: "speed_run",
     icon: "⚡",
     label: "Speed Run",
-    hint: "Finish a song in under 60s",
+    subtitle: "Finish a song in under 60s",
     unlock: (s) => s.inventory.some((song) => {
       // approximation: song has no vocal (faster) and was short
       return song.layers.length >= 3;
@@ -48,14 +50,14 @@ const SKILL_TREE: SkillNode[] = [
     id: "stacker",
     icon: "🧱",
     label: "Full Stack",
-    hint: "Lock in all 4 recipe layers",
+    subtitle: "Lock in all 4 recipe layers",
     unlock: (s) => s.inventory.some((song) => song.layers.length >= 4),
   },
   {
     id: "streak_3",
     icon: "🔥",
     label: "On Fire",
-    hint: "3-day streak",
+    subtitle: "Build a 3-day creation streak",
     unlock: (s) => s.longestStreak >= 3,
   },
   // Row 2 — intermediate
@@ -63,28 +65,28 @@ const SKILL_TREE: SkillNode[] = [
     id: "catalog_5",
     icon: "📂",
     label: "Catalog",
-    hint: "Make 5 songs",
+    subtitle: "Make 5 songs",
     unlock: (s) => s.inventory.length >= 5,
   },
   {
     id: "streak_7",
     icon: "🌊",
     label: "Wave",
-    hint: "7-day streak",
+    subtitle: "Keep a 7-day streak alive",
     unlock: (s) => s.longestStreak >= 7,
   },
   {
     id: "no_skip",
     icon: "🎯",
     label: "No Skip",
-    hint: "Finish a song without using Skip",
+    subtitle: "Finish a song without skipping",
     unlock: (s) => s.inventory.some((song) => song.layers.length >= 4),
   },
   {
     id: "collab",
     icon: "🤝",
     label: "Feature",
-    hint: "Co-produce a track",
+    subtitle: "Co-produce a track with a friend",
     unlock: (s) =>
       s.inventory.some((song) => (song.collaborators?.length ?? 0) > 1),
   },
@@ -93,21 +95,21 @@ const SKILL_TREE: SkillNode[] = [
     id: "catalog_20",
     icon: "🏛️",
     label: "Archive",
-    hint: "Make 20 songs",
+    subtitle: "Make 20 songs",
     unlock: (s) => s.inventory.length >= 20,
   },
   {
     id: "streak_30",
     icon: "💎",
     label: "Diamond",
-    hint: "30-day streak",
+    subtitle: "30-day creation streak",
     unlock: (s) => s.longestStreak >= 30,
   },
   {
     id: "level_10",
     icon: "🏆",
     label: "Pro Status",
-    hint: "Reach level 10",
+    subtitle: "Reach level 10",
     unlock: (s) => {
       const xp = s.tamagotchi.songsFinished * 100;
       return Math.floor(xp / 300) + 1 >= 10;
@@ -117,7 +119,7 @@ const SKILL_TREE: SkillNode[] = [
     id: "speed_master",
     icon: "🚀",
     label: "Hyperspeed",
-    hint: "Finish a song in under 30s",
+    subtitle: "Finish a song in under 30s",
     unlock: (s) => s.longestSessionMs > 0 && s.longestSessionMs < 30_000,
   },
 ];
@@ -446,7 +448,6 @@ function SkillNode({
   node,
   unlocked,
   accent,
-  row,
 }: {
   node: SkillNode;
   unlocked: boolean;
@@ -457,53 +458,77 @@ function SkillNode({
   const gated = !unlocked;
   return (
     <div
-      title={gated ? `🔒 ${node.hint}` : node.label}
+      title={gated ? `🔒 ${node.label} — ${node.subtitle}` : `${node.label} — ${node.subtitle}`}
       style={{
         background: unlocked
           ? `linear-gradient(135deg, ${accent}22 0%, ${accent}0a 100%)`
           : "rgba(255,255,255,0.02)",
         border: `1px solid ${unlocked ? accent + "55" : "rgba(255,255,255,0.07)"}`,
         borderRadius: 10,
-        padding: "12px 10px",
+        padding: "12px 10px 10px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: 6,
+        gap: 4,
         cursor: "default",
-        opacity: gated ? 0.45 : 1,
+        opacity: gated ? 0.55 : 1,
         transition: "all 0.2s",
         position: "relative",
         boxShadow: unlocked ? `0 0 16px ${accent}22` : "none",
+        minHeight: 110, // consistent height now that every card has a subtitle
       }}
     >
       <div
         style={{
-          fontSize: gated ? 16 : 20,
+          fontSize: gated ? 18 : 22,
+          lineHeight: 1,
           filter: gated ? "grayscale(1)" : "none",
           transition: "all 0.2s",
+          marginBottom: 2,
         }}
       >
         {gated ? "🔒" : node.icon}
       </div>
+
+      {/* TITLE */}
       <div
         style={{
           fontFamily: "monospace",
-          fontSize: 9,
-          fontWeight: 700,
+          fontSize: 10,
+          fontWeight: 900,
           textAlign: "center",
-          color: unlocked ? "#fff" : "rgba(255,255,255,0.3)",
+          color: unlocked ? "#fff" : "rgba(255,255,255,0.6)",
           letterSpacing: "0.04em",
-          lineHeight: 1.3,
+          lineHeight: 1.15,
+          textTransform: "uppercase",
         }}
       >
-        {unlocked ? node.label : node.hint}
+        {node.label}
       </div>
+
+      {/* SUBTITLE — always visible now, in both locked and unlocked states */}
+      <div
+        style={{
+          fontFamily: "monospace",
+          fontSize: 8.5,
+          fontWeight: 500,
+          textAlign: "center",
+          color: unlocked ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.35)",
+          lineHeight: 1.3,
+          letterSpacing: "0.01em",
+          maxWidth: "100%",
+        }}
+      >
+        {node.subtitle}
+      </div>
+
       {unlocked && (
         <div
           style={{
             width: 6, height: 6, borderRadius: "50%",
             background: accent,
             boxShadow: `0 0 8px ${accent}`,
+            marginTop: 2,
           }}
         />
       )}
