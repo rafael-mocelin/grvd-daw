@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { TEMPLATES } from "../data/templates";
 import { useStore } from "../store/useStore";
-import { TamagotchiFace } from "./TamagotchiFace";
 
 /**
  * Template picker — the first step of the 60-second loop. Each template
@@ -9,17 +8,14 @@ import { TamagotchiFace } from "./TamagotchiFace";
  * of a modern hit. The player picks one and immediately moves to stacking.
  */
 export function TemplatePicker() {
-  const { tamagotchi, pickTemplate, setStage } = useStore();
+  const { pickTemplate } = useStore();
   const [hover, setHover] = useState<string | null>(null);
 
   return (
     <div className="p-3">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <div className="chip bg-raised border border-line text-white/60 text-[10px]">step 1 · pick a vibe</div>
-          <h2 className="font-display text-xl font-bold mt-0.5">vibes</h2>
-        </div>
-        <TamagotchiFace mood={tamagotchi.mood} size={44} compact />
+      <div className="mb-3">
+        <div className="chip bg-raised border border-line text-white/60 text-[10px]">step 1 · pick a vibe</div>
+        <h2 className="font-display text-xl font-bold mt-0.5">vibes</h2>
       </div>
 
       <div className="flex flex-col gap-2">

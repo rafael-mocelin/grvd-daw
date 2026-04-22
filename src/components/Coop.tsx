@@ -15,7 +15,6 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { useStore } from "../store/useStore";
 import { TEMPLATES } from "../data/templates";
-import { TamagotchiFace } from "./TamagotchiFace";
 import type { LayerKind } from "../data/types";
 
 /* -------------------------------------------------------------------------- */
@@ -50,7 +49,7 @@ function genJoinCode(): string {
 export function Coop() {
   const { user } = useAuth();
   const {
-    tamagotchi, setCoopPeer, setStage, feedNeed,
+    setCoopPeer, setStage, feedNeed,
     pickTemplate, pickLayer, swapLayer, activeTemplate, layers,
   } = useStore();
 
@@ -237,12 +236,9 @@ export function Coop() {
     <div style={S.root}>
       <button style={S.back} onClick={() => setStage("crib")}>← back</button>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <TamagotchiFace mood={tamagotchi.mood} size={52} compact />
-        <div>
-          <div style={S.h2}>co-production</div>
-          <div style={S.muted}>real-time session · both names on the song</div>
-        </div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={S.h2}>co-production</div>
+        <div style={S.muted}>real-time session · both names on the song</div>
       </div>
 
       {error && (

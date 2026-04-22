@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store/useStore";
-import { TamagotchiFace } from "./TamagotchiFace";
 import { playSong, stopSong } from "../audio/engine";
 import type { ArtistCard } from "../data/types";
 
@@ -54,7 +53,7 @@ const NPC_CARDS: ArtistCard[] = [
 ];
 
 export function ListeningBooth() {
-  const { booth, inventory, setStage, tamagotchi, setCoopPeer } = useStore();
+  const { booth, inventory, setStage, setCoopPeer } = useStore();
   const allCards = [...booth, ...NPC_CARDS];
   const [index, setIndex] = useState(0);
   const [listenMs, setListenMs] = useState(0);
@@ -125,8 +124,7 @@ export function ListeningBooth() {
 
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
-      <div className="flex items-center gap-4 mb-4">
-        <TamagotchiFace mood={tamagotchi.mood} size={60} compact />
+      <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <div className="chip bg-gold/10 border border-gold/30 text-gold">
             🎧 Listening Booth
@@ -139,7 +137,7 @@ export function ListeningBooth() {
           </p>
         </div>
         <button
-          className="btn-ghost text-xs ml-auto"
+          className="btn-ghost text-xs shrink-0"
           onClick={() => setStage("crib")}
         >
           ← back

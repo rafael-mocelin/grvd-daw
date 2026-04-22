@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useStore } from "../store/useStore";
 import { useAuth } from "../lib/auth";
-import { TamagotchiFace } from "./TamagotchiFace";
-import { playSong, renderSongToWav, stopSong } from "../audio/engine";
+import { playSong, renderSongToWav, stopSong, downloadWavBlob } from "../audio/engine";
 import { SAVE_SONG_XP } from "../data/achievements";
 
 /**
@@ -19,7 +18,6 @@ export function NameAndSave() {
     finalizeSong,
     setStage,
     setRecipeIndex,
-    tamagotchi,
     coopPeerName,
     addXP,
     checkAndUnlockAchievements,
@@ -27,6 +25,7 @@ export function NameAndSave() {
   const { isGuest, endGuestSession } = useAuth();
   const [playing, setPlaying] = useState(false);
   const [showGuestGate, setShowGuestGate] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   if (!activeTemplate) return null;
 
@@ -55,27 +54,35 @@ export function NameAndSave() {
   }
 
   async function handleExport() {
-    const wav = await renderSongToWav(
-      {
-        id: "export",
-        name: songName || "hook",
-        bpm: activeTemplate!.bpm,
-        bars: activeTemplate!.bars,
-        keyRoot: activeTemplate!.keyRoot,
-        templateId: activeTemplate!.id,
-        layers,
-        tags: activeTemplate!.tags,
-        collaborators: [],
-        createdAt: Date.now(),
-      },
-      vocalBuffer
-    );
-    const url = URL.createObjectURL(wav);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${songName || "hook"}.wav`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (exporting) return;
+    // Stop live playback — otherwise the export and preview can contend for
+    // the shared Tone.js sample cache and produce a silent or partial render.
+    stopSong();
+    setPlaying(false);
+    setExporting(true);
+    try {
+      const wav = await renderSongToWav(
+        {
+          id: "export",
+          name: songName || "hook",
+          bpm: activeTemplate!.bpm,
+          bars: activeTemplate!.bars,
+          keyRoot: activeTemplate!.keyRoot,
+          templateId: activeTemplate!.id,
+          layers,
+          tags: activeTemplate!.tags,
+          collaborators: [],
+          createdAt: Date.now(),
+        },
+        vocalBuffer
+      );
+      downloadWavBlob(wav, songName || "hook");
+    } catch (err) {
+      console.error("[export] render failed:", err);
+      alert("Export failed. Check the console for details.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   function handleSave() {
@@ -98,17 +105,14 @@ export function NameAndSave() {
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
-      <div className="flex items-center gap-4 mb-6">
-        <TamagotchiFace mood={tamagotchi.mood} size={72} compact />
-        <div>
-          <div className="chip bg-raised border border-line text-white/70">
-            step 3 / 3 · save
-          </div>
-          <h2 className="font-display text-3xl font-bold">name the hook</h2>
-          <p className="text-muted text-sm font-mono">
-            becomes a CD item in your inventory.
-          </p>
+      <div className="mb-6">
+        <div className="chip bg-raised border border-line text-white/70">
+          step 3 / 3 · save
         </div>
+        <h2 className="font-display text-3xl font-bold">name the hook</h2>
+        <p className="text-muted text-sm font-mono">
+          becomes a CD item in your inventory.
+        </p>
       </div>
 
       <div className="card p-6 flex flex-col gap-4">
@@ -152,8 +156,13 @@ export function NameAndSave() {
           <button className="btn-ghost" onClick={handlePlay}>
             {playing ? "⏸ stop" : "▶ preview"}
           </button>
-          <button className="btn-ghost" onClick={handleExport}>
-            ⬇ export .wav
+          <button
+            className="btn-ghost"
+            onClick={handleExport}
+            disabled={exporting}
+            style={exporting ? { opacity: 0.6, cursor: "wait" } : undefined}
+          >
+            {exporting ? "⏳ rendering…" : "⬇ export .wav"}
           </button>
           <button
             className="btn-ghost"

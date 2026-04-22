@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../store/useStore";
-import { TamagotchiFace } from "./TamagotchiFace";
 import { playSong, stopSong } from "../audio/engine";
 
 /**
@@ -9,7 +8,7 @@ import { playSong, stopSong } from "../audio/engine";
  * Also shows elapsed time vs. the 60-second promise.
  */
 export function Done() {
-  const { inventory, setStage, tamagotchi, reset, vocalBuffer, placeInBooth, sessionStartedAt } =
+  const { inventory, setStage, tamagotchi, reset, vocalBuffer, placeInBooth, sessionStartedAt, sayLine } =
     useStore();
   const latest = inventory[0];
   const autoPlayed = useRef(false);
@@ -28,6 +27,21 @@ export function Done() {
     return () => stopSong();
   }, [latest, vocalBuffer]);
 
+  const talkLine =
+    elapsed <= 45  ? "speed run. elite." :
+    elapsed <= 60  ? "that's a banger. for real." :
+    elapsed <= 90  ? "good one. almost got the speed." :
+                     "that's a vibe. took your time.";
+
+  // Push the celebration line into the DAW mouth bubble; clears on unmount.
+  // Declared BEFORE any early return so hook order stays stable.
+  useEffect(() => {
+    if (!latest) return;
+    sayLine(talkLine);
+    return () => sayLine(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [talkLine, latest]);
+
   if (!latest) return null;
 
   const speedResult =
@@ -36,16 +50,8 @@ export function Done() {
     elapsed <= 90  ? { label: "CLOSE",           color: "text-yellow-400", msg: `${elapsed}s — almost there` } :
                      { label: "TAKE YOUR TIME",  color: "text-white/60",   msg: `${elapsed}s — no rush` };
 
-  const talkLine =
-    elapsed <= 45  ? "speed run. elite." :
-    elapsed <= 60  ? "that's a banger. for real." :
-    elapsed <= 90  ? "good one. almost got the speed." :
-                     "that's a vibe. took your time.";
-
   return (
     <div className="p-6 max-w-2xl mx-auto text-center flex flex-col items-center gap-6">
-      <TamagotchiFace mood="hyped" size={140} talk={talkLine} />
-
       <div>
         <div className="chip bg-gold/10 border border-gold/30 text-gold">
           💿 added to inventory
