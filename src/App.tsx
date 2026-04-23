@@ -6,6 +6,9 @@ import { TemplatePicker } from "./components/TemplatePicker";
 import { Done } from "./components/Done";
 import { Logbook } from "./components/Logbook";
 import { ListeningBooth } from "./components/ListeningBooth";
+import { Leaderboard } from "./components/Leaderboard";
+import { Profile } from "./components/Profile";
+import { Friends } from "./components/Friends";
 import { Coop } from "./components/Coop";
 import { DeviceShell } from "./components/DeviceShell";
 import { CanvasBoard } from "./components/CanvasBoard";
@@ -78,8 +81,11 @@ function AppCore() {
         {stage === "crib"     && <Crib />}
         {stage === "template" && <TemplatePicker />}
         {stage === "done"     && <Done />}
-        {stage === "booth"    && <ListeningBooth />}
-        {stage === "coop"     && <Coop />}
+        {stage === "booth"       && <ListeningBooth />}
+        {stage === "leaderboard" && <Leaderboard />}
+        {stage === "profile"     && <Profile />}
+        {stage === "friends"     && <Friends />}
+        {stage === "coop"        && <Coop />}
 
         {showLogbook && <Logbook />}
       </DeviceShell>

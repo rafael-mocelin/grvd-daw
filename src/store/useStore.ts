@@ -19,9 +19,13 @@ import {
   fetchUserEndorsements,
   rateSongRpc,
   endorseSongRpc,
+  publishSongRpc,
+  uploadSongAudio,
   spendEnergyRpc,
   type PublishedSong,
+  type PublishSongResult,
 } from "../lib/game-db";
+import { renderSongToWav } from "../audio/engine";
 
 /* -------------------------------------------------------------------------- */
 /* Stage machine — the 60-second journey                                       */
@@ -36,6 +40,9 @@ export type Stage =
   | "name"     // naming & exporting
   | "done"     // song added to inventory
   | "booth"    // Listening Booth (now serves published catalog for Tastemaker loop)
+  | "leaderboard" // Slice 2: Top Songs / Artists / Tastemakers this week
+  | "profile"  // Phase 3: TastemakerProfile (self) or ArtistProfile (other) — switched via profileUserId
+  | "friends"  // Phase 3: Friends list + search + pending requests
   | "coop";    // Phase 4: co-production
 
 /* -------------------------------------------------------------------------- */
@@ -199,6 +206,16 @@ interface State {
 
   // ------- actions -------
   setStage: (s: Stage) => void;
+  /**
+   * Which user's profile the "profile" stage should show.
+   * - null → your own TastemakerProfile (listener stats).
+   * - a uuid → that user's ArtistProfile (their drops, stats, become-fan).
+   * When the caller equals the current userId we still render ArtistProfile
+   * so you can see "how I look to everyone else."
+   */
+  profileUserId: string | null;
+  /** Navigate to the Profile stage in one shot. Pass null/undefined for self. */
+  openProfile: (userId?: string | null) => void;
   pickTemplate: (t: Template) => void;
   pickLayer: (kind: LayerKind, variant: string, soundId: string) => void;
   swapLayer: (kind: LayerKind, variant: string, soundId: string) => void;
@@ -263,6 +280,15 @@ interface State {
   rateSong: (songId: string, stars: number) => Promise<void>;
   /** Endorse a song (energy-gated, atomic). Returns true on success. */
   endorseSong: (songId: string) => Promise<boolean>;
+  /**
+   * Publish an inventory song to the public booth. Renders the WAV,
+   * uploads to Supabase Storage, calls publish_song RPC (which enforces
+   * energy cost + daily cap + snapshots artist identity). On success
+   * marks the song as published in-memory so the UI disables the button.
+   */
+  publishSong: (songId: string) => Promise<PublishSongResult | null>;
+  /** Whether a publish is currently in flight (for UI disable + spinner). */
+  publishingSongId: string | null;
   /**
    * Client-side optimistic energy spend — matches the server RPC's effect
    * locally so the meter animates immediately. Server authority still wins on
@@ -347,11 +373,14 @@ export const useStore = create<State>((set, get) => ({
   userRatings: {},
   userEndorsements: [],
   catalogLoading: false,
+  publishingSongId: null,
 
   // Auth
   userId: null,
 
   setStage: (s) => set({ stage: s }),
+  profileUserId: null,
+  openProfile: (userId) => set({ stage: "profile", profileUserId: userId ?? null }),
 
   pickTemplate: (t) => {
     set({
@@ -836,7 +865,10 @@ export const useStore = create<State>((set, get) => ({
 
   loadPublishedCatalog: async () => {
     set({ catalogLoading: true });
-    const rows = await fetchPublishedCatalog();
+    // Pass the current user id so the booth catalog excludes the player's
+    // own drops. Artists shouldn't be able to rate or push their own songs.
+    // Guests (no userId) see everyone's catalog.
+    const rows = await fetchPublishedCatalog(50, get().userId ?? null);
     set({ publishedCatalog: rows, catalogLoading: false });
   },
 
@@ -890,13 +922,19 @@ export const useStore = create<State>((set, get) => ({
   endorseSong: async (songId) => {
     const uid = get().userId;
     if (get().userEndorsements.includes(songId)) return false;
-    // Client-side affordability check (server also enforces atomically).
+
+    // Client-side affordability precheck — fast fail without a round-trip.
+    // The server (endorse_song RPC) is the real authority; it ALSO checks
+    // the level-scaled daily cap, which we can't know locally without an
+    // extra round-trip. If the cap is hit, we'll find out from the RPC
+    // response and roll back.
     const liveNow = computeLiveEnergy(get().energy, get().energyUpdatedAt);
     if (liveNow < ENERGY_COSTS.endorse) {
       get().sayLine("not enough energy for that push", 2400);
       return false;
     }
-    // Optimistic energy deduction and endorsement list append
+
+    // Optimistic local update: feels snappy, rollback on server rejection.
     set((s) => ({
       energy:          Math.max(0, liveNow - ENERGY_COSTS.endorse),
       energyUpdatedAt: Date.now(),
@@ -905,33 +943,137 @@ export const useStore = create<State>((set, get) => ({
         r.songId === songId ? { ...r, endorsementCount: r.endorsementCount + 1 } : r
       ),
     }));
-    if (!uid) return true; // guests can "endorse" locally but nothing persists
-    const result = await endorseSongRpc(songId, ENERGY_COSTS.endorse, 10);
+
+    if (!uid) return true; // guests push locally; no server write
+
+    // Atomic server call — spends energy, awards XP, inserts the endorsement,
+    // enforces the daily cap, and logs the event in one transaction.
+    const result = await endorseSongRpc(songId);
+
     if (!result || !result.success) {
-      // Roll back optimistic changes.
+      // Roll back optimistic local state.
       set((s) => ({
-        energy:          liveNow, // restore
+        energy:          liveNow,
         energyUpdatedAt: Date.now(),
         userEndorsements: s.userEndorsements.filter((id) => id !== songId),
         publishedCatalog: s.publishedCatalog.map((r) =>
           r.songId === songId ? { ...r, endorsementCount: Math.max(0, r.endorsementCount - 1) } : r
         ),
       }));
-      get().sayLine(result?.message ?? "couldn't push that one", 2400);
+      // Server message is the source of truth for the reason — cap reached,
+      // duplicate push, not enough energy, etc. Surface it verbatim.
+      get().sayLine(result?.message ?? "couldn't push that one", 2600);
       return false;
     }
+
+    // Commit the authoritative numbers from the server.
     set({
       energy:          result.newEnergy,
       energyUpdatedAt: Date.now(),
       totalXP:         result.newXp || get().totalXP,
+      level:           result.newLevel || get().level,
     });
-    // Low-energy warning if this push left the tank near-empty.
-    const postLine =
-      result.newEnergy < ENERGY_COSTS.endorse
+
+    // Companion reaction — prefer the cap-aware server message when we're
+    // approaching the cap, otherwise use our own "low tank" warning.
+    const atCapEdge = result.endorsementsToday >= result.dailyCap - 1;
+    const postLine = atCapEdge
+      ? `push sent 🔥 — ${result.endorsementsToday}/${result.dailyCap} today`
+      : result.newEnergy < ENERGY_COSTS.endorse
         ? "push sent 🔥 — tank's running low"
         : "push sent 🔥 let's see who else hears it";
     get().sayLine(postLine, 2600);
     return true;
+  },
+
+  publishSong: async (songId) => {
+    const uid = get().userId;
+    if (!uid) {
+      get().sayLine("sign in to publish", 2400);
+      return null;
+    }
+    if (get().publishingSongId) {
+      // Already publishing another song; avoid concurrent WAV renders.
+      get().sayLine("one at a time", 2000);
+      return null;
+    }
+
+    const song = get().inventory.find((s) => s.id === songId);
+    if (!song) {
+      get().sayLine("song not found", 2000);
+      return null;
+    }
+    // Already-published guard: server also checks this and returns a clean
+    // message, but we short-circuit locally to skip the render + upload.
+    if (song.publishedPublicationId) {
+      get().sayLine("already out there", 2200);
+      return null;
+    }
+
+    set({ publishingSongId: songId });
+    get().sayLine("rendering the final mix…", 3000);
+
+    try {
+      // 1. Render the WAV. Uses the same path the Logbook download button uses.
+      //    vocalBuffer is only in memory for the most recently recorded song;
+      //    historical songs render without the vocal stem — acceptable.
+      const wav = await renderSongToWav(song, get().vocalBuffer);
+
+      // 2. Upload to storage.
+      get().sayLine("uploading to the booth…", 3000);
+      const uploadResult = await uploadSongAudio(uid, songId, wav);
+      if (!uploadResult.publicUrl) {
+        // Surface the actual Supabase error — helps diagnose RLS /
+        // permission / size issues in the field.
+        const reason = uploadResult.error ?? "unknown";
+        get().sayLine(`upload failed: ${reason}`, 4000);
+        return null;
+      }
+      const audioUrl = uploadResult.publicUrl;
+
+      // 3. Atomic server commit.
+      const result = await publishSongRpc(songId, audioUrl);
+      if (!result || !result.success) {
+        get().sayLine(result?.message ?? "publish failed", 2800);
+        return result;
+      }
+
+      // 4. Commit authoritative server numbers + mark in-memory song as
+      //    published so the button disables on repeat.
+      set((s) => ({
+        energy:          result.newEnergy,
+        energyUpdatedAt: Date.now(),
+        totalXP:         result.newXp || s.totalXP,
+        level:           result.newLevel || s.level,
+        inventory: s.inventory.map((row) =>
+          row.id === songId
+            ? { ...row, publishedPublicationId: result.publicationId ?? undefined }
+            : row
+        ),
+      }));
+
+      // 5. Re-fetch the booth catalog in the background so the new drop
+      //    shows up next time the booth loads (don't await — UX concern
+      //    is that publish returns fast).
+      get().loadPublishedCatalog();
+
+      // 6. Companion reaction — cap-aware "keep one in the tank".
+      const atCapEdge = result.publicationsToday >= result.dailyCap;
+      get().sayLine(
+        atCapEdge
+          ? `dropped 🎧 — that's your ${result.publicationsToday}/${result.dailyCap} for today`
+          : "dropped 🎧 it's out there now",
+        2800,
+      );
+
+      return result;
+    } catch (err) {
+      console.error("[store] publishSong:", err);
+      get().sayLine("render failed — check the console", 2800);
+      return null;
+    } finally {
+      set({ publishingSongId: null });
+    }
   },
 
   spendEnergyOptimistic: async (cost, eventType, targetId, xp = 0) => {

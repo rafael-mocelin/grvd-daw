@@ -93,6 +93,54 @@ export type Database = {
         }
         Relationships: []
       }
+      friend_relationships: {
+        Row: {
+          accepted_at: string | null
+          blocked_by: string | null
+          requested_at: string
+          requested_by: string
+          status: string
+          user_a_id: string
+          user_b_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          blocked_by?: string | null
+          requested_at?: string
+          requested_by: string
+          status: string
+          user_a_id: string
+          user_b_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          blocked_by?: string | null
+          requested_at?: string
+          requested_by?: string
+          status?: string
+          user_a_id?: string
+          user_b_id?: string
+        }
+        Relationships: []
+      }
+      game_config: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       player_events: {
         Row: {
           created_at: string
@@ -144,6 +192,24 @@ export type Database = {
         }
         Relationships: []
       }
+      song_bonus_events: {
+        Row: {
+          bonus_type: string
+          crossed_at: string
+          song_id: string
+        }
+        Insert: {
+          bonus_type: string
+          crossed_at?: string
+          song_id: string
+        }
+        Update: {
+          bonus_type?: string
+          crossed_at?: string
+          song_id?: string
+        }
+        Relationships: []
+      }
       song_endorsements: {
         Row: {
           created_at: string
@@ -177,6 +243,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "song_publications"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "song_endorsements_song_id_fkey"
+            columns: ["song_id"]
+            isOneToOne: false
+            referencedRelation: "weekly_song_score"
+            referencedColumns: ["song_id"]
           },
         ]
       }
@@ -259,6 +332,13 @@ export type Database = {
             referencedRelation: "song_publications"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "song_ratings_song_id_fkey"
+            columns: ["song_id"]
+            isOneToOne: false
+            referencedRelation: "weekly_song_score"
+            referencedColumns: ["song_id"]
+          },
         ]
       }
       songs: {
@@ -272,6 +352,7 @@ export type Database = {
           layers: Json
           name: string
           pitch_score: number | null
+          published_publication_id: string | null
           tags: string[]
           template_id: string
           user_id: string
@@ -287,6 +368,7 @@ export type Database = {
           layers?: Json
           name: string
           pitch_score?: number | null
+          published_publication_id?: string | null
           tags?: string[]
           template_id: string
           user_id: string
@@ -302,6 +384,7 @@ export type Database = {
           layers?: Json
           name?: string
           pitch_score?: number | null
+          published_publication_id?: string | null
           tags?: string[]
           template_id?: string
           user_id?: string
@@ -429,8 +512,72 @@ export type Database = {
         }
         Relationships: []
       }
+      my_friends: {
+        Row: {
+          accepted_at: string | null
+          friend_user_id: string | null
+          requested_at: string | null
+          requested_by: string | null
+          status: string | null
+        }
+        Relationships: []
+      }
+      weekly_artist_score: {
+        Row: {
+          artist_avatar: string | null
+          artist_id: string | null
+          artist_name: string | null
+          endorsements_this_week: number | null
+          ratings_this_week: number | null
+          score: number | null
+          songs_active: number | null
+        }
+        Relationships: []
+      }
+      weekly_song_score: {
+        Row: {
+          artist_avatar: string | null
+          artist_id: string | null
+          artist_name: string | null
+          audio_url: string | null
+          avg_stars_this_week: number | null
+          bpm: number | null
+          duration_sec: number | null
+          endorsements_this_week: number | null
+          key_root: string | null
+          published_at: string | null
+          ratings_this_week: number | null
+          score: number | null
+          song_id: string | null
+          title: string | null
+        }
+        Relationships: []
+      }
+      weekly_tastemaker_score: {
+        Row: {
+          avatar: string | null
+          endorsements_given: number | null
+          ratings_given: number | null
+          score: number | null
+          user_id: string | null
+          username: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      admin_set_game_config: {
+        Args: { p_key: string; p_value: Json }
+        Returns: {
+          key: string
+          updated_at: string
+          value: Json
+        }[]
+      }
+      award_early_ear_bonus_if_needed: {
+        Args: { p_current_user: string; p_song_id: string }
+        Returns: undefined
+      }
       earn_xp_capped: {
         Args: {
           p_daily_xp_cap: number
@@ -442,6 +589,54 @@ export type Database = {
           daily_xp_earned: number
           new_xp: number
           xp_awarded: number
+        }[]
+      }
+      endorse_song: {
+        Args: { p_song_id: string }
+        Returns: {
+          daily_cap: number
+          endorsements_today: number
+          message: string
+          new_energy: number
+          new_level: number
+          new_xp: number
+          success: boolean
+        }[]
+      }
+      publish_song: {
+        Args: { p_song_id: string; p_audio_url: string }
+        Returns: {
+          daily_cap: number
+          message: string
+          new_energy: number
+          new_level: number
+          new_xp: number
+          publication_id: string
+          publications_today: number
+          success: boolean
+        }[]
+      }
+      send_friend_request: {
+        Args: { p_other_user_id: string }
+        Returns: {
+          message: string
+          status: string
+          success: boolean
+        }[]
+      }
+      respond_friend_request: {
+        Args: { p_other_user_id: string; p_accept: boolean }
+        Returns: {
+          message: string
+          status: string
+          success: boolean
+        }[]
+      }
+      remove_friend: {
+        Args: { p_other_user_id: string }
+        Returns: {
+          message: string
+          success: boolean
         }[]
       }
       get_live_energy: {
