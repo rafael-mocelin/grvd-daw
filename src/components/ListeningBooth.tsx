@@ -1,19 +1,19 @@
 /**
  * ListeningBooth — the Tastemaker-tier drop radio.
  *
- * Pulls from `song_publications` via the store's publishedCatalog and lets the
- * player:
- *   • Stream each track (plays the MP3/WAV published by the artist)
- *   • Rate 1-5 stars (earns daily-capped XP via rate_song RPC)
- *   • Endorse a track ("push it") which spends energy and earns XP
+ * The core mechanic is "let the beat speak first." Each drop plays
+ * anonymously; after REVEAL_MS of active listening, the artist + song
+ * details fade in and the player can rate (free, daily-capped XP) or
+ * push (spends energy via endorseSong RPC).
  *
- * Free actions: listen + rate. Energy-gated: endorse.
- * Guests get the browsing/listening experience but mutations no-op server-side.
+ * The catalog comes from `song_publications` (via store.publishedCatalog).
+ * Guests can browse + listen + rate locally; server writes no-op without
+ * a user_id.
  *
- * Design goals:
- *   • Tactile — each card feels like a 45 on a counter at a record shop
- *   • Honest aggregates — ratingCount + avgStars + endorsementCount all visible
- *   • Low-friction listening — one click plays; clicking another card swaps
+ * Keyboard: ← / → skip, space toggles play, 1-5 rates.
+ *
+ * Songs you've already rated or pushed are considered "known" and skip
+ * the blur on return.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -21,43 +21,483 @@ import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
 import { stopSong } from "../audio/engine";
 import type { PublishedSong } from "../lib/game-db";
 
+/** Milliseconds of active listening before the artist is revealed. */
+const REVEAL_MS = 5000;
+
 /* -------------------------------------------------------------------------- */
 /* Root                                                                        */
 /* -------------------------------------------------------------------------- */
 
 export function ListeningBooth() {
-  const publishedCatalog = useStore((s) => s.publishedCatalog);
-  const catalogLoading   = useStore((s) => s.catalogLoading);
+  const publishedCatalog    = useStore((s) => s.publishedCatalog);
+  const catalogLoading      = useStore((s) => s.catalogLoading);
   const loadPublishedCatalog = useStore((s) => s.loadPublishedCatalog);
-  const userRatings      = useStore((s) => s.userRatings);
-  const userEndorsements = useStore((s) => s.userEndorsements);
-  const rateSong         = useStore((s) => s.rateSong);
-  const endorseSong      = useStore((s) => s.endorseSong);
-  const energy           = useStore((s) => s.energy);
-  const energyUpdatedAt  = useStore((s) => s.energyUpdatedAt);
-  const setStage         = useStore((s) => s.setStage);
-  const sayLine          = useStore((s) => s.sayLine);
+  const userRatings         = useStore((s) => s.userRatings);
+  const userEndorsements    = useStore((s) => s.userEndorsements);
+  const rateSong            = useStore((s) => s.rateSong);
+  const endorseSong         = useStore((s) => s.endorseSong);
+  const energy              = useStore((s) => s.energy);
+  const energyUpdatedAt     = useStore((s) => s.energyUpdatedAt);
+  const setStage            = useStore((s) => s.setStage);
+  const sayLine             = useStore((s) => s.sayLine);
 
-  const [nowPlayingId, setNowPlayingId] = useState<string | null>(null);
+  const [index, setIndex]         = useState(0);
+  const [listenMs, setListenMs]   = useState(0);
+  const [revealed, setRevealed]   = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playPos, setPlayPos]     = useState(0);  // seconds elapsed in current track
+  const [playDur, setPlayDur]     = useState(0);  // seconds total (from metadata)
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Load on mount (works for guests too — catalog is public read).
+  const song = publishedCatalog[index];
+  const userStars = song ? userRatings[song.songId] : undefined;
+  const endorsed  = song ? userEndorsements.includes(song.songId) : false;
+
+  /* ── mount: ensure DAW engine is quiet, load catalog, greet ── */
   useEffect(() => {
-    // Ensure the DAW engine isn't still playing a recipe when we enter.
     stopSong();
     if (publishedCatalog.length === 0 && !catalogLoading) {
       loadPublishedCatalog();
     }
-    // Fresh-ears greeting
-    sayLine("fresh drops. tap a card to listen.", 2600);
-    // Make sure audio stops when leaving the booth.
+    sayLine("fresh ears. let the beat speak first.", 2800);
     return () => {
-      setNowPlayingId(null);
+      const el = audioRef.current;
+      if (el) { el.pause(); }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ── song change: reset all per-song state ──
+   *
+   * The blind-listen mechanic is the whole point of the booth, so we
+   * reset `revealed` to false on every song change regardless of whether
+   * the user has already rated this drop before. You always listen
+   * first. The only short-circuit is "no audio" (see togglePlay: tapping
+   * play with no audio immediately reveals, since blur would be a dead
+   * end).
+   *
+   * The <audio> element is keyed by song.songId below so React remounts
+   * it fresh per song; combined with the `autoPlay` attribute, that's
+   * the most browser-reliable way to auto-start a new stream after a
+   * user navigation. We don't touch the element imperatively.
+   */
+  useEffect(() => {
+    setListenMs(0);
+    setRevealed(false);
+    setIsPlaying(false);
+    setPlayPos(0);
+    setPlayDur(song?.durationSec ?? 0);
+  }, [song?.songId, song?.durationSec]);
+
+  /* ── listening timer — only ticks while audio is actively playing ── */
+  useEffect(() => {
+    if (!isPlaying || revealed) return;
+    const id = window.setInterval(() => {
+      setListenMs((ms) => {
+        const next = ms + 100;
+        if (next >= REVEAL_MS) {
+          setRevealed(true);
+        }
+        return Math.min(REVEAL_MS, next);
+      });
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [isPlaying, revealed]);
+
+  /* ── companion reacts the moment the artist is unveiled ── */
+  useEffect(() => {
+    if (revealed) {
+      sayLine("there they are", 2000);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed]);
+
+  /* ── keyboard: ← → skip, space play/pause, 1-5 rate ── */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!song) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); next(); }
+      else if (e.key === "ArrowLeft")  { e.preventDefault(); prev(); }
+      else if (e.key === " ")          { e.preventDefault(); togglePlay(); }
+      else if (revealed && ["1","2","3","4","5"].includes(e.key)) {
+        e.preventDefault();
+        rateSong(song.songId, Number(e.key));
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song, revealed, index, publishedCatalog.length]);
+
+  function togglePlay() {
+    // If the drop has no audio yet, the play button acts as a "reveal"
+    // shortcut so the card isn't stuck behind the blur.
+    if (!song?.audioUrl) {
+      setRevealed(true);
+      return;
+    }
+    const el = audioRef.current;
+    if (!el) return;
+    if (isPlaying) {
+      el.pause();
+      setIsPlaying(false);
+    } else {
+      el.play().then(() => setIsPlaying(true)).catch(() => { /* blocked */ });
+    }
+  }
+
+  function next() {
+    setIndex((i) => Math.min(publishedCatalog.length - 1, i + 1));
+  }
+  function prev() {
+    setIndex((i) => Math.max(0, i - 1));
+  }
+
   const liveEnergy = computeLiveEnergy(energy, energyUpdatedAt);
 
+  /* ── empty / loading states ─────────────────────────────────── */
+  if (catalogLoading && publishedCatalog.length === 0) {
+    return <Wrapper onBack={() => setStage("home")}><div style={emptyState}>loading drops…</div></Wrapper>;
+  }
+  if (!song) {
+    return (
+      <Wrapper onBack={() => setStage("home")}>
+        <div style={emptyState}>no drops yet. check back soon — artists are cooking.</div>
+      </Wrapper>
+    );
+  }
+
+  const progressPct = (listenMs / REVEAL_MS) * 100;
+  const canEndorse  = !endorsed && liveEnergy >= ENERGY_COSTS.endorse;
+  const accentColor = artistHue(song.artistName);
+
+  return (
+    <Wrapper onBack={() => setStage("home")} idx={index} total={publishedCatalog.length}>
+      {/*
+       * Audio element — keyed by songId so React fully remounts it on each
+       * song change. Combined with the `autoPlay` attribute, this is the
+       * most browser-reliable way to auto-start a fresh stream after a
+       * user navigation (much more forgiving than calling .play() inside
+       * a useEffect, which can miss the gesture window).
+       *
+       * If a song has no audio_url, we skip the element entirely and the
+       * card falls through to an auto-reveal "no audio yet" state below.
+       */}
+      {song.audioUrl && (
+        <audio
+          key={song.songId}
+          ref={audioRef}
+          src={song.audioUrl}
+          autoPlay
+          preload="auto"
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onEnded={() => { setIsPlaying(false); if (revealed) next(); }}
+          onLoadedMetadata={(e) => {
+            // Prefer the stream's real duration over the snapshot column
+            // (song_publications.duration_sec) — sometimes the published
+            // value is stale or wrong. The MP3's metadata is truth.
+            const d = e.currentTarget.duration;
+            if (Number.isFinite(d) && d > 0) setPlayDur(d);
+          }}
+          onTimeUpdate={(e) => setPlayPos(e.currentTarget.currentTime)}
+        />
+      )}
+
+      <div
+        style={{
+          background: "linear-gradient(135deg, rgba(34,211,238,0.05) 0%, rgba(0,0,0,0.4) 100%)",
+          border: `1px solid ${revealed ? accentColor + "55" : "rgba(255,255,255,0.08)"}`,
+          borderRadius: 14,
+          padding: 18,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 14,
+          boxShadow: revealed
+            ? `0 0 22px ${accentColor}33, 0 6px 20px rgba(0,0,0,0.5)`
+            : "0 4px 18px rgba(0,0,0,0.45)",
+          transition: "border-color 350ms ease, box-shadow 350ms ease",
+        }}
+      >
+        {/* ── Progress bar ──────────────────────────────────
+         *
+         * One visual slot, two modes. Pre-reveal it shows the listening
+         * countdown (5s until the artist is unveiled) with a cyan→blue
+         * gradient. Post-reveal it turns into the song's playback bar
+         * filled to the current position. Fixed-width, not draggable —
+         * a drop has to be listened to in full, no seeking allowed.
+         */}
+        <PlaybackBar
+          revealed={revealed}
+          accentColor={accentColor}
+          revealProgressPct={progressPct}
+          playPos={playPos}
+          playDur={playDur > 0 ? playDur : REVEAL_MS / 1000}
+          caption={
+            revealed
+              ? (song.audioUrl ? `${formatDuration(playPos)} / ${formatDuration(playDur || 0)}` : "no audio yet")
+              : isPlaying
+                ? `listening… ${(listenMs / 1000).toFixed(1)}s / ${REVEAL_MS / 1000}s`
+                : "tap play · focus on the audio first"
+          }
+        />
+
+        {/* ── Avatar / identity ─────────────────────────────
+         *
+         * Emoji-based. Each artist picks a "profile picture" at publish
+         * time (stored in song_publications.artist_avatar). Pre-reveal
+         * the emoji is heavily blurred behind a generic 🎧 badge so the
+         * player has no visual cue about who made the track — the whole
+         * point is to judge the audio first, not the artist.
+         */}
+        <div style={{ position: "relative", width: 104, height: 104 }}>
+          <div
+            style={{
+              width: 104,
+              height: 104,
+              borderRadius: "50%",
+              background: `linear-gradient(135deg, ${accentColor} 0%, ${accentColor}77 100%)`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 52,
+              lineHeight: 1,
+              boxShadow: `0 8px 22px ${accentColor}55, inset 0 2px 0 rgba(255,255,255,0.22)`,
+              filter: revealed ? "none" : "blur(18px) saturate(1.3)",
+              transition: "filter 500ms ease",
+              userSelect: "none",
+            }}
+          >
+            <span style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))" }}>
+              {song.artistAvatar || "🎧"}
+            </span>
+          </div>
+          {!revealed && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 38,
+                opacity: 0.85,
+                pointerEvents: "none",
+                filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.6))",
+              }}
+            >
+              🎧
+            </div>
+          )}
+        </div>
+
+        {/* ── Title + artist OR anonymous placeholder ────── */}
+        <div style={{ textAlign: "center", minHeight: 48 }}>
+          {revealed ? (
+            <>
+              <div
+                style={{
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  fontSize: 18,
+                  fontWeight: 800,
+                  color: "#fff",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {song.title}
+              </div>
+              <div
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.65)",
+                  marginTop: 2,
+                }}
+              >
+                {song.artistName}
+              </div>
+              <div
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 9,
+                  color: "rgba(255,255,255,0.35)",
+                  marginTop: 4,
+                  letterSpacing: "0.05em",
+                }}
+              >
+                {song.bpm ? `${song.bpm} BPM` : ""}
+                {song.bpm && song.keyRoot ? " · " : ""}
+                {song.keyRoot ? song.keyRoot : ""}
+                {(song.bpm || song.keyRoot) && song.durationSec ? " · " : ""}
+                {song.durationSec ? formatDuration(song.durationSec) : ""}
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                style={{
+                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "rgba(255,255,255,0.5)",
+                  fontStyle: "italic",
+                  letterSpacing: "0.02em",
+                }}
+              >
+                focus on the audio
+              </div>
+              <div
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 10,
+                  color: "rgba(255,255,255,0.4)",
+                  marginTop: 3,
+                  letterSpacing: "0.05em",
+                }}
+              >
+                artist reveals after {REVEAL_MS / 1000}s · let the beat speak first
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── Play + skip controls ───────────────────────── */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14 }}>
+          <NavBtn label="←" title="previous" onClick={prev} disabled={index === 0} />
+          <button
+            onClick={togglePlay}
+            title={
+              !song.audioUrl
+                ? "no audio — tap to reveal"
+                : isPlaying ? "pause (space)" : "play (space)"
+            }
+            style={{
+              width: 54,
+              height: 54,
+              borderRadius: 27,
+              border: "none",
+              background: isPlaying
+                ? "linear-gradient(135deg, #22d3ee 0%, #3b82f6 100%)"
+                : "rgba(255,255,255,0.12)",
+              color: "#fff",
+              fontSize: 20,
+              cursor: "pointer",
+              boxShadow: isPlaying ? "0 0 18px rgba(34,211,238,0.55)" : "0 4px 10px rgba(0,0,0,0.45)",
+              transition: "background 150ms ease, box-shadow 150ms ease",
+              // Use a glyph with strong font support so it never renders as tofu.
+              fontFamily: "system-ui, -apple-system, sans-serif",
+            }}
+          >
+            {isPlaying ? "❚❚" : "▶"}
+          </button>
+          <NavBtn
+            label="→"
+            title="skip"
+            onClick={next}
+            disabled={index >= publishedCatalog.length - 1}
+          />
+        </div>
+
+        {/* ── Rate + push row (only when revealed) ───────── */}
+        {revealed && (
+          <div
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              paddingTop: 12,
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              flexWrap: "wrap",
+            }}
+          >
+            <StarRater userStars={userStars} onRate={(s) => rateSong(song.songId, s)} />
+
+            <div
+              style={{
+                fontFamily: "monospace",
+                fontSize: 10,
+                color: "rgba(255,255,255,0.5)",
+                display: "flex",
+                gap: 10,
+              }}
+            >
+              <span title={`${song.ratingCount} ${song.ratingCount === 1 ? "rating" : "ratings"}`}>
+                ⭐ {song.ratingCount > 0 ? song.avgStars.toFixed(1) : "–"}
+                <span style={{ opacity: 0.55 }}> ({song.ratingCount})</span>
+              </span>
+              <span title={`${song.endorsementCount} endorsements`}>
+                🔥 {song.endorsementCount}
+              </span>
+            </div>
+
+            <button
+              onClick={() => canEndorse && endorseSong(song.songId)}
+              disabled={!canEndorse}
+              title={
+                endorsed
+                  ? "already pushed"
+                  : liveEnergy < ENERGY_COSTS.endorse
+                    ? `need ${ENERGY_COSTS.endorse - liveEnergy} more energy`
+                    : `push this drop (-${ENERGY_COSTS.endorse} ⚡)`
+              }
+              style={{
+                background: endorsed
+                  ? "rgba(255,77,109,0.18)"
+                  : canEndorse
+                    ? "linear-gradient(135deg, #ff4d6d 0%, #facc15 100%)"
+                    : "rgba(255,255,255,0.04)",
+                border: endorsed
+                  ? "1px solid rgba(255,77,109,0.5)"
+                  : canEndorse
+                    ? "1px solid rgba(255,77,109,0.6)"
+                    : "1px solid rgba(255,255,255,0.08)",
+                color: endorsed
+                  ? "#ff4d6d"
+                  : canEndorse
+                    ? "#fff"
+                    : "rgba(255,255,255,0.3)",
+                fontFamily: "monospace",
+                fontSize: 11,
+                fontWeight: 800,
+                padding: "6px 12px",
+                borderRadius: 8,
+                cursor: endorsed ? "default" : canEndorse ? "pointer" : "not-allowed",
+                flexShrink: 0,
+                boxShadow: canEndorse && !endorsed ? "0 0 10px rgba(255,77,109,0.3)" : "none",
+                transition: "all 120ms ease",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {endorsed ? (
+                <>🔥 pushed</>
+              ) : (
+                <>push <span style={{ opacity: 0.8 }}>·</span> {ENERGY_COSTS.endorse}⚡</>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+    </Wrapper>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Page chrome                                                                  */
+/* -------------------------------------------------------------------------- */
+
+function Wrapper({
+  children, onBack, idx, total,
+}: {
+  children: React.ReactNode;
+  onBack: () => void;
+  idx?: number;
+  total?: number;
+}) {
   return (
     <div
       style={{
@@ -65,292 +505,101 @@ export function ListeningBooth() {
         display: "flex",
         flexDirection: "column",
         gap: 12,
-        maxWidth: 640,
+        maxWidth: 520,
         margin: "0 auto",
       }}
     >
-      <Header onBack={() => { setNowPlayingId(null); setStage("home"); }} />
-
-      {catalogLoading && publishedCatalog.length === 0 && (
-        <div style={emptyState}>loading drops…</div>
-      )}
-
-      {!catalogLoading && publishedCatalog.length === 0 && (
-        <div style={emptyState}>
-          no drops yet. check back soon — artists are cooking.
-        </div>
-      )}
-
-      {publishedCatalog.map((song) => (
-        <SongCard
-          key={song.songId}
-          song={song}
-          userStars={userRatings[song.songId]}
-          endorsed={userEndorsements.includes(song.songId)}
-          isPlaying={nowPlayingId === song.songId}
-          liveEnergy={liveEnergy}
-          onPlay={() => setNowPlayingId((id) => (id === song.songId ? null : song.songId))}
-          onRate={(stars) => rateSong(song.songId, stars)}
-          onEndorse={() => endorseSong(song.songId)}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Header                                                                      */
-/* -------------------------------------------------------------------------- */
-
-function Header({ onBack }: { onBack: () => void }) {
-  return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-      <div>
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 9,
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-            color: "#22d3ee",
-          }}
-        >
-          🎧 listening booth
-        </div>
-        <div
-          style={{
-            fontFamily: "'Space Grotesk', system-ui, sans-serif",
-            fontSize: 18,
-            fontWeight: 800,
-            color: "#fff",
-            marginTop: 2,
-          }}
-        >
-          fresh drops
-        </div>
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 10,
-            color: "rgba(255,255,255,0.4)",
-            marginTop: 2,
-          }}
-        >
-          rate freely · push with energy
-        </div>
-      </div>
-      <button
-        onClick={onBack}
-        style={{
-          background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          color: "rgba(255,255,255,0.7)",
-          fontFamily: "monospace",
-          fontSize: 11,
-          padding: "6px 10px",
-          borderRadius: 8,
-          cursor: "pointer",
-          flexShrink: 0,
-        }}
-      >
-        ← back
-      </button>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Song card                                                                   */
-/* -------------------------------------------------------------------------- */
-
-function SongCard({
-  song,
-  userStars,
-  endorsed,
-  isPlaying,
-  liveEnergy,
-  onPlay,
-  onRate,
-  onEndorse,
-}: {
-  song: PublishedSong;
-  userStars: number | undefined;
-  endorsed: boolean;
-  isPlaying: boolean;
-  liveEnergy: number;
-  onPlay: () => void;
-  onRate: (stars: number) => void;
-  onEndorse: () => void;
-}) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Sync play/pause with isPlaying flag
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    if (isPlaying) {
-      el.play().catch(() => { /* autoplay blocked; user can tap again */ });
-    } else {
-      el.pause();
-      el.currentTime = 0;
-    }
-  }, [isPlaying]);
-
-  const avgStars = song.ratingCount > 0 ? song.avgStars.toFixed(1) : "–";
-  const canEndorse = !endorsed && liveEnergy >= ENERGY_COSTS.endorse;
-
-  return (
-    <div
-      style={{
-        background: "linear-gradient(135deg, rgba(34,211,238,0.06) 0%, rgba(0,0,0,0.35) 100%)",
-        border: isPlaying
-          ? "1.5px solid rgba(34,211,238,0.55)"
-          : "1px solid rgba(255,255,255,0.08)",
-        borderRadius: 12,
-        padding: 12,
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        boxShadow: isPlaying
-          ? "0 0 18px rgba(34,211,238,0.25), 0 4px 14px rgba(0,0,0,0.45)"
-          : "0 2px 10px rgba(0,0,0,0.35)",
-        transition: "border-color 150ms ease, box-shadow 150ms ease",
-      }}
-    >
-      {/* Hidden audio element */}
-      {song.audioUrl && (
-        <audio
-          ref={audioRef}
-          src={song.audioUrl}
-          preload="none"
-          onEnded={onPlay /* toggle back off */}
-        />
-      )}
-
-      {/* Top row: play + title + artist */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button
-          onClick={onPlay}
-          disabled={!song.audioUrl}
-          title={song.audioUrl ? (isPlaying ? "pause" : "play") : "no audio"}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            border: "none",
-            background: isPlaying
-              ? "linear-gradient(135deg, #22d3ee 0%, #3b82f6 100%)"
-              : "rgba(255,255,255,0.08)",
-            color: "#fff",
-            fontSize: 16,
-            cursor: song.audioUrl ? "pointer" : "not-allowed",
-            opacity: song.audioUrl ? 1 : 0.35,
-            flexShrink: 0,
-            boxShadow: isPlaying ? "0 0 14px rgba(34,211,238,0.5)" : "none",
-          }}
-        >
-          {isPlaying ? "▮▮" : "▶"}
-        </button>
-        <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <div
+            style={{
+              fontFamily: "monospace",
+              fontSize: 9,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: "#22d3ee",
+            }}
+          >
+            🎧 listening booth
+          </div>
           <div
             style={{
               fontFamily: "'Space Grotesk', system-ui, sans-serif",
-              fontSize: 14,
-              fontWeight: 700,
+              fontSize: 18,
+              fontWeight: 800,
               color: "#fff",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              marginTop: 2,
             }}
           >
-            {song.title}
+            fresh drops
           </div>
           <div
             style={{
               fontFamily: "monospace",
               fontSize: 10,
-              color: "rgba(255,255,255,0.55)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              color: "rgba(255,255,255,0.4)",
+              marginTop: 2,
             }}
           >
-            {song.artistName}
-            {song.bpm ? ` · ${song.bpm} BPM` : ""}
-            {song.keyRoot ? ` · ${song.keyRoot}` : ""}
-            {song.durationSec ? ` · ${formatDuration(song.durationSec)}` : ""}
+            {typeof idx === "number" && typeof total === "number" && total > 0
+              ? `track ${idx + 1} of ${total}`
+              : "rate freely · push with energy"}
           </div>
         </div>
-      </div>
-
-      {/* Bottom row: rating + aggregates + endorse */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <StarRater userStars={userStars} onRate={onRate} />
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 10,
-            color: "rgba(255,255,255,0.5)",
-            display: "flex",
-            gap: 10,
-            flex: 1,
-            minWidth: 0,
-          }}
-        >
-          <span title={`${song.ratingCount} ${song.ratingCount === 1 ? "rating" : "ratings"}`}>
-            ⭐ {avgStars} <span style={{ opacity: 0.6 }}>({song.ratingCount})</span>
-          </span>
-          <span title={`${song.endorsementCount} endorsements`}>
-            🔥 {song.endorsementCount}
-          </span>
-        </div>
         <button
-          onClick={() => canEndorse && onEndorse()}
-          disabled={!canEndorse}
-          title={
-            endorsed
-              ? "already pushed"
-              : liveEnergy < ENERGY_COSTS.endorse
-                ? `need ${ENERGY_COSTS.endorse - liveEnergy} more energy`
-                : `push this drop (-${ENERGY_COSTS.endorse} ⚡)`
-          }
+          onClick={onBack}
           style={{
-            background: endorsed
-              ? "rgba(255,77,109,0.18)"
-              : canEndorse
-                ? "linear-gradient(135deg, #ff4d6d 0%, #facc15 100%)"
-                : "rgba(255,255,255,0.04)",
-            border: endorsed
-              ? "1px solid rgba(255,77,109,0.5)"
-              : canEndorse
-                ? "1px solid rgba(255,77,109,0.6)"
-                : "1px solid rgba(255,255,255,0.08)",
-            color: endorsed
-              ? "#ff4d6d"
-              : canEndorse
-                ? "#fff"
-                : "rgba(255,255,255,0.3)",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            color: "rgba(255,255,255,0.7)",
             fontFamily: "monospace",
             fontSize: 11,
-            fontWeight: 800,
-            padding: "6px 12px",
+            padding: "6px 10px",
             borderRadius: 8,
-            cursor: endorsed ? "default" : canEndorse ? "pointer" : "not-allowed",
+            cursor: "pointer",
             flexShrink: 0,
-            boxShadow: canEndorse && !endorsed ? "0 0 10px rgba(255,77,109,0.3)" : "none",
-            transition: "all 120ms ease",
           }}
         >
-          {endorsed ? "🔥 pushed" : `push · ${ENERGY_COSTS.endorse}⚡`}
+          ← back
         </button>
       </div>
+      {children}
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Star rater                                                                  */
+/* Controls                                                                     */
 /* -------------------------------------------------------------------------- */
+
+function NavBtn({
+  label, title, onClick, disabled,
+}: {
+  label: string; title: string; onClick: () => void; disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.04)",
+        color: disabled ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.7)",
+        fontSize: 16,
+        fontFamily: "monospace",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.45 : 1,
+        transition: "background 120ms ease, color 120ms ease",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
 function StarRater({
   userStars,
@@ -366,6 +615,7 @@ function StarRater({
     <div
       style={{ display: "flex", alignItems: "center", gap: 2 }}
       onMouseLeave={() => setHover(0)}
+      title={userStars ? `your rating: ${userStars}★` : "rate this drop"}
     >
       {[1, 2, 3, 4, 5].map((n) => (
         <button
@@ -377,11 +627,11 @@ function StarRater({
             background: "transparent",
             border: "none",
             cursor: "pointer",
-            fontSize: 16,
+            fontSize: 20,
             lineHeight: 1,
             padding: "2px 1px",
             color: n <= active ? "#facc15" : "rgba(255,255,255,0.2)",
-            filter: n <= active ? "drop-shadow(0 0 4px #facc15aa)" : "none",
+            filter: n <= active ? "drop-shadow(0 0 5px #facc15aa)" : "none",
             transition: "color 80ms ease, filter 80ms ease",
           }}
         >
@@ -393,13 +643,124 @@ function StarRater({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
+/* Playback / reveal bar                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Single visual slot that lives at the top of the booth card.
+ *
+ * Two modes, one shape:
+ *   • Pre-reveal — shows the listening countdown (cyan→blue gradient
+ *     filling from 0 to REVEAL_MS). This is the "focus on the audio"
+ *     nag bar.
+ *   • Post-reveal — turns into the song's playback bar filling to the
+ *     current position. Fixed width, non-draggable — intentionally not
+ *     a seekable slider. A drop has to be listened to from the top.
+ *
+ * The width of the container is consistent regardless of song length;
+ * only the fill rate differs (longer song = slower-moving fill).
+ */
+function PlaybackBar({
+  revealed,
+  accentColor,
+  revealProgressPct,
+  playPos,
+  playDur,
+  caption,
+}: {
+  revealed: boolean;
+  accentColor: string;
+  revealProgressPct: number;  // 0..100 (how close to artist reveal)
+  playPos: number;            // seconds into the track
+  playDur: number;            // seconds total
+  caption: string;
+}) {
+  const playPct = playDur > 0 ? Math.min(100, (playPos / playDur) * 100) : 0;
+  const fillPct = revealed ? playPct : revealProgressPct;
+
+  return (
+    <div style={{ width: "100%" }}>
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          height: 6,
+          background: "rgba(255,255,255,0.08)",
+          borderRadius: 3,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${fillPct}%`,
+            height: "100%",
+            background: revealed
+              ? `linear-gradient(90deg, ${accentColor}dd 0%, ${accentColor} 100%)`
+              : "linear-gradient(90deg, #22d3ee 0%, #3b82f6 100%)",
+            boxShadow: revealed
+              ? `0 0 10px ${accentColor}`
+              : "0 0 8px rgba(59,130,246,0.6)",
+            transition: "width 150ms linear, background 400ms ease",
+          }}
+        />
+        {/* Playhead dot — post-reveal only, purely decorative */}
+        {revealed && (
+          <div
+            style={{
+              position: "absolute",
+              left: `calc(${fillPct}% - 5px)`,
+              top: -2,
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: "#fff",
+              boxShadow: `0 0 8px ${accentColor}`,
+              transition: "left 150ms linear",
+              pointerEvents: "none",
+            }}
+          />
+        )}
+      </div>
+      <div
+        style={{
+          fontFamily: "monospace",
+          fontSize: 9,
+          letterSpacing: "0.15em",
+          textTransform: "uppercase",
+          color: "rgba(255,255,255,0.45)",
+          marginTop: 4,
+          textAlign: "center",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {caption}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                      */
 /* -------------------------------------------------------------------------- */
 
 function formatDuration(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/**
+ * Deterministic "avatar" color for a given artist name. Hashes the string
+ * to a hue in [0, 360) so each artist has a consistent identity across
+ * sessions without us storing real avatars in the DB.
+ */
+function artistHue(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) {
+    h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  const hue = h % 360;
+  return `hsl(${hue}, 70%, 55%)`;
 }
 
 const emptyState: React.CSSProperties = {
@@ -411,3 +772,6 @@ const emptyState: React.CSSProperties = {
   border: "1px dashed rgba(255,255,255,0.1)",
   borderRadius: 12,
 };
+
+// Keep the PublishedSong type reachable for downstream tooling / future splits.
+export type { PublishedSong };

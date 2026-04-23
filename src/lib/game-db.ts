@@ -18,6 +18,12 @@ export interface PublishedSong {
   title: string;
   artistId: string;
   artistName: string;
+  /**
+   * Emoji "profile picture" for the artist, snapshotted at publish time
+   * into song_publications.artist_avatar. Self-contained rows keep Unreal
+   * happy (no runtime join) and let each drop carry its own identity.
+   */
+  artistAvatar: string;
   audioUrl: string | null;
   waveformUrl: string | null;
   bpm: number | null;
@@ -107,7 +113,7 @@ export async function fetchPublishedCatalog(
   const { data, error } = await supabase
     .from("song_publication_stats")
     .select(
-      "song_id,title,artist_id,artist_name,audio_url,waveform_url,bpm,key_root,duration_sec,published_at,rating_count,avg_stars,endorsement_count"
+      "song_id,title,artist_id,artist_name,artist_avatar,audio_url,waveform_url,bpm,key_root,duration_sec,published_at,rating_count,avg_stars,endorsement_count"
     )
     .order("published_at", { ascending: false })
     .limit(limit);
@@ -122,6 +128,7 @@ export async function fetchPublishedCatalog(
     title:           row.title ?? "Untitled",
     artistId:        row.artist_id ?? "",
     artistName:      row.artist_name ?? "unknown",
+    artistAvatar:    row.artist_avatar ?? "🎧",
     audioUrl:        row.audio_url,
     waveformUrl:     row.waveform_url,
     bpm:             row.bpm,
