@@ -2,7 +2,14 @@
 
 Living doc. Reference and amend as we build.
 
-Last updated: 2026-04-22
+Last updated: 2026-04-23
+
+> **Built for the UE5 port.** Every gameplay-authoritative rule in this plan
+> (energy costs, XP caps, level curves, publication gates) is enforced by
+> Supabase RPCs — never by the client. The web app is a thin renderer; the
+> Unreal client will be another thin renderer against the same backend.
+> If you're new to this setup, read **`docs/UE5_PORT_GUIDE.md`** first — it
+> explains what lives where, why, and what to preserve when porting.
 
 ---
 
