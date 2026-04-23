@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore } from "../store/useStore";
+import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
 import { playSong, stopSong, renderSongToWav, downloadWavBlob } from "../audio/engine";
 import type { Song } from "../data/types";
 
@@ -8,9 +8,13 @@ import type { Song } from "../data/types";
  * pitch score. Maps to the "CD item in inventory" idea.
  */
 export function Logbook() {
-  const { inventory, vocalBuffer, toggleLogbook, placeInBooth, setStage } = useStore();
+  const {
+    inventory, vocalBuffer, toggleLogbook,
+    publishSong, publishingSongId, energy, energyUpdatedAt,
+  } = useStore();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const liveEnergy = computeLiveEnergy(energy, energyUpdatedAt);
 
   async function togglePlay(song: Song) {
     if (playingId === song.id) {
@@ -108,16 +112,33 @@ export function Logbook() {
               >
                 {exportingId === s.id ? "⏳ rendering…" : "⬇ .wav"}
               </button>
-              <button
-                className="btn-ghost text-[11px]"
-                onClick={() => {
-                  placeInBooth(s.id, "from the logbook");
-                  toggleLogbook();
-                  setStage("booth");
-                }}
-              >
-                drop in booth
-              </button>
+              {(() => {
+                const isPublished  = !!s.publishedPublicationId;
+                const isPublishing = publishingSongId === s.id;
+                const canAfford    = liveEnergy >= ENERGY_COSTS.publishSong;
+                const disabled     = isPublished || isPublishing || !canAfford;
+                const label        = isPublished  ? "✓ published"
+                                   : isPublishing ? "⏳ publishing…"
+                                   : !canAfford   ? `${ENERGY_COSTS.publishSong}⚡ short`
+                                   :                `publish · ${ENERGY_COSTS.publishSong}⚡`;
+                return (
+                  <button
+                    className="btn-ghost text-[11px]"
+                    disabled={disabled}
+                    style={disabled ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+                    onClick={() => publishSong(s.id)}
+                    title={
+                      isPublished
+                        ? "already live in the booth"
+                        : !canAfford
+                          ? `need ${ENERGY_COSTS.publishSong - liveEnergy} more ⚡`
+                          : `publish to the listening booth (-${ENERGY_COSTS.publishSong} ⚡)`
+                    }
+                  >
+                    {label}
+                  </button>
+                );
+              })()}
             </div>
           ))}
         </div>

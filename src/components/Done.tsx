@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useStore } from "../store/useStore";
+import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
 import { playSong, stopSong } from "../audio/engine";
 
 /**
@@ -8,8 +8,11 @@ import { playSong, stopSong } from "../audio/engine";
  * Also shows elapsed time vs. the 60-second promise.
  */
 export function Done() {
-  const { inventory, setStage, tamagotchi, reset, vocalBuffer, placeInBooth, sessionStartedAt, sayLine } =
-    useStore();
+  const {
+    inventory, setStage, tamagotchi, reset, vocalBuffer,
+    sessionStartedAt, sayLine,
+    publishSong, publishingSongId, energy, energyUpdatedAt,
+  } = useStore();
   const latest = inventory[0];
   const autoPlayed = useRef(false);
 
@@ -116,6 +119,37 @@ export function Done() {
         )}
       </div>
 
+      {/* Publish CTA — the high-energy action. Lives above the secondary
+       * options so it reads as the meaningful commitment, not just another
+       * button. Disabled states are explicit: already out, mid-publish, or
+       * not enough energy. Cap-reached is caught server-side and returns a
+       * clear message via the companion ticker. */}
+      {(() => {
+        const liveEnergy    = computeLiveEnergy(energy, energyUpdatedAt);
+        const isPublished   = !!latest.publishedPublicationId;
+        const isPublishing  = publishingSongId === latest.id;
+        const canAfford     = liveEnergy >= ENERGY_COSTS.publishSong;
+        const disabled      = isPublished || isPublishing || !canAfford;
+        const label         = isPublished  ? "🎧 already published"
+                            : isPublishing ? "rendering + uploading…"
+                            : !canAfford   ? `need ${ENERGY_COSTS.publishSong - liveEnergy} more ⚡`
+                            :                `🎧 publish · ${ENERGY_COSTS.publishSong}⚡`;
+        return (
+          <button
+            className="btn-gold w-full disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={disabled}
+            onClick={() => publishSong(latest.id)}
+            title={
+              isPublished
+                ? "this drop is live in the booth"
+                : `publish to the listening booth (-${ENERGY_COSTS.publishSong} ⚡)`
+            }
+          >
+            {label}
+          </button>
+        );
+      })()}
+
       <div className="flex flex-wrap gap-2 justify-center">
         <button
           className="btn-primary"
@@ -124,16 +158,16 @@ export function Done() {
           🔁 cook another
         </button>
         <button
-          className="btn-gold"
-          onClick={() => { placeInBooth(latest.id, "fresh drop"); setStage("booth"); }}
+          className="btn-ghost"
+          onClick={() => { stopSong(); setStage("booth"); }}
         >
-          🎧 drop in Listening Booth
+          🎧 visit the booth
         </button>
         <button
           className="btn-ghost"
-          onClick={() => { stopSong(); setStage("crib"); }}
+          onClick={() => { stopSong(); setStage("home"); }}
         >
-          ← back to crib
+          ← home
         </button>
       </div>
 

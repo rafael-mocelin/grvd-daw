@@ -86,6 +86,12 @@ export interface Song {
   pitchScore?: number; // 0..100 from the karaoke minigame
   /** Per-section mute state from the Arrange view, keyed by "kind:sectionId". */
   arrangeMutes?: Record<string, boolean>;
+  /**
+   * Publication id once this song has been dropped in the booth via the
+   * publish_song RPC (Phase 2.5). Undefined = still a draft, still editable.
+   * When set, the publish button turns into a "PUBLISHED" badge.
+   */
+  publishedPublicationId?: string;
 }
 
 export interface ArtistCard {
