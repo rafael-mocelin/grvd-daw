@@ -20,7 +20,15 @@ export function NeedsMeters({ tam, compact }: Props) {
         const { label, color, icon } = labels[k];
         return (
           <div key={k} className="flex items-center gap-2">
-            <span className="text-xs w-20 flex items-center gap-1 text-white/70">
+            {/*
+             * Label column: widened from w-20 → w-28 so "CREATIVITY"
+             * (10 chars in tracking-wide uppercase mono) stops clipping.
+             * Value column widened from w-8 → w-10 so a 3-digit "100"
+             * also fits cleanly without pushing against the shell edge.
+             * whitespace-nowrap on the label prevents any attempt to wrap
+             * if the container shrinks on smaller viewports.
+             */}
+            <span className="text-xs w-28 flex items-center gap-1 text-white/70 whitespace-nowrap shrink-0">
               <span>{icon}</span>
               <span className="uppercase tracking-wide font-mono">{label}</span>
             </span>
@@ -30,7 +38,7 @@ export function NeedsMeters({ tam, compact }: Props) {
                 style={{ width: `${v}%`, background: color }}
               />
             </div>
-            <span className="text-[11px] font-mono text-white/60 w-8 text-right">{v}</span>
+            <span className="text-[11px] font-mono text-white/60 w-10 text-right shrink-0 tabular-nums">{v}</span>
           </div>
         );
       })}

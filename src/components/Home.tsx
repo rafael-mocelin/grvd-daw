@@ -53,8 +53,18 @@ export function Home() {
 
   return (
     <div
-      className="flex flex-col items-center gap-4 p-4"
-      style={{ paddingTop: 34 /* clear the ScreenTopBar */ }}
+      className="flex flex-col items-center gap-4"
+      style={{
+        // Match the ListeningBooth's container so Home, Booth, and other
+        // content stages share the same reading width. Prevents the CTAs
+        // from stretching edge-to-edge on wide screens (which made them
+        // feel empty of content — the screenshot comparison that drove
+        // this change).
+        padding: "34px 14px 80px", // top clears ScreenTopBar, bottom breathes
+        maxWidth: 520,
+        width: "100%",
+        margin: "0 auto",
+      }}
     >
       <div className="text-center">
         <div className="font-display font-bold text-lg text-white tracking-tight">

@@ -12,7 +12,16 @@ export function TemplatePicker() {
   const [hover, setHover] = useState<string | null>(null);
 
   return (
-    <div className="p-3">
+    <div
+      style={{
+        // Match Home + ListeningBooth so all three content stages share the
+        // same reading column width. Top padding clears the ScreenTopBar.
+        padding: "34px 14px 80px",
+        maxWidth: 520,
+        width: "100%",
+        margin: "0 auto",
+      }}
+    >
       <div className="mb-3">
         <div className="chip bg-raised border border-line text-white/60 text-[10px]">step 1 · pick a vibe</div>
         <h2 className="font-display text-xl font-bold mt-0.5">vibes</h2>
