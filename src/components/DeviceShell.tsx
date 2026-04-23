@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useStore } from "../store/useStore";
+import { useStore, type Stage } from "../store/useStore";
 import { stopSong } from "../audio/engine";
 import { SHELL, SKINS, type Skin } from "../shell/skins";
 import { StatsPanel } from "./StatsPanel";
@@ -214,10 +214,56 @@ export function DeviceShell({ children }: { children: ReactNode }) {
   // Single shared gaze target — both eyes converge on the same point.
   const gazeRef = useSharedGaze();
 
-  // UI zoom (for non-canvas stages — template picker, crib, booth, etc.)
-  const [uiZoom, setUiZoom] = useState(1.0);
   const MIN_ZOOM = 0.35;
   const MAX_ZOOM = 2.0;
+
+  /* UI zoom — per-stage, persisted to localStorage.
+   *
+   * Each non-canvas stage keeps its own zoom level. The booth intentionally
+   * defaults to 1.4 because the blind-listen card is dense (progress bar,
+   * avatar, title, stars, push button) and benefits from the extra scale.
+   * Everything else defaults to 1.0. Whatever the user leaves a stage at
+   * is what they come back to — both within a session and across refreshes.
+   *
+   * Canvas stages (stack/vocal/name) use `canvasZoom` from the store
+   * instead — that already persists per-session because the store itself
+   * survives within the SPA. Kept separate so the creation canvas doesn't
+   * get yanked into UI zoom math.
+   */
+  const STAGE_DEFAULT_ZOOM: Partial<Record<Stage, number>> = {
+    booth: 1.4,
+  };
+  const GLOBAL_DEFAULT_ZOOM = 1.0;
+
+  const [zoomByStage, setZoomByStage] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem("grvd-zoom-by-stage");
+      if (saved) return JSON.parse(saved) as Record<string, number>;
+    } catch { /* private mode / corrupted json */ }
+    return {};
+  });
+
+  const uiZoom =
+    zoomByStage[stage] ??
+    STAGE_DEFAULT_ZOOM[stage as Stage] ??
+    GLOBAL_DEFAULT_ZOOM;
+
+  function setUiZoom(nextOrFn: number | ((z: number) => number)) {
+    setZoomByStage((prev) => {
+      const cur =
+        prev[stage] ??
+        STAGE_DEFAULT_ZOOM[stage as Stage] ??
+        GLOBAL_DEFAULT_ZOOM;
+      const next =
+        typeof nextOrFn === "function" ? nextOrFn(cur) : nextOrFn;
+      const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next));
+      const updated = { ...prev, [stage]: clamped };
+      try {
+        localStorage.setItem("grvd-zoom-by-stage", JSON.stringify(updated));
+      } catch { /* ignore quota / private-mode errors */ }
+      return updated;
+    });
+  }
 
   const inCanvas = CANVAS_STAGES.has(stage);
 
@@ -250,7 +296,8 @@ export function DeviceShell({ children }: { children: ReactNode }) {
       if (inCanvas) {
         setCanvasZoom(Math.max(0.18, Math.min(2.0, (canvasZoom || 0.6) + delta * 35)));
       } else {
-        setUiZoom((z) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z + delta)));
+        // setUiZoom already clamps to [MIN_ZOOM, MAX_ZOOM] and persists.
+        setUiZoom((z) => z + delta);
       }
     };
     window.addEventListener("wheel", onWheel, { passive: false });
@@ -463,7 +510,7 @@ export function DeviceShell({ children }: { children: ReactNode }) {
         <button
           onClick={() => inCanvas
             ? setCanvasZoom(Math.min(2.0, +((canvasZoom || 0.6) + 0.1).toFixed(2)))
-            : setUiZoom(z => Math.min(MAX_ZOOM, +(z + 0.1).toFixed(1)))
+            : setUiZoom(z => +(z + 0.1).toFixed(1))
           }
           style={zoomBtnStyle(skin)}
         >+</button>
@@ -481,7 +528,7 @@ export function DeviceShell({ children }: { children: ReactNode }) {
         <button
           onClick={() => inCanvas
             ? setCanvasZoom(Math.max(0.18, +((canvasZoom || 0.6) - 0.1).toFixed(2)))
-            : setUiZoom(z => Math.max(MIN_ZOOM, +(z - 0.1).toFixed(1)))
+            : setUiZoom(z => +(z - 0.1).toFixed(1))
           }
           style={zoomBtnStyle(skin)}
         >−</button>

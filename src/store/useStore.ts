@@ -580,7 +580,19 @@ export const useStore = create<State>((set, get) => ({
   setCanvasZoom: (v) => set({ canvasZoom: v }),
   toggleLogbook: () => set({ showLogbook: !get().showLogbook }),
   toggleStats: () => set({ showStats: !get().showStats }),
-  setSkin: (id) => set({ skinId: id }),
+  setSkin: (id) => {
+    set({ skinId: id });
+    // Persist to localStorage so the chosen skin survives page refreshes.
+    // This is a pure cosmetic preference with no gameplay impact — safe to
+    // keep client-local. If we later want cross-device sync (your skin on
+    // web AND Unreal), promote this to a `profiles.skin_id` column and
+    // load/save via Supabase on login. See docs/UE5_PORT_GUIDE.md.
+    try {
+      localStorage.setItem("grvd-skin", id);
+    } catch {
+      /* private mode / quota errors — fail silently */
+    }
+  },
   setMoodOverride: (m) => set({ moodOverride: m }),
 
   sayLine: (msg, durationMs) => {
