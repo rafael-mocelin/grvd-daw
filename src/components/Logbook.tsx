@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../store/useStore";
-import { playSong, stopSong } from "../audio/engine";
+import { playSong, stopSong, renderSongToWav, downloadWavBlob } from "../audio/engine";
 import type { Song } from "../data/types";
 
 /**
@@ -8,8 +8,9 @@ import type { Song } from "../data/types";
  * pitch score. Maps to the "CD item in inventory" idea.
  */
 export function Logbook() {
-  const { inventory, toggleLogbook, placeInBooth, setStage } = useStore();
+  const { inventory, vocalBuffer, toggleLogbook, placeInBooth, setStage } = useStore();
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   async function togglePlay(song: Song) {
     if (playingId === song.id) {
@@ -20,6 +21,25 @@ export function Logbook() {
     stopSong();
     await playSong(song, null /* vocalBuffer lost on reload; prototype */);
     setPlayingId(song.id);
+  }
+
+  async function downloadWav(song: Song) {
+    if (exportingId) return;
+    // Export and live playback share Tone's sample cache — stop playback first.
+    stopSong();
+    setPlayingId(null);
+    setExportingId(song.id);
+    try {
+      // vocalBuffer is only in memory for the most recently recorded song;
+      // historical logbook songs will render without the vocal stem.
+      const wav = await renderSongToWav(song, vocalBuffer);
+      downloadWavBlob(wav, song.name);
+    } catch (err) {
+      console.error("[logbook] export failed:", err);
+      alert("Download failed — check the console for details.");
+    } finally {
+      setExportingId(null);
+    }
   }
 
   return (
@@ -79,6 +99,15 @@ export function Logbook() {
                   )}
                 </div>
               </div>
+              <button
+                className="btn-ghost text-[11px]"
+                onClick={() => downloadWav(s)}
+                disabled={exportingId !== null}
+                title="Download as 48 kHz / 24-bit WAV"
+                style={exportingId === s.id ? { opacity: 0.6, cursor: "wait" } : undefined}
+              >
+                {exportingId === s.id ? "⏳ rendering…" : "⬇ .wav"}
+              </button>
               <button
                 className="btn-ghost text-[11px]"
                 onClick={() => {

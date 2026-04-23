@@ -56,14 +56,16 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
   /**
    * Tap-to-dismiss: skip straight to exit animation, then notify parent.
    * doneRef guard prevents double-firing if the auto-timer finishes at
-   * roughly the same time as the click.
+   * roughly the same time as the click. Uses a short 200ms exit so the
+   * toast feels responsive when the user explicitly dismisses it (vs
+   * the natural 400ms auto-exit at the end of the timer).
    */
   function handleDismiss() {
     if (doneRef.current) return;
     setPhase("exit");
     setTimeout(() => {
       if (!doneRef.current) { doneRef.current = true; onDone(); }
-    }, 400);
+    }, 200);
   }
 
   if (!ach) return null;
@@ -108,9 +110,10 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
           transform: translateX,
           opacity,
           transition: "transform 0.45s cubic-bezier(0.22,1,0.36,1), opacity 0.4s ease, bottom 0.35s ease",
-          // "auto" while visible so the tap registers; "none" during enter/exit
-          // so accidental grazes against the slide-in animation don't dismiss.
-          pointerEvents: phase === "visible" ? "auto" : "none",
+          // Clickable during enter AND visible phases so even a quick tap
+          // during the slide-in dismisses the toast. Only "exit" disables
+          // pointer events (toast is already on its way out).
+          pointerEvents: phase === "exit" ? "none" : "auto",
           cursor: "pointer",
           // iOS: suppress the grey tap-highlight flash on the toast card
           WebkitTapHighlightColor: "transparent",

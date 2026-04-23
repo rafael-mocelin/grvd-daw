@@ -20,12 +20,13 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useStore } from "../store/useStore";
+import { useStore, type Stage } from "../store/useStore";
 import { stopSong } from "../audio/engine";
-import { SHELL, SKINS, nextSkin, type Skin, type SkinId } from "../shell/skins";
+import { SHELL, SKINS, type Skin } from "../shell/skins";
 import { StatsPanel } from "./StatsPanel";
 import { CornerEye } from "./CornerEye";
 import { MouthWave } from "./MouthWave";
+import { ScreenTopBar } from "./EnergyMeter";
 import { useAudioLevel } from "../hooks/useAudioLevel";
 import { useSharedGaze } from "../hooks/useSharedGaze";
 import type { Mood } from "../data/types";
@@ -204,8 +205,8 @@ export function DeviceShell({ children }: { children: ReactNode }) {
   const {
     tamagotchi, inventory, stage, setStage,
     sessionStartedAt, toggleLogbook, toggleStats, showStats,
-    skinId, setSkin, isPlaying, canvasZoom, setCanvasZoom,
-    totalXP, moodOverride,
+    skinId, canvasZoom, setCanvasZoom,
+    totalXP, moodOverride, dawTalk,
   } = useStore();
 
   // Live master audio level — drives Corner Eye pupil scaling & beat bars.
@@ -213,12 +214,78 @@ export function DeviceShell({ children }: { children: ReactNode }) {
   // Single shared gaze target — both eyes converge on the same point.
   const gazeRef = useSharedGaze();
 
-  // UI zoom (for non-canvas stages — template picker, crib, booth, etc.)
-  const [uiZoom, setUiZoom] = useState(1.0);
   const MIN_ZOOM = 0.35;
   const MAX_ZOOM = 2.0;
 
+  /* UI zoom — per-stage, persisted to localStorage.
+   *
+   * Each non-canvas stage keeps its own zoom level. The booth intentionally
+   * defaults to 1.4 because the blind-listen card is dense (progress bar,
+   * avatar, title, stars, push button) and benefits from the extra scale.
+   * Everything else defaults to 1.0. Whatever the user leaves a stage at
+   * is what they come back to — both within a session and across refreshes.
+   *
+   * Canvas stages (stack/vocal/name) use `canvasZoom` from the store
+   * instead — that already persists per-session because the store itself
+   * survives within the SPA. Kept separate so the creation canvas doesn't
+   * get yanked into UI zoom math.
+   */
+  const STAGE_DEFAULT_ZOOM: Partial<Record<Stage, number>> = {
+    booth: 1.4,
+  };
+  const GLOBAL_DEFAULT_ZOOM = 1.0;
+
+  const [zoomByStage, setZoomByStage] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem("grvd-zoom-by-stage");
+      if (saved) return JSON.parse(saved) as Record<string, number>;
+    } catch { /* private mode / corrupted json */ }
+    return {};
+  });
+
+  const uiZoom =
+    zoomByStage[stage] ??
+    STAGE_DEFAULT_ZOOM[stage as Stage] ??
+    GLOBAL_DEFAULT_ZOOM;
+
+  function setUiZoom(nextOrFn: number | ((z: number) => number)) {
+    setZoomByStage((prev) => {
+      const cur =
+        prev[stage] ??
+        STAGE_DEFAULT_ZOOM[stage as Stage] ??
+        GLOBAL_DEFAULT_ZOOM;
+      const next =
+        typeof nextOrFn === "function" ? nextOrFn(cur) : nextOrFn;
+      const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next));
+      const updated = { ...prev, [stage]: clamped };
+      try {
+        localStorage.setItem("grvd-zoom-by-stage", JSON.stringify(updated));
+      } catch { /* ignore quota / private-mode errors */ }
+      return updated;
+    });
+  }
+
   const inCanvas = CANVAS_STAGES.has(stage);
+
+  /* The mouth now stretches across the whole top shell. We measure the
+   * available row width with a ResizeObserver so the wave fills whatever
+   * space is between the left and right shell sides. */
+  const mouthRowRef = useRef<HTMLDivElement | null>(null);
+  const [mouthWidth, setMouthWidth] = useState<number>(720);
+  useEffect(() => {
+    const el = mouthRowRef.current;
+    if (!el) return;
+    const readWidth = () => {
+      const rect = el.getBoundingClientRect();
+      // 18px padding on each side, subtract to get inner usable width.
+      const inner = Math.max(280, Math.floor(rect.width - 36));
+      setMouthWidth(inner);
+    };
+    readWidth();
+    const ro = new ResizeObserver(readWidth);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Ctrl+scroll — delegate to canvas zoom in canvas stages, else UI zoom
   useEffect(() => {
@@ -229,7 +296,8 @@ export function DeviceShell({ children }: { children: ReactNode }) {
       if (inCanvas) {
         setCanvasZoom(Math.max(0.18, Math.min(2.0, (canvasZoom || 0.6) + delta * 35)));
       } else {
-        setUiZoom((z) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z + delta)));
+        // setUiZoom already clamps to [MIN_ZOOM, MAX_ZOOM] and persists.
+        setUiZoom((z) => z + delta);
       }
     };
     window.addEventListener("wheel", onWheel, { passive: false });
@@ -311,6 +379,8 @@ export function DeviceShell({ children }: { children: ReactNode }) {
             {children}
           </div>
         </div>
+        {/* Persistent Energy + XP strip at the top of the screen, above scroll content. */}
+        <ScreenTopBar />
       </div>
 
       {/* Screen edge ring */}
@@ -361,49 +431,28 @@ export function DeviceShell({ children }: { children: ReactNode }) {
           />
         </div>
 
-        {/* CENTER: logo + skin selector + status LEDs — absolutely centered
-           between the two eye housings so they don't push the layout around. */}
-        <div style={{
-          position: "absolute",
-          top: 0, bottom: 0,
-          left: SHELL.EYE_HOUSING_SIZE + 8,
-          right: SHELL.EYE_HOUSING_SIZE + 8,
-          display: "flex", flexDirection: "column",
-          alignItems: "center", justifyContent: "center",
-          gap: 6,
-          minWidth: 0,
-          pointerEvents: "none", // only the button inside should be interactive
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <MoodLED color={glow} />
-            <span style={{
-              fontFamily: "monospace",
-              fontWeight: 900,
-              fontSize: 16,
-              letterSpacing: "0.45em",
-              textTransform: "uppercase",
-              color: skin.shellLight,
-              textShadow: `0 0 20px ${skin.accent}99, 0 0 6px ${skin.accent}55`,
-            }}>GRVD</span>
-            <MoodLED color={skin.accent} />
-          </div>
-          <button
-            onClick={() => setSkin(nextSkin(skinId))}
-            title="cycle skin"
-            style={{
-              fontFamily: "monospace", fontSize: 8, fontWeight: 900,
-              letterSpacing: "0.2em", textTransform: "uppercase",
-              color: skin.accent,
-              background: `${skin.accent}22`,
-              border: `1.5px solid ${skin.accent}55`,
-              borderRadius: 5, padding: "2px 10px",
-              cursor: "pointer", transition: "all 0.18s",
-              boxShadow: `0 0 8px ${skin.accent}33`,
-              pointerEvents: "auto",
-            }}
-          >
-            {skin.name}
-          </button>
+        {/* The GRVD logo + skin selector used to live here, centered between
+         * the eye housings. We removed them for a cleaner face — the mouth
+         * below the eyes now owns this row. Skin selection moved into the
+         * Admin Panel (see AdminPanel.tsx). */}
+
+        {/* MOUTH ROW — sits inside the top shell, below the eye row, and now
+         * stretches nearly the full width of the device for a big, expressive
+         * mouth. Measured with a ResizeObserver in an effect so it tracks
+         * window width live. The mouth doubles as a scrolling-text ticker. */}
+        <div
+          ref={mouthRowRef}
+          style={{
+            position: "absolute",
+            top: SHELL.EYE_ROW_HEIGHT,
+            bottom: 0,
+            left: 0, right: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "0 18px",
+            pointerEvents: "none",
+          }}
+        >
+          <MouthWave mood={mood} color={glow} width={mouthWidth} height={64} talk={dawTalk} />
         </div>
       </div>
 
@@ -461,7 +510,7 @@ export function DeviceShell({ children }: { children: ReactNode }) {
         <button
           onClick={() => inCanvas
             ? setCanvasZoom(Math.min(2.0, +((canvasZoom || 0.6) + 0.1).toFixed(2)))
-            : setUiZoom(z => Math.min(MAX_ZOOM, +(z + 0.1).toFixed(1)))
+            : setUiZoom(z => +(z + 0.1).toFixed(1))
           }
           style={zoomBtnStyle(skin)}
         >+</button>
@@ -479,7 +528,7 @@ export function DeviceShell({ children }: { children: ReactNode }) {
         <button
           onClick={() => inCanvas
             ? setCanvasZoom(Math.max(0.18, +((canvasZoom || 0.6) - 0.1).toFixed(2)))
-            : setUiZoom(z => Math.max(MIN_ZOOM, +(z - 0.1).toFixed(1)))
+            : setUiZoom(z => +(z - 0.1).toFixed(1))
           }
           style={zoomBtnStyle(skin)}
         >−</button>
@@ -534,44 +583,28 @@ export function DeviceShell({ children }: { children: ReactNode }) {
         </button>
 
         {/* ── Button row ──
-         * Three-zone layout: left flex, centered mouth (shrink-to-content),
-         * right flex. Left and right both use flex:1 with opposite justification
-         * so the mouth ends up EXACTLY centered regardless of the nav/beat sizes.
+         * The mouth has moved up into the top shell (below the eye row), so
+         * this bottom row now just holds nav buttons on the left and the
+         * beat indicator on the right. To roll the mouth back down, reinstate
+         * the three-zone layout and put <MouthWave … /> in the middle cell.
          */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* Left: nav buttons */}
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 8 }}>
-            <PhysBtn label="←" title="home" onClick={() => { stopSong(); setStage("crib"); }} active={stage === "crib"} skin={skin} />
+            <PhysBtn label="←" title="home" onClick={() => { stopSong(); setStage("home"); }} active={stage === "home"} skin={skin} />
             <PhysBtn label="📓" title="logbook" onClick={toggleLogbook} skin={skin} />
             <PhysBtn label="🎧" title="booth" onClick={() => setStage("booth")} active={stage === "booth"} skin={skin} />
           </div>
 
-          {/* Center: companion mouth — a live audio waveform in a display frame */}
-          <div style={{
-            flexShrink: 0,
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-          }}>
-            <MouthWave mood={mood} color={glow} width={340} height={64} />
-          </div>
-
-          {/* Right: beat indicator (replaces non-functional A/B/C) */}
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+          {/* Right: beat indicator — just the bars, no live/idle label */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
             <div style={{
               display: "flex", alignItems: "center",
               background: "rgba(0,0,0,0.25)",
               border: "1px solid rgba(255,255,255,0.06)",
               borderRadius: 8, padding: "4px 10px",
-              gap: 6,
             }}>
               <BeatIndicator accent={skin.accent} audioLevelRef={audioLevelRef} />
-              <span style={{
-                fontFamily: "monospace", fontSize: 7, fontWeight: 700,
-                color: isPlaying ? skin.accent : "rgba(255,255,255,0.15)",
-                letterSpacing: "0.08em", textTransform: "uppercase",
-                transition: "color 0.3s",
-              }}>
-                {isPlaying ? "live" : "idle"}
-              </span>
             </div>
           </div>
         </div>
@@ -634,17 +667,6 @@ function zoomBtnStyle(skin: Skin): React.CSSProperties {
     display: "flex", alignItems: "center", justifyContent: "center",
     fontFamily: "monospace", fontWeight: 700, transition: "all 0.1s",
   };
-}
-
-function MoodLED({ color }: { color: string }) {
-  return (
-    <div style={{
-      width: 6, height: 6, borderRadius: "50%",
-      background: color,
-      boxShadow: `0 0 10px ${color}, 0 0 4px ${color}`,
-      transition: "all 1.2s",
-    }} />
-  );
 }
 
 function ShellTexture({ skin }: { skin: Skin }) {

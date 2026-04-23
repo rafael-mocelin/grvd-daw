@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore } from "./store/useStore";
+import { Home } from "./components/Home";
 import { Crib } from "./components/Crib";
 import { TemplatePicker } from "./components/TemplatePicker";
 import { Done } from "./components/Done";
@@ -25,7 +26,7 @@ const CANVAS_STAGES = new Set(["stack", "vocal", "name"]);
 
 /** Inner app — rendered for both signed-in users AND guests. */
 function AppCore() {
-  const { stage, showLogbook, applyDailyDecay, setUserId } = useStore();
+  const { stage, showLogbook, applyDailyDecay, setUserId, setSkin } = useStore();
   const { user } = useAuth();
   const [samplesReady, setSamplesReady] = useState(false);
 
@@ -34,6 +35,19 @@ function AppCore() {
   useEffect(() => {
     setUserId(user?.id ?? null);
   }, [user, setUserId]);
+
+  // Hydrate the saved skin choice from localStorage on mount. Pure cosmetic
+  // pref, so browser-local persistence is enough — see note on setSkin.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("grvd-skin");
+      if (saved && ["void", "sakura", "chrome", "forest", "gold"].includes(saved)) {
+        setSkin(saved as never);
+      }
+    } catch {
+      /* private mode / quota errors — fail silently */
+    }
+  }, [setSkin]);
 
   useEffect(() => {
     applyDailyDecay();
@@ -60,6 +74,7 @@ function AppCore() {
         {CANVAS_STAGES.has(stage) && <CanvasBoard />}
 
         {/* Full-screen single-view stages */}
+        {stage === "home"     && <Home />}
         {stage === "crib"     && <Crib />}
         {stage === "template" && <TemplatePicker />}
         {stage === "done"     && <Done />}

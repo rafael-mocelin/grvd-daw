@@ -17,7 +17,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store/useStore";
-import { TamagotchiFace } from "./TamagotchiFace";
 import { NeedsMeters } from "./NeedsMeters";
 import { SOUNDS, getSound } from "../data/sounds";
 import type { LayerKind } from "../data/types";
@@ -40,10 +39,10 @@ export function StackingView() {
     tamagotchi,
     setIsPlaying,
     addXP,
+    sayLine,
   } = useStore();
 
   const [playing,     setPlaying]     = useState(false);
-  const [talk,        setTalk]        = useState<string>("");
   const [needsOpen,   setNeedsOpen]   = useState(false);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
 
@@ -145,8 +144,8 @@ export function StackingView() {
       // First time picking this kind → award XP
       const xp = LAYER_XP[kind] ?? 0;
       if (xp > 0) addXP(xp, KIND_LABEL[kind], clickX, clickY);
-      setTalk(reactionLine(kind));
-      setTimeout(() => setTalk(""), 2200);
+      // DAW's reaction appears in the speech bubble above the mouth.
+      sayLine(reactionLine(kind), 2200);
     }
     stopPreview();
     await startPlayback(tpl, updatedLayers);
@@ -164,8 +163,6 @@ export function StackingView() {
         flexShrink: 0,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <TamagotchiFace mood={tamagotchi.mood} talk={talk || undefined} size={52} compact />
-
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* Template chip */}
             <div style={{
@@ -207,20 +204,8 @@ export function StackingView() {
             <button onClick={abandon} style={pillBtn("rgba(255,255,255,0.06)")}>✕</button>
           </div>
         </div>
-
-        {/* Companion talk bubble */}
-        {talk && (
-          <div style={{
-            marginTop: 8,
-            fontFamily: "monospace", fontSize: 11,
-            color: "rgba(255,255,255,0.7)",
-            background: "rgba(124,58,237,0.12)",
-            border: "1px solid rgba(124,58,237,0.25)",
-            borderRadius: 8, padding: "5px 10px",
-          }}>
-            {talk}
-          </div>
-        )}
+        {/* DAW reactions (e.g. "that's fat.") now appear in the speech bubble
+            above the MouthWave at the bottom of the shell. */}
       </div>
 
       {/* ── Recipe strip: horizontal scrollable step pills ── */}

@@ -1,5 +1,5 @@
+import { useEffect } from "react";
 import { useStore } from "../store/useStore";
-import { TamagotchiFace } from "./TamagotchiFace";
 import { NeedsMeters } from "./NeedsMeters";
 
 /**
@@ -8,7 +8,8 @@ import { NeedsMeters } from "./NeedsMeters";
  * bedroom; here it's the welcome state. Pulls the DAW out of sleep.
  */
 export function Crib() {
-  const { tamagotchi, setStage, feedNeed, inventory, toggleLogbook } = useStore();
+  const { tamagotchi, setStage, feedNeed, inventory, toggleLogbook, sayLine } =
+    useStore();
   const mood = tamagotchi.mood;
   const isFirstSession = inventory.length === 0;
 
@@ -22,11 +23,16 @@ export function Crib() {
     lonely: "take me somewhere. let's see some people.",
   };
 
+  // Push the mood line into the DAW's "mouth" speech bubble at the bottom
+  // of the shell. Persists while on the crib — cleared on unmount.
+  useEffect(() => {
+    sayLine(talkLines[mood]);
+    return () => sayLine(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mood, sayLine]);
+
   return (
     <div className="flex flex-col items-center gap-5 p-4 pt-5">
-      {/* Tamagotchi face — centrepiece */}
-      <TamagotchiFace mood={mood} talk={talkLines[mood]} size={110} />
-
       <NeedsMeters tam={tamagotchi} />
 
       {/* Care buttons */}
