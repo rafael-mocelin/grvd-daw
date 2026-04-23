@@ -13,11 +13,17 @@
  * Then sign out and back in.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { useStore } from "../store/useStore";
 import type { Mood } from "../data/types";
 import { SKINS, SKIN_ORDER, type SkinId } from "../shell/skins";
+import {
+  fetchGameConfig,
+  adminSetGameConfig,
+  type EarlyEarThreshold,
+  type ArtistBoostConfig,
+} from "../lib/game-db";
 
 const MOODS: Mood[] = ["hyped", "happy", "chill", "sleepy", "asleep", "sad", "lonely"];
 
@@ -295,6 +301,9 @@ export function AdminPanel() {
             })}
           </div>
 
+          {/* GAME CONFIG — live tuning for Slice 2 thresholds */}
+          <GameConfigEditor />
+
           {/* RESETS */}
           <div style={{
             fontSize: 9, letterSpacing: "0.12em",
@@ -363,3 +372,236 @@ export function AdminPanel() {
     </>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* GameConfigEditor — read + write game_config rows from inside the panel.     */
+/*                                                                             */
+/* Two rows today:                                                              */
+/*   early_ear_threshold  — when a song trips the retroactive XP bonus for    */
+/*                          early-ear tastemakers.                             */
+/*   artist_boost         — how much energy an artist gets per endorsement,   */
+/*                          and the daily cap.                                 */
+/*                                                                             */
+/* Reads use the public game_config table. Writes go through                  */
+/* admin_set_game_config RPC (app_metadata.role = 'admin' check server-side). */
+/* -------------------------------------------------------------------------- */
+
+function GameConfigEditor() {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{
+        fontSize: 9, letterSpacing: "0.12em",
+        color: "rgba(250,204,21,0.75)", textTransform: "uppercase",
+        marginBottom: 6,
+      }}>
+        game config (live)
+      </div>
+
+      <EarlyEarEditor />
+      <ArtistBoostEditor />
+    </div>
+  );
+}
+
+/* ---- Early-ear threshold row ---- */
+
+function EarlyEarEditor() {
+  const [value, setValue] = useState<EarlyEarThreshold | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  useEffect(() => {
+    fetchGameConfig<EarlyEarThreshold>("early_ear_threshold").then(setValue);
+  }, []);
+
+  async function save() {
+    if (!value) return;
+    setSaving(true);
+    const r = await adminSetGameConfig("early_ear_threshold", value);
+    setSaving(false);
+    if (r) {
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1800);
+    }
+  }
+
+  if (!value) return <div style={cfgLoading}>loading early-ear threshold…</div>;
+
+  return (
+    <div style={cfgBlock}>
+      <div style={cfgTitle}>early-ear bonus threshold</div>
+      <ConfigNumberField
+        label="min ratings"
+        hint="how many 1–5★ ratings before a song is 'popular'"
+        value={value.min_ratings}
+        onChange={(n) => setValue({ ...value, min_ratings: n })}
+      />
+      <ConfigNumberField
+        label="min avg stars"
+        hint="and the average stars must be at least this"
+        step={0.1}
+        value={value.min_avg_stars}
+        onChange={(n) => setValue({ ...value, min_avg_stars: n })}
+      />
+      <ConfigNumberField
+        label="min endorsements"
+        hint="OR this many pushes, whichever trips first"
+        value={value.min_endorsements}
+        onChange={(n) => setValue({ ...value, min_endorsements: n })}
+      />
+      <ConfigNumberField
+        label="bonus xp"
+        hint="xp awarded to each early-ear when the song trips"
+        value={value.bonus_xp}
+        onChange={(n) => setValue({ ...value, bonus_xp: n })}
+      />
+      <SaveRow saving={saving} justSaved={justSaved} onSave={save} />
+    </div>
+  );
+}
+
+/* ---- Artist boost row ---- */
+
+function ArtistBoostEditor() {
+  const [value, setValue] = useState<ArtistBoostConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  useEffect(() => {
+    fetchGameConfig<ArtistBoostConfig>("artist_boost").then(setValue);
+  }, []);
+
+  async function save() {
+    if (!value) return;
+    setSaving(true);
+    const r = await adminSetGameConfig("artist_boost", value);
+    setSaving(false);
+    if (r) {
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1800);
+    }
+  }
+
+  if (!value) return <div style={cfgLoading}>loading artist boost…</div>;
+
+  return (
+    <div style={cfgBlock}>
+      <div style={cfgTitle}>artist boost (on being endorsed)</div>
+      <ConfigNumberField
+        label="energy / push"
+        hint="⚡ the artist gains each time a fan pushes their song"
+        value={value.energy_per_endorsement}
+        onChange={(n) => setValue({ ...value, energy_per_endorsement: n })}
+      />
+      <ConfigNumberField
+        label="daily cap ⚡"
+        hint="max energy an artist can gain from endorsements per UTC day"
+        value={value.daily_cap_energy}
+        onChange={(n) => setValue({ ...value, daily_cap_energy: n })}
+      />
+      <SaveRow saving={saving} justSaved={justSaved} onSave={save} />
+    </div>
+  );
+}
+
+/* ---- Shared pieces ---- */
+
+function ConfigNumberField({
+  label, hint, value, onChange, step = 1,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  onChange: (n: number) => void;
+  step?: number;
+}) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
+          {label}
+        </span>
+        <input
+          type="number"
+          value={value}
+          step={step}
+          onChange={(e) => onChange(Number(e.target.value))}
+          style={{
+            width: 68,
+            padding: "3px 6px",
+            background: "rgba(0,0,0,0.4)",
+            border: "1px solid rgba(250,204,21,0.4)",
+            borderRadius: 4,
+            color: "#fff",
+            fontFamily: "monospace",
+            fontSize: 11,
+            fontVariantNumeric: "tabular-nums",
+            textAlign: "right",
+          }}
+        />
+      </div>
+      {hint && (
+        <span style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", lineHeight: 1.3 }}>
+          {hint}
+        </span>
+      )}
+    </label>
+  );
+}
+
+function SaveRow({
+  saving, justSaved, onSave,
+}: {
+  saving: boolean;
+  justSaved: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <button
+      onClick={onSave}
+      disabled={saving}
+      style={{
+        width: "100%",
+        padding: "6px 0",
+        marginTop: 4,
+        background: justSaved ? "rgba(74,222,128,0.2)" : "rgba(250,204,21,0.18)",
+        border: `1px solid ${justSaved ? "rgba(74,222,128,0.6)" : "rgba(250,204,21,0.5)"}`,
+        borderRadius: 5,
+        color: justSaved ? "#4ade80" : "#facc15",
+        fontFamily: "monospace",
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+        cursor: saving ? "wait" : "pointer",
+      }}
+    >
+      {saving ? "saving…" : justSaved ? "saved ✓" : "save"}
+    </button>
+  );
+}
+
+const cfgBlock: React.CSSProperties = {
+  padding: 8,
+  marginBottom: 8,
+  background: "rgba(0,0,0,0.2)",
+  border: "1px solid rgba(255,255,255,0.06)",
+  borderRadius: 6,
+};
+
+const cfgTitle: React.CSSProperties = {
+  fontSize: 10,
+  color: "rgba(250,204,21,0.85)",
+  fontFamily: "monospace",
+  letterSpacing: "0.06em",
+  marginBottom: 6,
+  textTransform: "uppercase",
+};
+
+const cfgLoading: React.CSSProperties = {
+  padding: 8,
+  fontSize: 9,
+  color: "rgba(255,255,255,0.3)",
+  fontFamily: "monospace",
+  fontStyle: "italic",
+};
