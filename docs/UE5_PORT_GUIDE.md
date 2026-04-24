@@ -158,6 +158,46 @@ In Unreal we'll wrap this in a `USupabaseSubsystem` that owns the JWT, refreshes
 
 ---
 
+## Phase 4 realtime — what Unreal needs to do
+
+**Session lifecycle.** `coop_sessions` table with `pending`, `active`,
+`abandoned` status. RPCs (`create_coop_session`, `accept_coop_invite`,
+`join_coop_by_code`, `leave_coop_session`) are the only write path. All
+enforce `auth.uid()` server-side. Unreal calls these over HTTPS
+identically to the web client.
+
+**Shared state.** `coop_sessions.state` is a `jsonb` blob containing the
+DAW song-in-progress. Unreal deserializes into a
+`USTRUCT(BlueprintType) FCoopSessionState` with `FJsonObjectConverter::
+JsonObjectStringToUStruct`. Mutations are PATCH-writes (delta, not
+whole state) to keep bandwidth small.
+
+**Realtime fanout.** Supabase uses the Phoenix WebSocket protocol for
+Realtime. In Unreal this is a `UWebSocketsSubsystem` connection to
+`wss://<project>.supabase.co/realtime/v1/websocket` with the JWT and
+the Postgres-changes channel topic. A thin wrapper parses the incoming
+JSON and applies row deltas to the local `FCoopSessionState`. The
+reference protocol doc lives on Supabase's site.
+
+**Presence.** Supabase Presence is a separate channel on the same
+WebSocket. Each client broadcasts a transient payload (cursor x, y,
+seat color, ping). In Unreal this is a replicated `AGhostPointer`
+actor per seat, driven by the Presence payload — no server round-trip
+on every frame.
+
+**Conflict resolution.** Last-writer-wins for v1. When both clients
+write `state.song_name` simultaneously, the later write wins; the
+earlier writer's copy updates from the Realtime fanout. Acceptable
+because DAW interactions are coarse. If playtests reveal pain, we
+add a field-level vector clock or CRDT. Don't pre-optimize.
+
+**Anything else tied to multiplayer?** Not yet. Coop doesn't touch
+inventory, edit-locking, or per-seat audio mute — those are Phase 5
+and add their own Supabase tables + RPCs. When they land they follow
+the exact same pattern: server is truth, client is view.
+
+---
+
 ## What this means in practice
 
 You don't have to decide "how does the economy work" when you port. That's already decided and enforced on the server. You just have to decide "how does this look and feel in Unreal."
