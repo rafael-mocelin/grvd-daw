@@ -380,6 +380,7 @@ function StatCard({
 }
 
 function DropRow({ song }: { song: PublishedSong }) {
+  const isGroup = song.collaboratorNames.length > 0;
   return (
     <div
       style={{
@@ -406,6 +407,24 @@ function DropRow({ song }: { song: PublishedSong }) {
           }}
         >
           {song.title}
+          {isGroup && (
+            <span
+              style={{
+                marginLeft: 6,
+                fontFamily: "monospace",
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: "0.12em",
+                color: "#facc15",
+                padding: "1px 5px",
+                borderRadius: 4,
+                border: "1px solid rgba(250,204,21,0.4)",
+                verticalAlign: "middle",
+              }}
+            >
+              GROUP
+            </span>
+          )}
         </div>
         <div
           style={{
@@ -414,7 +433,9 @@ function DropRow({ song }: { song: PublishedSong }) {
             color: "rgba(255,255,255,0.5)",
           }}
         >
-          {song.bpm ? `${song.bpm} BPM` : ""}{song.bpm && song.keyRoot ? " · " : ""}{song.keyRoot ?? ""}
+          {isGroup
+            ? `with ${song.collaboratorNames.join(" × ")}`
+            : `${song.bpm ? `${song.bpm} BPM` : ""}${song.bpm && song.keyRoot ? " · " : ""}${song.keyRoot ?? ""}`}
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>

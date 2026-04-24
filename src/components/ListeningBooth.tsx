@@ -330,6 +330,16 @@ export function ListeningBooth() {
                 }}
               >
                 {song.artistName}
+                {/* Phase 5.A — group attribution. Tap the primary artist
+                 * to open their profile; collaborators are listed inline
+                 * but non-tappable for now (future iteration: make each
+                 * name its own tappable link). */}
+                {song.collaboratorNames.length > 0 && (
+                  <span style={{ opacity: 0.7 }}>
+                    {" × "}
+                    {song.collaboratorNames.join(" × ")}
+                  </span>
+                )}
               </button>
               <div
                 style={{

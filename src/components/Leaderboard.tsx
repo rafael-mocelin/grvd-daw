@@ -258,20 +258,25 @@ function SongsList({ rows, onPlay }: { rows: LeaderboardSong[]; onPlay: () => vo
   }
   return (
     <div style={listContainer}>
-      {rows.map((row, i) => (
-        <Row
-          key={row.songId}
-          rank={i + 1}
-          avatar={row.artistAvatar}
-          title={row.title}
-          sub={`${row.artistName}${row.bpm ? ` · ${row.bpm} BPM` : ""}${row.keyRoot ? ` · ${row.keyRoot}` : ""}`}
-          primary={`★ ${row.avgStarsThisWeek > 0 ? row.avgStarsThisWeek.toFixed(1) : "–"}`}
-          secondary={`${row.ratingsThisWeek} rating${row.ratingsThisWeek === 1 ? "" : "s"} · 🔥 ${row.endorsementsThisWeek}`}
-          score={row.score}
-          accent="#22d3ee"
-          onClick={() => row.artistId && openProfile(row.artistId)}
-        />
-      ))}
+      {rows.map((row, i) => {
+        const byLine = row.collaboratorNames.length > 0
+          ? `${row.artistName} × ${row.collaboratorNames.join(" × ")}`
+          : row.artistName;
+        return (
+          <Row
+            key={row.songId}
+            rank={i + 1}
+            avatar={row.artistAvatar}
+            title={row.title}
+            sub={`${byLine}${row.bpm ? ` · ${row.bpm} BPM` : ""}${row.keyRoot ? ` · ${row.keyRoot}` : ""}`}
+            primary={`★ ${row.avgStarsThisWeek > 0 ? row.avgStarsThisWeek.toFixed(1) : "–"}`}
+            secondary={`${row.ratingsThisWeek} rating${row.ratingsThisWeek === 1 ? "" : "s"} · 🔥 ${row.endorsementsThisWeek}`}
+            score={row.score}
+            accent="#22d3ee"
+            onClick={() => row.artistId && openProfile(row.artistId)}
+          />
+        );
+      })}
       <div
         onClick={onPlay}
         style={{
