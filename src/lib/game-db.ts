@@ -24,6 +24,18 @@ export interface PublishedSong {
    * happy (no runtime join) and let each drop carry its own identity.
    */
   artistAvatar: string;
+  /**
+   * Additional author uuids beyond `artistId` (Phase 5.A). Populated when
+   * a coop session publishes — currently always 2-element for host+guest
+   * coop, but the schema supports N. Empty array for solo drops.
+   */
+  collaboratorIds: string[];
+  /**
+   * Usernames snapshotted at publish time, 1:1 with collaboratorIds. Used
+   * for display without a runtime join; falls back to "anon" for profiles
+   * that don't have a username.
+   */
+  collaboratorNames: string[];
   audioUrl: string | null;
   waveformUrl: string | null;
   bpm: number | null;
@@ -119,7 +131,7 @@ export async function fetchPublishedCatalog(
   let q = supabase
     .from("song_publication_stats")
     .select(
-      "song_id,title,artist_id,artist_name,artist_avatar,audio_url,waveform_url,bpm,key_root,duration_sec,published_at,rating_count,avg_stars,endorsement_count"
+      "song_id,title,artist_id,artist_name,artist_avatar,audio_url,waveform_url,bpm,key_root,duration_sec,published_at,rating_count,avg_stars,endorsement_count,collaborator_ids,collaborator_names"
     )
     .order("published_at", { ascending: false })
     .limit(limit);
@@ -134,20 +146,22 @@ export async function fetchPublishedCatalog(
   }
 
   return (data ?? []).map((row) => ({
-    songId:          row.song_id ?? "",
-    title:           row.title ?? "Untitled",
-    artistId:        row.artist_id ?? "",
-    artistName:      row.artist_name ?? "unknown",
-    artistAvatar:    row.artist_avatar ?? "🎧",
-    audioUrl:        row.audio_url,
-    waveformUrl:     row.waveform_url,
-    bpm:             row.bpm,
-    keyRoot:         row.key_root,
-    durationSec:     row.duration_sec,
-    publishedAt:     row.published_at ?? new Date().toISOString(),
-    ratingCount:     row.rating_count ?? 0,
-    avgStars:        row.avg_stars ?? 0,
-    endorsementCount: row.endorsement_count ?? 0,
+    songId:            row.song_id ?? "",
+    title:             row.title ?? "Untitled",
+    artistId:          row.artist_id ?? "",
+    artistName:        row.artist_name ?? "unknown",
+    artistAvatar:      row.artist_avatar ?? "🎧",
+    collaboratorIds:   row.collaborator_ids ?? [],
+    collaboratorNames: row.collaborator_names ?? [],
+    audioUrl:          row.audio_url,
+    waveformUrl:       row.waveform_url,
+    bpm:               row.bpm,
+    keyRoot:           row.key_root,
+    durationSec:       row.duration_sec,
+    publishedAt:       row.published_at ?? new Date().toISOString(),
+    ratingCount:       row.rating_count ?? 0,
+    avgStars:          row.avg_stars ?? 0,
+    endorsementCount:  row.endorsement_count ?? 0,
   }));
 }
 
@@ -294,10 +308,12 @@ export async function uploadSongAudio(
 export async function publishSongRpc(
   songId: string,
   audioUrl: string,
+  collaboratorIds: string[] = [],
 ): Promise<PublishSongResult | null> {
   const { data, error } = await supabase.rpc("publish_song", {
-    p_song_id:   songId,
-    p_audio_url: audioUrl,
+    p_song_id:         songId,
+    p_audio_url:       audioUrl,
+    p_collaborator_ids: collaboratorIds,
   });
   if (error) {
     console.error("[game-db] publishSongRpc:", error.message);
@@ -465,6 +481,8 @@ export interface LeaderboardSong {
   artistId: string;
   artistName: string;
   artistAvatar: string;
+  /** Phase 5.A: non-empty for coop-authored drops. */
+  collaboratorNames: string[];
   audioUrl: string | null;
   bpm: number | null;
   keyRoot: string | null;
@@ -500,7 +518,7 @@ export async function fetchTopSongsThisWeek(
   const { data, error } = await supabase
     .from("weekly_song_score")
     .select(
-      "song_id,title,artist_id,artist_name,artist_avatar,audio_url,bpm,key_root,duration_sec,ratings_this_week,avg_stars_this_week,endorsements_this_week,score"
+      "song_id,title,artist_id,artist_name,artist_avatar,audio_url,bpm,key_root,duration_sec,ratings_this_week,avg_stars_this_week,endorsements_this_week,score,collaborator_names"
     )
     .order("score", { ascending: false, nullsFirst: false })
     .limit(limit);
@@ -516,6 +534,7 @@ export async function fetchTopSongsThisWeek(
     artistId:             row.artist_id ?? "",
     artistName:           row.artist_name ?? "unknown",
     artistAvatar:         row.artist_avatar ?? "🎧",
+    collaboratorNames:    row.collaborator_names ?? [],
     audioUrl:             row.audio_url,
     bpm:                  row.bpm,
     keyRoot:              row.key_root,

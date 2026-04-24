@@ -23,30 +23,39 @@ export type Database = {
     Tables: {
       coop_sessions: {
         Row: {
+          accepted_at: string | null
           created_at: string
           guest_id: string | null
           host_id: string
           id: string
+          invited_at: string
+          invited_user_id: string | null
           join_code: string
           state: Json
           status: string
           updated_at: string
         }
         Insert: {
+          accepted_at?: string | null
           created_at?: string
           guest_id?: string | null
           host_id: string
           id?: string
+          invited_at?: string
+          invited_user_id?: string | null
           join_code: string
           state?: Json
           status?: string
           updated_at?: string
         }
         Update: {
+          accepted_at?: string | null
           created_at?: string
           guest_id?: string | null
           host_id?: string
           id?: string
+          invited_at?: string
+          invited_user_id?: string | null
           join_code?: string
           state?: Json
           status?: string
@@ -260,6 +269,8 @@ export type Database = {
           artist_name: string
           audio_url: string | null
           bpm: number | null
+          collaborator_ids: string[]
+          collaborator_names: string[]
           duration_sec: number | null
           id: string
           key_root: string | null
@@ -274,6 +285,8 @@ export type Database = {
           artist_name: string
           audio_url?: string | null
           bpm?: number | null
+          collaborator_ids?: string[]
+          collaborator_names?: string[]
           duration_sec?: number | null
           id?: string
           key_root?: string | null
@@ -288,6 +301,8 @@ export type Database = {
           artist_name?: string
           audio_url?: string | null
           bpm?: number | null
+          collaborator_ids?: string[]
+          collaborator_names?: string[]
           duration_sec?: number | null
           id?: string
           key_root?: string | null
@@ -501,6 +516,8 @@ export type Database = {
           audio_url: string | null
           avg_stars: number | null
           bpm: number | null
+          collaborator_ids: string[] | null
+          collaborator_names: string[] | null
           duration_sec: number | null
           endorsement_count: number | null
           key_root: string | null
@@ -542,6 +559,8 @@ export type Database = {
           audio_url: string | null
           avg_stars_this_week: number | null
           bpm: number | null
+          collaborator_ids: string[] | null
+          collaborator_names: string[] | null
           duration_sec: number | null
           endorsements_this_week: number | null
           key_root: string | null
@@ -604,7 +623,11 @@ export type Database = {
         }[]
       }
       publish_song: {
-        Args: { p_song_id: string; p_audio_url: string }
+        Args: {
+          p_song_id: string
+          p_audio_url: string
+          p_collaborator_ids?: string[]
+        }
         Returns: {
           daily_cap: number
           message: string
@@ -636,6 +659,53 @@ export type Database = {
         Args: { p_other_user_id: string }
         Returns: {
           message: string
+          success: boolean
+        }[]
+      }
+      create_coop_session: {
+        Args: { p_invite_user_id?: string }
+        Returns: {
+          id: string
+          join_code: string
+          status: string
+        }[]
+      }
+      accept_coop_invite: {
+        Args: { p_session_id: string }
+        Returns: {
+          message: string
+          status: string
+          success: boolean
+        }[]
+      }
+      decline_coop_invite: {
+        Args: { p_session_id: string }
+        Returns: {
+          message: string
+          success: boolean
+        }[]
+      }
+      join_coop_by_code: {
+        Args: { p_code: string }
+        Returns: {
+          message: string
+          session_id: string
+          status: string
+          success: boolean
+        }[]
+      }
+      leave_coop_session: {
+        Args: { p_session_id: string }
+        Returns: {
+          message: string
+          success: boolean
+        }[]
+      }
+      patch_coop_session_state: {
+        Args: { p_session_id: string; p_patch: Json }
+        Returns: {
+          message: string
+          state: Json
           success: boolean
         }[]
       }

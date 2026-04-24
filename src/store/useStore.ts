@@ -26,6 +26,8 @@ import {
   type PublishSongResult,
 } from "../lib/game-db";
 import { renderSongToWav } from "../audio/engine";
+import { patchCoopState } from "../lib/coop-db";
+import { TEMPLATES } from "../data/templates";
 
 /* -------------------------------------------------------------------------- */
 /* Stage machine — the 60-second journey                                       */
@@ -216,6 +218,34 @@ interface State {
   profileUserId: string | null;
   /** Navigate to the Profile stage in one shot. Pass null/undefined for self. */
   openProfile: (userId?: string | null) => void;
+
+  /**
+   * Coop (Phase 4). Session id of the currently-active coop the user is in,
+   * or null if they're not in a session. The Coop screen subscribes to this
+   * row via Supabase Realtime; Phase 4.2 will use the same subscription to
+   * sync shared DAW state.
+   */
+  activeCoopSessionId: string | null;
+  setActiveCoopSession: (sessionId: string | null) => void;
+  /** Navigate to the Coop stage, optionally entering a specific session. */
+  openCoop: (sessionId?: string | null) => void;
+
+  /**
+   * Internal-ish flag flipped true while we're applying a shared-state blob
+   * that came in from Supabase Realtime. Wrapped store actions (pickTemplate,
+   * pickLayer, setStage, setSongName…) check this and SKIP their coop-sync
+   * write — otherwise we'd bounce the same patch back to the server and
+   * trigger a loop. Not persisted; purely a transient guard.
+   */
+  isApplyingCoopState: boolean;
+  /**
+   * Apply an incoming Phase 4.2 shared-state blob from the coop session.
+   * Called by the useCoopSync hook when a Realtime row change fires.
+   * This mirrors the fields we sync (template, layers, recipe index, song
+   * name, stage) and deliberately ignores local-only fields (vocal buffer,
+   * pitch score, audio-engine state) so each seat keeps its own audio.
+   */
+  applyCoopSharedState: (remote: Record<string, unknown>) => void;
   pickTemplate: (t: Template) => void;
   pickLayer: (kind: LayerKind, variant: string, soundId: string) => void;
   swapLayer: (kind: LayerKind, variant: string, soundId: string) => void;
@@ -378,19 +408,82 @@ export const useStore = create<State>((set, get) => ({
   // Auth
   userId: null,
 
-  setStage: (s) => set({ stage: s }),
+  setStage: (s) => {
+    set({ stage: s });
+    // Coop sync (Phase 4.2): if we're in a live session and not applying
+    // an incoming patch, broadcast the stage change so the other seat
+    // navigates with us.
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { stage: s });
+    }
+  },
   profileUserId: null,
   openProfile: (userId) => set({ stage: "profile", profileUserId: userId ?? null }),
+  activeCoopSessionId: null,
+  setActiveCoopSession: (sessionId) => set({ activeCoopSessionId: sessionId }),
+  openCoop: (sessionId) =>
+    set({ stage: "coop", activeCoopSessionId: sessionId ?? null }),
+
+  isApplyingCoopState: false,
+  applyCoopSharedState: (remote) => {
+    // Narrow the blob to the fields we sync. Everything else is ignored.
+    // The `isApplyingCoopState` guard prevents the wrapped actions from
+    // re-emitting patches back to the server during this set().
+    set({ isApplyingCoopState: true });
+    try {
+      const patch: Partial<State> = {};
+
+      if (typeof remote.stage === "string") {
+        patch.stage = remote.stage as Stage;
+      }
+      if (typeof remote.template_id === "string") {
+        const tpl = TEMPLATES.find((t) => t.id === remote.template_id);
+        if (tpl) patch.activeTemplate = tpl;
+      } else if (remote.template_id === null) {
+        patch.activeTemplate = null;
+      }
+      if (Array.isArray(remote.layers)) {
+        patch.layers = remote.layers as Layer[];
+      }
+      if (typeof remote.recipe_index === "number") {
+        patch.recipeIndex = remote.recipe_index;
+      }
+      if (typeof remote.song_name === "string") {
+        patch.songName = remote.song_name;
+      }
+      if (typeof remote.session_started_at === "number") {
+        patch.sessionStartedAt = remote.session_started_at;
+      }
+
+      if (Object.keys(patch).length > 0) set(patch);
+    } finally {
+      set({ isApplyingCoopState: false });
+    }
+  },
 
   pickTemplate: (t) => {
+    const newName = `${t.name} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    const startedAt = Date.now();
     set({
       activeTemplate: t,
       layers: [],
       recipeIndex: 0,
-      songName: `${t.name} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+      songName: newName,
       stage: "stack",
-      sessionStartedAt: Date.now(), // ← 60-second clock starts here
+      sessionStartedAt: startedAt, // ← 60-second clock starts here
     });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, {
+        template_id:        t.id,
+        layers:             [],
+        recipe_index:       0,
+        song_name:          newName,
+        stage:              "stack",
+        session_started_at: startedAt,
+      });
+    }
   },
 
   pickLayer: (kind, variant, soundId) => {
@@ -415,6 +508,10 @@ export const useStore = create<State>((set, get) => ({
       layers,
       recipeIndex: recipeDone ? nextIdx : nextIdx,
     });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { layers, recipe_index: nextIdx });
+    }
   },
 
   swapLayer: (kind, variant, soundId) => {
@@ -422,15 +519,29 @@ export const useStore = create<State>((set, get) => ({
       l.kind === kind ? { ...l, variant, soundId } : l
     );
     set({ layers });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { layers });
+    }
   },
 
-  setRecipeIndex: (i) => set({ recipeIndex: i }),
+  setRecipeIndex: (i) => {
+    set({ recipeIndex: i });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { recipe_index: i });
+    }
+  },
 
   skipKind: () => {
     const tpl = get().activeTemplate;
     const nextIdx = get().recipeIndex + 1;
     if (!tpl) return;
     set({ recipeIndex: nextIdx });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { recipe_index: nextIdx });
+    }
   },
 
   undoLast: () => {
@@ -475,7 +586,13 @@ export const useStore = create<State>((set, get) => ({
 
   setArrangeMutes: (m) => set({ arrangeMutes: m }),
 
-  setSongName: (name) => set({ songName: name }),
+  setSongName: (name) => {
+    set({ songName: name });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { song_name: name });
+    }
+  },
 
   finalizeSong: (collaborators = []) => {
     const { activeTemplate, layers, songName, vocalBlobUrl, pitchScore, arrangeMutes, tamagotchi, player, sessionStartedAt, longestSessionMs, longestStreak } = get();
@@ -1031,8 +1148,23 @@ export const useStore = create<State>((set, get) => ({
       }
       const audioUrl = uploadResult.publicUrl;
 
-      // 3. Atomic server commit.
-      const result = await publishSongRpc(songId, audioUrl);
+      // 3. Gather any collaborators (Phase 5.A). If we're publishing from
+      //    inside an active coop session, include the other participants
+      //    so the booth/leaderboard/profile attribute the drop correctly.
+      //    Server dedupes + drops the caller, so it's safe to send everyone.
+      let collaboratorIds: string[] = [];
+      const coopId = get().activeCoopSessionId;
+      if (coopId) {
+        const { fetchCoopSession } = await import("./../lib/coop-db");
+        const session = await fetchCoopSession(coopId);
+        if (session) {
+          collaboratorIds = [session.hostId, session.guestId]
+            .filter((id): id is string => !!id && id !== uid);
+        }
+      }
+
+      // 4. Atomic server commit.
+      const result = await publishSongRpc(songId, audioUrl, collaboratorIds);
       if (!result || !result.success) {
         get().sayLine(result?.message ?? "publish failed", 2800);
         return result;

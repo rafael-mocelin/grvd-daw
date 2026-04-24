@@ -33,6 +33,7 @@ import {
   type FriendRow,
   type PublicProfile,
 } from "../lib/social-db";
+import { createCoopSession } from "../lib/coop-db";
 
 /* -------------------------------------------------------------------------- */
 /* Root                                                                        */
@@ -40,8 +41,9 @@ import {
 
 export function Friends() {
   const userId      = useStore((s) => s.userId);
-  const setStage    = useStore((s) => s.setStage);
-  const openProfile = useStore((s) => s.openProfile);
+  const setStage             = useStore((s) => s.setStage);
+  const openProfile          = useStore((s) => s.openProfile);
+  const setActiveCoopSession = useStore((s) => s.setActiveCoopSession);
   const sayLine     = useStore((s) => s.sayLine);
 
   const [rows, setRows] = useState<FriendRow[] | null>(null);
@@ -147,6 +149,16 @@ export function Friends() {
     setBusy(null);
   }
 
+  async function onInviteToCoop(otherId: string, otherName: string) {
+    setBusy(otherId);
+    const r = await createCoopSession(otherId);
+    setBusy(null);
+    if (!r) { sayLine("couldn't open the room", 2400); return; }
+    setActiveCoopSession(r.id);
+    sayLine(`invited ${otherName} to cook`, 2400);
+    setStage("coop");
+  }
+
   /* ── Helpers ────────────────────────────────────────────── */
   const knownIds = useMemo(() => new Set((rows ?? []).map((r) => r.friendUserId)), [rows]);
 
@@ -199,12 +211,20 @@ export function Friends() {
                 profile={p ?? anonFallback(r.friendUserId)}
                 onOpen={() => openProfile(r.friendUserId)}
                 action={
-                  <InlineBtn
-                    label="remove"
-                    accent="rgba(255,77,109,0.6)"
-                    disabled={busy === r.friendUserId}
-                    onClick={() => onRemove(r.friendUserId, p?.username ?? "them")}
-                  />
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <InlineBtn
+                      label="🎛️ coop"
+                      accent="#22d3ee"
+                      disabled={busy === r.friendUserId}
+                      onClick={() => onInviteToCoop(r.friendUserId, p?.username ?? "them")}
+                    />
+                    <InlineBtn
+                      label="remove"
+                      accent="rgba(255,77,109,0.6)"
+                      disabled={busy === r.friendUserId}
+                      onClick={() => onRemove(r.friendUserId, p?.username ?? "them")}
+                    />
+                  </div>
                 }
               />
             );

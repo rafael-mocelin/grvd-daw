@@ -16,9 +16,11 @@ import { XPFlash } from "./components/XPFlash";
 import { AchievementToast } from "./components/AchievementToast";
 import { AuthScreen } from "./components/AuthScreen";
 import { AdminPanel } from "./components/AdminPanel";
+import { CoopCursors } from "./components/CoopCursors";
 import { loadSamples } from "./audio/engine";
 import { useAuth } from "./lib/auth";
 import { useSync } from "./lib/useSync";
+import { useCoopSession } from "./lib/coop-db";
 
 /**
  * CANVAS_STAGES — these stages render through the infinite canvas (CanvasBoard).
@@ -29,9 +31,27 @@ const CANVAS_STAGES = new Set(["stack", "vocal", "name"]);
 
 /** Inner app — rendered for both signed-in users AND guests. */
 function AppCore() {
-  const { stage, showLogbook, applyDailyDecay, setUserId, setSkin } = useStore();
+  const {
+    stage, showLogbook,
+    applyDailyDecay, setUserId, setSkin,
+    activeCoopSessionId, applyCoopSharedState,
+  } = useStore();
   const { user } = useAuth();
   const [samplesReady, setSamplesReady] = useState(false);
+
+  /* Phase 4.2 — coop sync.
+   *
+   * Subscribes to the currently-active coop session (if any) at the
+   * top of the app so shared DAW state reaches the store regardless
+   * of which screen is mounted. `onRowChange` fires every time the
+   * server row updates (from our own writes + partner's writes);
+   * applyCoopSharedState narrows the remote state blob down to the
+   * fields we mirror locally (template/layers/stage/etc.) and sets
+   * them, flipping isApplyingCoopState so the wrapped store actions
+   * don't bounce the same patch back to the server. */
+  useCoopSession(activeCoopSessionId, (row) => {
+    if (row?.state) applyCoopSharedState(row.state as Record<string, unknown>);
+  });
 
   // Keep userId in the store so finalizeSong can upsert without importing auth.
   // For guests this will be null, and db writes are no-ops everywhere.
@@ -95,6 +115,9 @@ function AppCore() {
       <AchievementToast />
       {/* Admin-only debug panel (no-op for non-admin users) */}
       <AdminPanel />
+      {/* Phase 4.3 — other seats' cursors while in an active coop session.
+       * Renders nothing when there's no session or no peers (zero cost). */}
+      <CoopCursors />
     </>
   );
 }
