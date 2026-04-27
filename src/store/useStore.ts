@@ -585,11 +585,13 @@ export const useStore = create<State>((set, get) => ({
 
   pickLayer: (kind, variant, soundId) => {
     const existingIdx = get().layers.findIndex((l) => l.kind === kind);
+    const ownerId = get().userId ?? undefined;  // step 8 attribution
     const layer: Layer = {
       id: `${kind}-${Date.now()}`,
       kind,
       variant,
       soundId,
+      sourceOwnerId: ownerId,
     };
     const layers = [...get().layers];
     if (existingIdx >= 0) {
@@ -612,8 +614,9 @@ export const useStore = create<State>((set, get) => ({
   },
 
   swapLayer: (kind, variant, soundId) => {
+    const ownerId = get().userId ?? undefined;  // step 8 — re-attribute on swap
     const layers = get().layers.map((l) =>
-      l.kind === kind ? { ...l, variant, soundId } : l
+      l.kind === kind ? { ...l, variant, soundId, sourceOwnerId: ownerId } : l
     );
     set({ layers });
     const sid = get().activeCoopSessionId;

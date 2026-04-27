@@ -786,6 +786,16 @@ export type Database = {
           success: boolean
         }[]
       }
+      check_song_edit_lock: {
+        Args: { p_song_id: string; p_coop_session_id?: string }
+        Returns: {
+          can_edit: boolean
+          collaborator_ids: string[]
+          missing_collaborators: string[]
+          missing_sounds: Json
+          reason: string | null
+        }[]
+      }
       create_coop_session: {
         Args: { p_invite_user_id?: string }
         Returns: {

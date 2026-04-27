@@ -51,6 +51,20 @@ export interface Layer {
   /** reference back to the SoundOption for UI. */
   soundId: string;
   muted?: boolean;
+  /**
+   * Phase 5.B step 8 — which collaborator's inventory this sound came from
+   * at pick time. Used by check_song_edit_lock to verify the owner still
+   * has the sound when the group reopens the song to edit. For solo songs
+   * this equals the artist's own user_id; in coop it equals whoever
+   * clicked the picker tile (the sound is then "borrowed under their
+   * banner" — if they trade it away the group song is locked until they
+   * re-acquire it).
+   *
+   * Optional because pre-step-8 songs and guest-mode (no userId) layers
+   * don't have it set. The edit-lock check tolerates undefined by
+   * skipping the per-layer ownership requirement for that layer.
+   */
+  sourceOwnerId?: string;
 }
 
 export interface Template {

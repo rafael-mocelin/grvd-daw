@@ -334,6 +334,74 @@ export async function publishSongRpc(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Edit-lock check (Phase 5.B step 8)                                          */
+/* -------------------------------------------------------------------------- */
+
+export type EditLockReason =
+  | "not_signed_in"
+  | "song_not_found"
+  | "not_a_collaborator"
+  | "no_coop_session"
+  | "not_in_coop_session"
+  | "missing_collaborators"
+  | "missing_sounds";
+
+export interface MissingSoundEntry {
+  soundId:       string;
+  sourceOwnerId: string;
+}
+
+export interface SongEditLockResult {
+  canEdit:               boolean;
+  reason:                EditLockReason | null;
+  collaboratorIds:       string[];
+  missingCollaborators:  string[];
+  missingSounds:         MissingSoundEntry[];
+}
+
+/**
+ * Run the server's edit-lock check for a song. Returns canEdit=true when
+ * (a) the caller is the artist or a known collaborator, (b) every
+ * collaborator is present in the same active coop session (if any), and
+ * (c) every layer's tagged source-owner still owns the underlying
+ * sound. Forward-looking infrastructure — the actual edit-from-published
+ * UI hasn't shipped yet, but the check is wired so the day it does the
+ * lock is enforceable end-to-end.
+ */
+export async function checkSongEditLock(
+  songId:        string,
+  coopSessionId: string | null,
+): Promise<SongEditLockResult | null> {
+  const { data, error } = await supabase.rpc("check_song_edit_lock", {
+    p_song_id:         songId,
+    p_coop_session_id: coopSessionId ?? undefined,
+  });
+  if (error) {
+    console.error("[game-db] checkSongEditLock:", error.message);
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+
+  const missing = Array.isArray(row.missing_sounds)
+    ? (row.missing_sounds as Array<{ soundId?: string; sourceOwnerId?: string }>)
+        .filter((m) => !!m.soundId && !!m.sourceOwnerId)
+        .map<MissingSoundEntry>((m) => ({
+          soundId:       m.soundId!,
+          sourceOwnerId: m.sourceOwnerId!,
+        }))
+    : [];
+
+  return {
+    canEdit:              !!row.can_edit,
+    reason:               (row.reason as EditLockReason | null) ?? null,
+    collaboratorIds:      (row.collaborator_ids ?? []) as string[],
+    missingCollaborators: (row.missing_collaborators ?? []) as string[],
+    missingSounds:        missing,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Endorsements                                                                */
 /* -------------------------------------------------------------------------- */
 

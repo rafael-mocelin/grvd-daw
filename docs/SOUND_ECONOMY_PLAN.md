@@ -537,3 +537,20 @@ already supports live edits) without touching code.
   M = total` pill in the kind heading so the borrow is visible. Snapshot
   only — mid-session publishing doesn't update the union (acceptable for
   v1, easy to add a refresh RPC later).
+- **2026-04-27**: shipped step 8 (layer source attribution + edit-lock).
+  Layer type gains `sourceOwnerId?: string`; pickLayer + swapLayer tag
+  it with the current userId so songs.layers carries per-layer
+  attribution from this point on. New `check_song_edit_lock(p_song_id,
+  p_coop_session_id)` SECURITY DEFINER RPC validates: caller is the
+  artist or a known collaborator; if a group song, every collaborator
+  is present in the same active coop session; every layer's
+  `(soundId, sourceOwnerId)` pair is still in that owner's user_sounds.
+  Returns can_edit + structured reason + missing_collaborators[] +
+  missing_sounds[]. Logbook surfaces a 🔒 group-song chip on rows with
+  >1 collaborator; tapping opens a status modal that calls the RPC and
+  shows either ready-to-edit or a lock screen with what's missing.
+  Forward-looking — the actual "open a published song to edit" flow
+  is deferred, but the lock check is enforceable end-to-end the day it
+  ships. Pre-step-8 songs and pre-publish drafts gracefully fall through
+  the relaxed checks (no sourceOwnerId → no per-layer ownership
+  requirement; no publication → modal shows "publish first" hint).
