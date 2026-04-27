@@ -3,7 +3,7 @@
 Living doc. Pair with `MULTIPLAYER_PLAN.md` (the social layer this rides on
 top of) and `UE5_PORT_GUIDE.md` (what survives the port).
 
-Last updated: 2026-04-23
+Last updated: 2026-04-27
 
 > **One phase, not two.** The original plan split inventory (5.B) from
 > Producer V2 (Phase 7), which would've shipped 5.B as scaffolding nobody
@@ -503,3 +503,8 @@ already supports live edits) without touching code.
 - **2026-04-23**: initial draft. Folds Phase 5.B and Phase 7 into one
   unified plan. Locks the producer-publishes-claimable-sounds loop as
   the divergence driver.
+- **2026-04-27**: shipped step 4 (producer publish-sound flow).
+  `publish_sound` RPC + `producer-sounds` storage bucket + `sound_acquisitions`
+  audit table + Studio MINE publisher CTA + Studio DISCOVER feed reading
+  newest producer-published sounds. Claim button is a "claim · soon" stub
+  until step 5 lands the claim RPC + per-claim XP.

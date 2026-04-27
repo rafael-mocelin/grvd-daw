@@ -15,16 +15,19 @@
  * Friends / Leaderboard. Top padding clears the persistent ScreenTopBar.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "../store/useStore";
 import {
+  fetchDiscoverSounds,
   fetchMyInventory,
   groupByKind,
   KIND_ICON,
+  type DiscoverSound,
   type InventorySound,
 } from "../lib/sounds-db";
 import type { LayerKind } from "../data/types";
 import { KIND_LABEL } from "../data/types";
+import { SoundPublisher } from "./SoundPublisher";
 
 type TabId = "mine" | "discover";
 
@@ -92,7 +95,7 @@ export function Studio() {
 
       {/* ── Tab content ────────────────────────────────────── */}
       {tab === "mine"     && <MineTab />}
-      {tab === "discover" && <DiscoverTabPlaceholder />}
+      {tab === "discover" && <DiscoverTab />}
     </div>
   );
 }
@@ -168,11 +171,18 @@ const KIND_ORDER: LayerKind[] = [
 function MineTab() {
   const userId = useStore((s) => s.userId);
   const [items, setItems] = useState<InventorySound[] | null>(null);
+  const [publisherOpen, setPublisherOpen] = useState(false);
+
+  const reload = useCallback(async () => {
+    if (!userId) { setItems([]); return; }
+    const rows = await fetchMyInventory(userId);
+    setItems(rows);
+  }, [userId]);
 
   useEffect(() => {
-    if (!userId) { setItems([]); return; }
     let cancelled = false;
     (async () => {
+      if (!userId) { if (!cancelled) setItems([]); return; }
       const rows = await fetchMyInventory(userId);
       if (!cancelled) setItems(rows);
     })();
@@ -238,22 +248,37 @@ function MineTab() {
             {total} sounds
           </div>
         </div>
-        {producerCount > 0 && (
-          <div
-            style={{
-              fontFamily:    "monospace",
-              fontSize:      10,
-              color:         "rgba(255,255,255,0.55)",
-              textAlign:     "right",
-              lineHeight:    1.4,
-            }}
-          >
-            <span style={{ opacity: 0.6 }}>🎛️ producer drops</span>
-            <br />
-            <span style={{ color: "#a78bfa", fontWeight: 800 }}>{producerCount}</span>
-          </div>
-        )}
+        <button
+          onClick={() => setPublisherOpen(true)}
+          style={{
+            display:        "inline-flex",
+            alignItems:     "center",
+            gap:            6,
+            padding:        "7px 12px",
+            borderRadius:   18,
+            background:     "rgba(124,58,237,0.85)",
+            border:         "1px solid rgba(167,139,250,0.5)",
+            color:          "#fff",
+            fontFamily:     "monospace",
+            fontSize:       11,
+            fontWeight:     900,
+            cursor:         "pointer",
+            boxShadow:      "0 0 14px rgba(124,58,237,0.35)",
+            whiteSpace:     "nowrap",
+          }}
+        >
+          🎛️ <span>publish a sound</span>
+        </button>
       </div>
+      {producerCount > 0 && (
+        <div style={{
+          fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.5)",
+          textAlign: "right",
+        }}>
+          <span style={{ color: "#a78bfa", fontWeight: 800 }}>{producerCount}</span>
+          <span> producer drops in your inventory</span>
+        </div>
+      )}
 
       {/* One section per kind — only render kinds that have at least one sound */}
       {KIND_ORDER.map((kind) => {
@@ -263,6 +288,17 @@ function MineTab() {
           <KindSection key={kind} kind={kind} sounds={list} />
         );
       })}
+
+      {publisherOpen && (
+        <SoundPublisher
+          onClose={() => {
+            setPublisherOpen(false);
+            // Re-fetch so the new sound (auto-granted to the producer) shows
+            // up in the inventory grid immediately.
+            reload();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -391,15 +427,115 @@ function SoundTile({ sound }: { sound: InventorySound }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* DISCOVER tab placeholder — replaced in step 4                               */
+/* DISCOVER tab — producer-published sounds, newest first                       */
 /* -------------------------------------------------------------------------- */
 
-function DiscoverTabPlaceholder() {
+function DiscoverTab() {
+  const userId = useStore((s) => s.userId);
+  const [items, setItems] = useState<DiscoverSound[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchDiscoverSounds({ userId });
+      if (!cancelled) setItems(rows);
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  if (items === null) {
+    return <div style={emptyState}>loading…</div>;
+  }
+  if (items.length === 0) {
+    return (
+      <div style={emptyState}>
+        no producer drops yet — be the first to publish.
+        <br />
+        <span style={{ opacity: 0.55, fontSize: 9 }}>head to MINE → publish a sound</span>
+      </div>
+    );
+  }
+
   return (
-    <div style={emptyState}>
-      producer-published sounds you can claim land here.
-      <br />
-      <span style={{ opacity: 0.55, fontSize: 9 }}>step 4 of phase 5.b</span>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{
+        fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.5)",
+        letterSpacing: "0.1em", textTransform: "uppercase",
+      }}>
+        🌀 fresh drops · {items.length}
+      </div>
+      <div style={{
+        display:             "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+        gap:                 10,
+      }}>
+        {items.map((s) => (
+          <DiscoverTile key={s.id} sound={s} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiscoverTile({ sound }: { sound: DiscoverSound }) {
+  // Step 5 wires real claim. For now show the producer attribution + an
+  // owned-state badge so producers see their own drops greyed out.
+  return (
+    <div
+      title={`${sound.displayName}${sound.variant ? ` · ${sound.variant}` : ""}${sound.bpm ? ` · ${sound.bpm} BPM` : ""}`}
+      style={{
+        position:       "relative",
+        background:     "linear-gradient(135deg, rgba(167,139,250,0.10) 0%, rgba(0,0,0,0.45) 100%)",
+        border:         `1px solid ${sound.ownedByMe ? "rgba(74,222,128,0.4)" : "rgba(167,139,250,0.35)"}`,
+        borderRadius:   12,
+        padding:        "12px 10px",
+        display:        "flex",
+        flexDirection:  "column",
+        alignItems:     "center",
+        gap:            8,
+        opacity:        sound.ownedByMe ? 0.7 : 1,
+        boxShadow:      "0 4px 14px rgba(0,0,0,0.35), 0 0 12px rgba(167,139,250,0.12)",
+      }}
+    >
+      {/* Glyph */}
+      <div style={{
+        fontSize: 30, lineHeight: 1, filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))",
+      }}>
+        {sound.glyph}
+      </div>
+      {/* Display name */}
+      <div style={{
+        fontFamily: "monospace", fontSize: 11, fontWeight: 800, color: "#fff",
+        textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        maxWidth: "100%",
+      }}>
+        {sound.displayName}
+      </div>
+      {/* Producer line */}
+      <div style={{
+        fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.55)",
+        display: "flex", alignItems: "center", gap: 4,
+      }}>
+        <span>{sound.producerAvatar ?? "🎧"}</span>
+        <span>{sound.producerName ?? "anon"}</span>
+      </div>
+      {/* Status pill — claim flow lands in step 5 */}
+      <div style={{
+        fontFamily: "monospace", fontSize: 9, fontWeight: 700,
+        padding: "3px 8px", borderRadius: 10,
+        background: sound.ownedByMe ? "rgba(74,222,128,0.18)" : "rgba(124,58,237,0.18)",
+        border:     `1px solid ${sound.ownedByMe ? "rgba(74,222,128,0.4)" : "rgba(167,139,250,0.4)"}`,
+        color:      sound.ownedByMe ? "#4ade80" : "#a78bfa",
+      }}>
+        {sound.ownedByMe ? "✓ owned" : "claim · soon"}
+      </div>
+      {/* Kind tag in corner */}
+      <span style={{
+        position: "absolute", top: 5, left: 6,
+        fontSize: 11, opacity: 0.7,
+      }}>
+        {KIND_ICON[sound.kind]}
+      </span>
     </div>
   );
 }

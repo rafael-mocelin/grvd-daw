@@ -25,6 +25,11 @@ import {
   type PublishedSong,
   type PublishSongResult,
 } from "../lib/game-db";
+import {
+  publishSoundRpc,
+  uploadProducerSound,
+  type PublishSoundResult,
+} from "../lib/sounds-db";
 import { renderSongToWav } from "../audio/engine";
 import { patchCoopState, fetchCoopSession } from "../lib/coop-db";
 import { TEMPLATES } from "../data/templates";
@@ -340,6 +345,26 @@ interface State {
   /** Whether a publish is currently in flight (for UI disable + spinner). */
   publishingSongId: string | null;
   /**
+   * Producer publish-sound flow (Phase 5.B step 4):
+   *   1. Upload the recorded clip to the producer-sounds bucket.
+   *   2. Call publish_sound RPC (validates inputs + charges energy +
+   *      awards XP + inserts the catalog row + grants the producer
+   *      the new sound).
+   *   3. Commit authoritative server numbers to the store on success.
+   * Returns the RPC result so the caller can surface the message.
+   */
+  publishSound: (args: {
+    blob:        Blob;
+    kind:        LayerKind;
+    displayName: string;
+    glyph:       string;
+    variant?:    string | null;
+    bpm?:        number | null;
+    keyRoot?:    string | null;
+  }) => Promise<PublishSoundResult | null>;
+  /** Whether a publish-sound is currently in flight (UI disable + spinner). */
+  publishingSound: boolean;
+  /**
    * Client-side optimistic energy spend — matches the server RPC's effect
    * locally so the meter animates immediately. Server authority still wins on
    * next loadPlayerEnergy() refresh. Guests (no userId) mutate locally only.
@@ -424,6 +449,7 @@ export const useStore = create<State>((set, get) => ({
   userEndorsements: [],
   catalogLoading: false,
   publishingSongId: null,
+  publishingSound:  false,
 
   // Auth
   userId: null,
@@ -1232,6 +1258,70 @@ export const useStore = create<State>((set, get) => ({
       return null;
     } finally {
       set({ publishingSongId: null });
+    }
+  },
+
+  publishSound: async ({ blob, kind, displayName, glyph, variant, bpm, keyRoot }) => {
+    const uid = get().userId;
+    if (!uid) {
+      get().sayLine("sign in to publish sounds", 2400);
+      return null;
+    }
+    if (get().publishingSound) {
+      get().sayLine("one at a time", 2000);
+      return null;
+    }
+
+    set({ publishingSound: true });
+    get().sayLine("uploading the clip…", 2400);
+
+    try {
+      // 1. Upload clip to storage. Storage RLS enforces own-folder writes.
+      const upload = await uploadProducerSound(blob);
+      if (!upload.publicUrl) {
+        get().sayLine(`upload failed: ${upload.error ?? "unknown"}`, 4000);
+        return null;
+      }
+
+      // 2. Atomic server commit.
+      const result = await publishSoundRpc({
+        kind,
+        displayName,
+        glyph,
+        audioUrl: upload.publicUrl,
+        variant,
+        bpm,
+        keyRoot,
+      });
+      if (!result || !result.success) {
+        get().sayLine(result?.message ?? "publish failed", 2800);
+        return result;
+      }
+
+      // 3. Commit authoritative server numbers.
+      set((s) => ({
+        energy:          result.newEnergy,
+        energyUpdatedAt: Date.now(),
+        totalXP:         result.newXp    || s.totalXP,
+        level:           result.newLevel || s.level,
+      }));
+
+      // 4. Companion reaction.
+      const atCapEdge = result.publicationsToday >= result.dailyCap;
+      get().sayLine(
+        atCapEdge
+          ? `dropped 🎛️ — that's your ${result.publicationsToday}/${result.dailyCap} for today`
+          : "dropped 🎛️ producers eat",
+        2800,
+      );
+
+      return result;
+    } catch (err) {
+      console.error("[store] publishSound:", err);
+      get().sayLine("publish failed — check the console", 2800);
+      return null;
+    } finally {
+      set({ publishingSound: false });
     }
   },
 
