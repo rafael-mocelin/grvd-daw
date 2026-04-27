@@ -246,17 +246,23 @@ export async function fetchDiscoverSounds(opts?: {
     }
   }
 
-  // Claim counts (Phase 5.B step 5). Public read view; safe for guests too.
+  // Claim counts (Phase 5.B step 5). SECURITY DEFINER function — public
+  // grant — safe for guests too. Was a view originally; converted because
+  // the supabase advisor flags SECURITY DEFINER views at ERROR level.
   const claimCounts = new Map<string, { total: number; week: number }>();
   if (rows.length > 0) {
-    const { data: countRows, error: countErr } = await supabase
-      .from("sound_claim_counts")
-      .select("sound_id, claim_count, claims_this_week")
-      .in("sound_id", rows.map((r) => r.id));
+    const { data: countRows, error: countErr } = await supabase.rpc(
+      "sound_claim_counts",
+      { p_sound_ids: rows.map((r) => r.id) },
+    );
     if (countErr) {
       console.warn("[sounds-db] fetchDiscoverSounds count lookup:", countErr.message);
     } else {
-      for (const c of countRows ?? []) {
+      for (const c of (countRows ?? []) as Array<{
+        sound_id: string | null;
+        claim_count: number | null;
+        claims_this_week: number | null;
+      }>) {
         if (!c.sound_id) continue;
         claimCounts.set(c.sound_id, {
           total: Number(c.claim_count ?? 0),

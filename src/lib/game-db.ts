@@ -653,18 +653,26 @@ export interface LeaderboardProducer {
 export async function fetchTopProducersThisWeek(
   limit = 10,
 ): Promise<LeaderboardProducer[]> {
-  const { data, error } = await supabase
-    .from("weekly_producer_score")
-    .select("producer_id, producer_name, producer_avatar, claims_this_week, template_usages_this_week, score")
-    .order("score", { ascending: false, nullsFirst: false })
-    .limit(limit);
+  // SECURITY DEFINER function (was a view; the supabase advisor flags
+  // DEFINER views at ERROR — converted to function for advisor cleanliness).
+  // Function already orders by score desc.
+  const { data, error } = await supabase.rpc("weekly_producer_score");
 
   if (error) {
     console.error("[game-db] fetchTopProducersThisWeek:", error.message);
     return [];
   }
 
-  return (data ?? []).map((row) => ({
+  type Row = {
+    producer_id:                string | null;
+    producer_name:              string | null;
+    producer_avatar:            string | null;
+    claims_this_week:           number | null;
+    template_usages_this_week:  number | null;
+    score:                      number | null;
+  };
+
+  return ((data ?? []) as Row[]).slice(0, limit).map((row) => ({
     producerId:             row.producer_id ?? "",
     producerName:           row.producer_name ?? "anon",
     producerAvatar:         row.producer_avatar ?? "🎧",

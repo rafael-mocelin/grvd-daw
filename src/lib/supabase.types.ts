@@ -725,14 +725,6 @@ export type Database = {
         }
         Relationships: []
       }
-      sound_claim_counts: {
-        Row: {
-          claim_count: number | null
-          claims_this_week: number | null
-          sound_id: string | null
-        }
-        Relationships: []
-      }
       song_publication_stats: {
         Row: {
           artist_avatar: string | null
@@ -751,17 +743,6 @@ export type Database = {
           song_id: string | null
           title: string | null
           waveform_url: string | null
-        }
-        Relationships: []
-      }
-      weekly_producer_score: {
-        Row: {
-          claims_this_week: number | null
-          producer_avatar: string | null
-          producer_id: string | null
-          producer_name: string | null
-          score: number | null
-          template_usages_this_week: number | null
         }
         Relationships: []
       }
@@ -885,6 +866,25 @@ export type Database = {
       award_early_claim_bonus_if_needed: {
         Args: { p_sound_id: string }
         Returns: undefined
+      }
+      sound_claim_counts: {
+        Args: { p_sound_ids?: string[] }
+        Returns: {
+          claim_count: number
+          claims_this_week: number
+          sound_id: string
+        }[]
+      }
+      weekly_producer_score: {
+        Args: Record<string, never>
+        Returns: {
+          claims_this_week: number
+          producer_avatar: string | null
+          producer_id: string
+          producer_name: string | null
+          score: number
+          template_usages_this_week: number
+        }[]
       }
       create_coop_session: {
         Args: { p_invite_user_id?: string }
