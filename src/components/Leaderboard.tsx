@@ -27,9 +27,11 @@ import {
   fetchTopSongsThisWeek,
   fetchTopArtistsThisWeek,
   fetchTopTastemakersThisWeek,
+  fetchTopProducersThisWeek,
   type LeaderboardSong,
   type LeaderboardArtist,
   type LeaderboardTastemaker,
+  type LeaderboardProducer,
 } from "../lib/game-db";
 
 type TabId = "songs" | "artists" | "tastemakers" | "producers";
@@ -59,6 +61,7 @@ export function Leaderboard() {
   const [songs, setSongs]                 = useState<LeaderboardSong[] | null>(null);
   const [artists, setArtists]             = useState<LeaderboardArtist[] | null>(null);
   const [tastemakers, setTastemakers]     = useState<LeaderboardTastemaker[] | null>(null);
+  const [producers, setProducers]         = useState<LeaderboardProducer[] | null>(null);
   const [loading, setLoading]             = useState(false);
 
   useEffect(() => {
@@ -83,11 +86,15 @@ export function Leaderboard() {
         setLoading(true);
         const rows = await fetchTopTastemakersThisWeek();
         if (!cancelled) { setTastemakers(rows); setLoading(false); }
+      } else if (active === "producers" && producers === null) {
+        setLoading(true);
+        const rows = await fetchTopProducersThisWeek();
+        if (!cancelled) { setProducers(rows); setLoading(false); }
       }
     }
     load();
     return () => { cancelled = true; };
-  }, [active, songs, artists, tastemakers]);
+  }, [active, songs, artists, tastemakers, producers]);
 
   return (
     <div
@@ -120,7 +127,7 @@ export function Leaderboard() {
         <TastemakersList rows={tastemakers ?? []} />
       )}
       {!loading && active === "producers" && (
-        <ProducersComingSoon />
+        <ProducersList rows={producers ?? []} />
       )}
     </div>
   );
@@ -354,20 +361,36 @@ function TastemakersList({ rows }: { rows: LeaderboardTastemaker[] }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Producers placeholder                                                       */
+/* Producers tab                                                                */
 /* -------------------------------------------------------------------------- */
 
-function ProducersComingSoon() {
+function ProducersList({ rows }: { rows: LeaderboardProducer[] }) {
+  const openProfile = useStore((s) => s.openProfile);
+  if (rows.length === 0) {
+    return (
+      <div style={{ ...emptyState, lineHeight: 1.5 }}>
+        no producer signal yet — publish a sound or template to register.
+        <br />
+        <span style={{ opacity: 0.55, fontSize: 9 }}>1 pt per claim · 8 pts per template usage</span>
+      </div>
+    );
+  }
   return (
-    <div
-      style={{
-        ...emptyState,
-        lineHeight: 1.5,
-      }}
-    >
-      producers will show up here when the template-publishing flow ships.
-      <br />
-      <span style={{ opacity: 0.6, fontSize: 9 }}>slice 3</span>
+    <div style={listContainer}>
+      {rows.map((row, i) => (
+        <Row
+          key={row.producerId}
+          rank={i + 1}
+          avatar={row.producerAvatar}
+          title={row.producerName}
+          sub={`${row.claimsThisWeek} claim${row.claimsThisWeek === 1 ? "" : "s"} · ${row.templateUsagesThisWeek} template use${row.templateUsagesThisWeek === 1 ? "" : "s"}`}
+          primary={`${row.score} pts`}
+          secondary=""
+          score={row.score}
+          accent="#a78bfa"
+          onClick={() => row.producerId && openProfile(row.producerId)}
+        />
+      ))}
     </div>
   );
 }

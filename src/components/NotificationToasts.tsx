@@ -195,6 +195,16 @@ function ToastCard({ n, onDismiss }: { n: Notification; onDismiss: () => void })
       accent = "#ff4d6d";
       break;
     }
+    case "early_claim_bonus_awarded": {
+      const p = n.payload;
+      avatar = "💿";
+      title  = p.role === "producer" ? "your drop hit a milestone!" : "early ear paid off!";
+      body   = p.role === "producer"
+        ? `+${p.bonus_xp} XP · ${p.total_claims} claims and counting`
+        : `+${p.bonus_xp} XP · you were one of the first to claim`;
+      accent = "#a78bfa";
+      break;
+    }
   }
 
   return (

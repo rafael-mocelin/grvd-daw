@@ -546,27 +546,80 @@ export type Database = {
       }
       template_publications: {
         Row: {
+          bars: number
+          bpm: number
           id: string
+          key_root: string
           name: string
           producer_id: string
           published_at: string
+          recipe: string[]
+          retired_at: string | null
+          sound_ids: string[]
           sounds: Json
+          subtitle: string | null
+          tags: string[]
+          usage_count: number
         }
         Insert: {
+          bars?: number
+          bpm?: number
           id?: string
+          key_root?: string
           name: string
           producer_id: string
           published_at?: string
+          recipe?: string[]
+          retired_at?: string | null
+          sound_ids?: string[]
           sounds?: Json
+          subtitle?: string | null
+          tags?: string[]
+          usage_count?: number
         }
         Update: {
+          bars?: number
+          bpm?: number
           id?: string
+          key_root?: string
           name?: string
           producer_id?: string
           published_at?: string
+          recipe?: string[]
+          retired_at?: string | null
+          sound_ids?: string[]
           sounds?: Json
+          subtitle?: string | null
+          tags?: string[]
+          usage_count?: number
         }
         Relationships: []
+      }
+      sound_bonus_events: {
+        Row: {
+          bonus_type: string
+          crossed_at: string
+          sound_id: string
+        }
+        Insert: {
+          bonus_type: string
+          crossed_at?: string
+          sound_id: string
+        }
+        Update: {
+          bonus_type?: string
+          crossed_at?: string
+          sound_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sound_bonus_events_sound_id_fkey"
+            columns: ["sound_id"]
+            isOneToOne: false
+            referencedRelation: "sound_catalog"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_sounds: {
         Row: {
@@ -701,6 +754,17 @@ export type Database = {
         }
         Relationships: []
       }
+      weekly_producer_score: {
+        Row: {
+          claims_this_week: number | null
+          producer_avatar: string | null
+          producer_id: string | null
+          producer_name: string | null
+          score: number | null
+          template_usages_this_week: number | null
+        }
+        Relationships: []
+      }
       weekly_artist_score: {
         Row: {
           artist_avatar: string | null
@@ -795,6 +859,32 @@ export type Database = {
           missing_sounds: Json
           reason: string | null
         }[]
+      }
+      publish_template: {
+        Args: {
+          p_name: string
+          p_subtitle: string
+          p_bpm: number
+          p_key_root: string
+          p_bars: number
+          p_recipe: string[]
+          p_sound_ids: string[]
+          p_tags: string[]
+        }
+        Returns: {
+          daily_cap: number
+          message: string
+          new_energy: number
+          new_level: number
+          new_xp: number
+          publications_today: number
+          success: boolean
+          template_id: string
+        }[]
+      }
+      award_early_claim_bonus_if_needed: {
+        Args: { p_sound_id: string }
+        Returns: undefined
       }
       create_coop_session: {
         Args: { p_invite_user_id?: string }

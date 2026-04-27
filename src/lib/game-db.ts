@@ -641,6 +641,39 @@ export async function fetchTopArtistsThisWeek(
   }));
 }
 
+export interface LeaderboardProducer {
+  producerId:             string;
+  producerName:           string;
+  producerAvatar:         string;
+  claimsThisWeek:         number;
+  templateUsagesThisWeek: number;
+  score:                  number;
+}
+
+export async function fetchTopProducersThisWeek(
+  limit = 10,
+): Promise<LeaderboardProducer[]> {
+  const { data, error } = await supabase
+    .from("weekly_producer_score")
+    .select("producer_id, producer_name, producer_avatar, claims_this_week, template_usages_this_week, score")
+    .order("score", { ascending: false, nullsFirst: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("[game-db] fetchTopProducersThisWeek:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => ({
+    producerId:             row.producer_id ?? "",
+    producerName:           row.producer_name ?? "anon",
+    producerAvatar:         row.producer_avatar ?? "🎧",
+    claimsThisWeek:         row.claims_this_week ?? 0,
+    templateUsagesThisWeek: row.template_usages_this_week ?? 0,
+    score:                  row.score ?? 0,
+  }));
+}
+
 export async function fetchTopTastemakersThisWeek(
   limit = 10,
 ): Promise<LeaderboardTastemaker[]> {

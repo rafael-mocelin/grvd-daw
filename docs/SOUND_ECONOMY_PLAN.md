@@ -554,6 +554,38 @@ already supports live edits) without touching code.
   ships. Pre-step-8 songs and pre-publish drafts gracefully fall through
   the relaxed checks (no sourceOwnerId → no per-layer ownership
   requirement; no publication → modal shows "publish first" hint).
+- **2026-04-27**: shipped step 10 (template publishing + producer
+  leaderboard). template_publications grew bpm/key_root/bars/recipe[]/
+  sound_ids[]/tags[]/usage_count/subtitle/retired_at columns. New
+  `publish_template` SECURITY DEFINER RPC validates the producer owns
+  every referenced sound, charges 25⚡, awards 20 XP, level-tiered daily
+  cap (1/2/3/5). publish_song now bumps the producer template's
+  usage_count when the song's template_id is a uuid pointing at a
+  publication. New `weekly_producer_score` view aggregates claims this
+  week + template usages this week with a weighted score (1 pt/claim +
+  8 pts/usage). On the client: a "🎛️ publish as template" button on
+  the Done screen opens a small modal that captures the just-finished
+  song's bpm/key/bars/recipe/sound_ids/tags. TemplatePicker fetches
+  producer templates and renders three groups: static seed templates,
+  playable producer templates (with usage count badge), and locked
+  producer templates (with a "missing N sounds" hint to drive sound
+  claims). The Producers leaderboard tab is real now — no more
+  ProducersComingSoon placeholder.
+- **2026-04-27**: shipped step 11 (early-claim bonus economy). New
+  `sound_bonus_events` table tracks which sounds have crossed which
+  milestones (sound_id × bonus_type as PK, idempotent insert). New
+  `award_early_claim_bonus_if_needed(sound_id)` SECURITY DEFINER
+  function — when total claims (excluding self_published) hits the
+  configurable threshold (default 10), retroactively awards the
+  configurable bonus XP (default 20) to the first N claimers (default 5)
+  + a bigger producer milestone bonus (default 50). Hooks into
+  claim_sound after every successful new claim. Notification of kind
+  `early_claim_bonus_awarded` fires for each beneficiary with a
+  role discriminator ("producer" | "claimer"); NotificationToasts
+  renders one of two copy variants. SQL stress-tested with threshold
+  temporarily set to 2: producer +50, both early claimers +20, milestone
+  marker recorded, third claim is a no-op (notification count stable
+  at 3).
 - **2026-04-27**: shipped step 9 (per-seat audio mute, reframed). Plan
   §5 envisioned a "mute the other seat" toggle, but coop today already
   has independent per-seat playback — there's no cross-client audio to

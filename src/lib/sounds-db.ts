@@ -420,6 +420,102 @@ export async function publishSoundRpc(args: {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Producer-published templates (Phase 5.B step 10)                             */
+/* -------------------------------------------------------------------------- */
+
+export interface ProducerTemplate {
+  id:           string;
+  producerId:   string;
+  name:         string;
+  subtitle:     string | null;
+  bpm:          number;
+  keyRoot:      string;
+  bars:         number;
+  recipe:       LayerKind[];
+  soundIds:     string[];
+  tags:         string[];
+  usageCount:   number;
+  publishedAt:  string;
+}
+
+export interface PublishTemplateResult {
+  success:           boolean;
+  message:           string;
+  templateId:        string | null;
+  newEnergy:         number;
+  newXp:             number;
+  newLevel:          number;
+  publicationsToday: number;
+  dailyCap:          number;
+}
+
+/** Read every active (non-retired) producer template, newest first. */
+export async function fetchProducerTemplates(limit = 60): Promise<ProducerTemplate[]> {
+  const { data, error } = await supabase
+    .from("template_publications")
+    .select("id, producer_id, name, subtitle, bpm, key_root, bars, recipe, sound_ids, tags, usage_count, published_at, retired_at")
+    .is("retired_at", null)
+    .order("published_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[sounds-db] fetchProducerTemplates:", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => ({
+    id:          row.id as string,
+    producerId:  row.producer_id as string,
+    name:        row.name as string,
+    subtitle:    (row.subtitle as string | null) ?? null,
+    bpm:         row.bpm as number,
+    keyRoot:     row.key_root as string,
+    bars:        row.bars as number,
+    recipe:      (row.recipe ?? []) as LayerKind[],
+    soundIds:    (row.sound_ids ?? []) as string[],
+    tags:        (row.tags ?? []) as string[],
+    usageCount:  (row.usage_count as number) ?? 0,
+    publishedAt: row.published_at as string,
+  }));
+}
+
+export async function publishTemplateRpc(args: {
+  name:     string;
+  subtitle: string | null;
+  bpm:      number;
+  keyRoot:  string;
+  bars:     number;
+  recipe:   LayerKind[];
+  soundIds: string[];
+  tags:     string[];
+}): Promise<PublishTemplateResult | null> {
+  const { data, error } = await supabase.rpc("publish_template", {
+    p_name:      args.name,
+    p_subtitle:  args.subtitle ?? "",
+    p_bpm:       args.bpm,
+    p_key_root:  args.keyRoot,
+    p_bars:      args.bars,
+    p_recipe:    args.recipe,
+    p_sound_ids: args.soundIds,
+    p_tags:      args.tags,
+  });
+  if (error) {
+    console.error("[sounds-db] publishTemplateRpc:", error.message);
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return {
+    success:           !!row.success,
+    message:           row.message ?? "",
+    templateId:        row.template_id ?? null,
+    newEnergy:         row.new_energy ?? 0,
+    newXp:             row.new_xp ?? 0,
+    newLevel:          row.new_level ?? 1,
+    publicationsToday: row.publications_today ?? 0,
+    dailyCap:          row.daily_cap ?? 0,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Helpers                                                                      */
 /* -------------------------------------------------------------------------- */
 

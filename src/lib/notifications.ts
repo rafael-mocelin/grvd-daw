@@ -33,6 +33,7 @@ export type NotificationKind =
   | "friend_request_accepted"
   | "coop_invite_received"
   | "early_ear_bonus_awarded"
+  | "early_claim_bonus_awarded"
   | "artist_boost_received";
 
 /** Discriminated union — payload shape varies by kind. */
@@ -78,6 +79,16 @@ export type NotificationPayload =
       song_title:   string;
       energy_delta: number;
       xp_delta:     number;
+    }
+  | {
+      // Phase 5.B step 11 — fired on every beneficiary when a producer
+      // sound crosses the early-claim threshold. role differentiates
+      // producer milestone vs early claimer for the toast copy.
+      kind: "early_claim_bonus_awarded";
+      role:         "producer" | "claimer";
+      sound_id:     string;
+      bonus_xp:     number;
+      total_claims: number;
     };
 
 export interface Notification {
