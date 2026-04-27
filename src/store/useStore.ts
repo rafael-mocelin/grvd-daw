@@ -26,7 +26,7 @@ import {
   type PublishSongResult,
 } from "../lib/game-db";
 import { renderSongToWav } from "../audio/engine";
-import { patchCoopState } from "../lib/coop-db";
+import { patchCoopState, fetchCoopSession } from "../lib/coop-db";
 import { TEMPLATES } from "../data/templates";
 
 /* -------------------------------------------------------------------------- */
@@ -45,7 +45,17 @@ export type Stage =
   | "leaderboard" // Slice 2: Top Songs / Artists / Tastemakers this week
   | "profile"  // Phase 3: TastemakerProfile (self) or ArtistProfile (other) — switched via profileUserId
   | "friends"  // Phase 3: Friends list + search + pending requests
+  | "studio"   // Phase 5.B: sound inventory + producer publish + discover
   | "coop";    // Phase 4: co-production
+
+/**
+ * Stages that belong to the song-creation pipeline. Used by setStage's
+ * coop-sync logic: stage transitions INTO a creation stage broadcast to
+ * the partner (so both clients walk through template → stack → vocal →
+ * name → done together). Transitions OUT of creation are personal —
+ * navigating home / booth / profile / friends doesn't drag the partner.
+ */
+const CREATION_STAGES = new Set<Stage>(["template", "stack", "vocal", "name", "done"]);
 
 /* -------------------------------------------------------------------------- */
 /* Publish-tier energy economy                                                 */
@@ -231,6 +241,16 @@ interface State {
   openCoop: (sessionId?: string | null) => void;
 
   /**
+   * Cached row of the currently-active coop session. Single source of
+   * truth populated by AppCore's useCoopSession subscription so that
+   * downstream components (Coop, future shared-DAW UI) can read the
+   * row without each opening their own Realtime channel. null when no
+   * session is active or the row hasn't loaded yet.
+   */
+  activeCoopRow: import("../lib/coop-db").CoopSession | null;
+  setActiveCoopRow: (row: import("../lib/coop-db").CoopSession | null) => void;
+
+  /**
    * Internal-ish flag flipped true while we're applying a shared-state blob
    * that came in from Supabase Realtime. Wrapped store actions (pickTemplate,
    * pickLayer, setStage, setSongName…) check this and SKIP their coop-sync
@@ -410,11 +430,17 @@ export const useStore = create<State>((set, get) => ({
 
   setStage: (s) => {
     set({ stage: s });
-    // Coop sync (Phase 4.2): if we're in a live session and not applying
-    // an incoming patch, broadcast the stage change so the other seat
-    // navigates with us.
+    // Coop sync (Phase 4.2): broadcast stage transitions ONLY when
+    // moving INTO a creation stage. This way the host clicking "start
+    // cooking together" or picking a template still pulls the guest
+    // along, but stepping OUT of the DAW (back to home / booth / a
+    // profile / friends) is a personal action — the partner stays
+    // where they are. Avoids the rude "host clicked back, why am I on
+    // home now?" surprise. Going from creation→creation (e.g. stack
+    // → vocal → name → done) still syncs because all those are in the
+    // creation set.
     const sid = get().activeCoopSessionId;
-    if (sid && !get().isApplyingCoopState) {
+    if (sid && !get().isApplyingCoopState && CREATION_STAGES.has(s)) {
       patchCoopState(sid, { stage: s });
     }
   },
@@ -424,6 +450,8 @@ export const useStore = create<State>((set, get) => ({
   setActiveCoopSession: (sessionId) => set({ activeCoopSessionId: sessionId }),
   openCoop: (sessionId) =>
     set({ stage: "coop", activeCoopSessionId: sessionId ?? null }),
+  activeCoopRow: null,
+  setActiveCoopRow: (row) => set({ activeCoopRow: row }),
 
   isApplyingCoopState: false,
   applyCoopSharedState: (remote) => {
@@ -1155,7 +1183,6 @@ export const useStore = create<State>((set, get) => ({
       let collaboratorIds: string[] = [];
       const coopId = get().activeCoopSessionId;
       if (coopId) {
-        const { fetchCoopSession } = await import("./../lib/coop-db");
         const session = await fetchCoopSession(coopId);
         if (session) {
           collaboratorIds = [session.hostId, session.guestId]

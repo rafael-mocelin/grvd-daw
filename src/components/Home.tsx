@@ -94,14 +94,13 @@ export function Home() {
         onClick={() => setStage("template")}
       />
 
-      {/* ── CTA 3: Visit a crib (placeholder) ────────────────────────── */}
+      {/* ── CTA 3: Studio (Phase 5.B sound inventory + producer publishing) ── */}
       <CTA
-        icon="🏠"
-        title="visit a crib"
-        sub="coming soon"
+        icon="🎚️"
+        title="studio"
+        sub="your sounds · publish · discover"
         accent="#a78bfa"
-        disabled
-        onClick={() => { /* no-op */ }}
+        onClick={() => setStage("studio")}
       />
 
       {/* Needs meters — secondary, tucked below the CTAs */}

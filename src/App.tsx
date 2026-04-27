@@ -9,6 +9,7 @@ import { ListeningBooth } from "./components/ListeningBooth";
 import { Leaderboard } from "./components/Leaderboard";
 import { Profile } from "./components/Profile";
 import { Friends } from "./components/Friends";
+import { Studio } from "./components/Studio";
 import { Coop } from "./components/Coop";
 import { DeviceShell } from "./components/DeviceShell";
 import { CanvasBoard } from "./components/CanvasBoard";
@@ -17,6 +18,7 @@ import { AchievementToast } from "./components/AchievementToast";
 import { AuthScreen } from "./components/AuthScreen";
 import { AdminPanel } from "./components/AdminPanel";
 import { CoopCursors } from "./components/CoopCursors";
+import { NotificationToasts } from "./components/NotificationToasts";
 import { loadSamples } from "./audio/engine";
 import { useAuth } from "./lib/auth";
 import { useSync } from "./lib/useSync";
@@ -34,22 +36,24 @@ function AppCore() {
   const {
     stage, showLogbook,
     applyDailyDecay, setUserId, setSkin,
-    activeCoopSessionId, applyCoopSharedState,
+    activeCoopSessionId, applyCoopSharedState, setActiveCoopRow,
   } = useStore();
   const { user } = useAuth();
   const [samplesReady, setSamplesReady] = useState(false);
 
   /* Phase 4.2 — coop sync.
    *
-   * Subscribes to the currently-active coop session (if any) at the
-   * top of the app so shared DAW state reaches the store regardless
-   * of which screen is mounted. `onRowChange` fires every time the
-   * server row updates (from our own writes + partner's writes);
-   * applyCoopSharedState narrows the remote state blob down to the
-   * fields we mirror locally (template/layers/stage/etc.) and sets
-   * them, flipping isApplyingCoopState so the wrapped store actions
+   * One subscription, one place. Subscribes to the active coop session at
+   * the top of the app so:
+   *   1. Shared DAW state reaches the store regardless of which screen is
+   *      mounted (applyCoopSharedState mirrors stage/template/layers/etc.).
+   *   2. Downstream components (Coop, etc.) read the cached row from the
+   *      store via setActiveCoopRow instead of opening their own
+   *      duplicate subscription.
+   * isApplyingCoopState flips during the apply so wrapped store actions
    * don't bounce the same patch back to the server. */
   useCoopSession(activeCoopSessionId, (row) => {
+    setActiveCoopRow(row);
     if (row?.state) applyCoopSharedState(row.state as Record<string, unknown>);
   });
 
@@ -105,6 +109,7 @@ function AppCore() {
         {stage === "leaderboard" && <Leaderboard />}
         {stage === "profile"     && <Profile />}
         {stage === "friends"     && <Friends />}
+        {stage === "studio"      && <Studio />}
         {stage === "coop"        && <Coop />}
 
         {showLogbook && <Logbook />}
@@ -118,6 +123,10 @@ function AppCore() {
       {/* Phase 4.3 — other seats' cursors while in an active coop session.
        * Renders nothing when there's no session or no peers (zero cost). */}
       <CoopCursors />
+      {/* Phase 6 — stacked toast feed for incoming notifications. Subscribes
+       * to Supabase Realtime on the notifications table for the current
+       * user; renders nothing when there's no signed-in user or no toasts. */}
+      <NotificationToasts />
     </>
   );
 }

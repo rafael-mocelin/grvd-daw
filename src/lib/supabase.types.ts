@@ -150,6 +150,33 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          created_at: string
+          id: number
+          kind: string
+          payload: Json
+          seen_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          kind: string
+          payload?: Json
+          seen_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          kind?: string
+          payload?: Json
+          seen_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       player_events: {
         Row: {
           created_at: string
@@ -216,6 +243,69 @@ export type Database = {
           bonus_type?: string
           crossed_at?: string
           song_id?: string
+        }
+        Relationships: []
+      }
+      sound_catalog: {
+        Row: {
+          audio_url: string | null
+          bpm: number | null
+          category: string
+          created_at: string
+          display_name: string
+          glyph: string
+          id: string
+          key_root: string | null
+          kind: string
+          producer_id: string | null
+          variant: string | null
+        }
+        Insert: {
+          audio_url?: string | null
+          bpm?: number | null
+          category?: string
+          created_at?: string
+          display_name: string
+          glyph?: string
+          id: string
+          key_root?: string | null
+          kind: string
+          producer_id?: string | null
+          variant?: string | null
+        }
+        Update: {
+          audio_url?: string | null
+          bpm?: number | null
+          category?: string
+          created_at?: string
+          display_name?: string
+          glyph?: string
+          id?: string
+          key_root?: string | null
+          kind?: string
+          producer_id?: string | null
+          variant?: string | null
+        }
+        Relationships: []
+      }
+      user_sounds: {
+        Row: {
+          acquired_at: string
+          sound_id: string
+          source: string
+          user_id: string
+        }
+        Insert: {
+          acquired_at?: string
+          sound_id: string
+          source?: string
+          user_id: string
+        }
+        Update: {
+          acquired_at?: string
+          sound_id?: string
+          source?: string
+          user_id?: string
         }
         Relationships: []
       }
