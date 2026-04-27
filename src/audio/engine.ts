@@ -564,7 +564,17 @@ function buildVoice(
 /* Public API                                                                  */
 /* -------------------------------------------------------------------------- */
 
-export async function playSong(song: Song, vocalBuffer: AudioBuffer | null) {
+export async function playSong(
+  song: Song,
+  vocalBuffer: AudioBuffer | null,
+  /**
+   * Phase 5.B step 9 — layer ids the local seat has muted. Each playSong
+   * call rebuilds the per-layer Gain chain from scratch, so we have to
+   * re-apply the mute set here or the toggle gets lost on next play.
+   * Empty set = nothing muted (default).
+   */
+  mutedLayerIds: ReadonlySet<string> = new Set<string>(),
+) {
   await ensureAudio();
   stopSong();
   setBpm(song.bpm);
@@ -576,7 +586,8 @@ export async function playSong(song: Song, vocalBuffer: AudioBuffer | null) {
     // Insert a dedicated volume-control Gain between the chain output and destination.
     // We try-disconnect every node from destination and reconnect through volCtrl —
     // intermediate nodes silently fail (they're not connected to destination anyway).
-    const volCtrl = new Tone.Gain(1.0);
+    const isMuted = mutedLayerIds.has(layer.id);
+    const volCtrl = new Tone.Gain(isMuted ? 0 : 1.0);
     volCtrl.toDestination();
     for (const n of nodes) {
       try { n.disconnect(Tone.getDestination()); n.connect(volCtrl); } catch { /* not wired to dest */ }

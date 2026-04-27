@@ -51,6 +51,9 @@ export async function fetchSongs(userId: string): Promise<Song[]> {
     createdAt:    row.created_at,
     vocalBlobUrl: row.vocal_blob_url ?? undefined,
     pitchScore:   row.pitch_score ?? undefined,
+    // Populated server-side by the publish_song RPC; presence marks the
+    // song as "already shipped" so the UI can disable the publish button.
+    publishedPublicationId: row.published_publication_id ?? undefined,
   }));
 }
 

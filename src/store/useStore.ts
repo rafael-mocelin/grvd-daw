@@ -19,9 +19,26 @@ import {
   fetchUserEndorsements,
   rateSongRpc,
   endorseSongRpc,
+  publishSongRpc,
+  uploadSongAudio,
   spendEnergyRpc,
   type PublishedSong,
+  type PublishSongResult,
 } from "../lib/game-db";
+import {
+  publishSoundRpc,
+  uploadProducerSound,
+  claimSoundRpc,
+  fetchMyInventory,
+  fetchCatalogByIds,
+  catalogRowToSoundOption,
+  type PublishSoundResult,
+  type ClaimSoundResult,
+} from "../lib/sounds-db";
+import { registerDynamicSounds, getSound } from "../data/sounds";
+import { renderSongToWav, updateMuteState } from "../audio/engine";
+import { patchCoopState, fetchCoopSession } from "../lib/coop-db";
+import { TEMPLATES } from "../data/templates";
 
 /* -------------------------------------------------------------------------- */
 /* Stage machine — the 60-second journey                                       */
@@ -36,7 +53,20 @@ export type Stage =
   | "name"     // naming & exporting
   | "done"     // song added to inventory
   | "booth"    // Listening Booth (now serves published catalog for Tastemaker loop)
+  | "leaderboard" // Slice 2: Top Songs / Artists / Tastemakers this week
+  | "profile"  // Phase 3: TastemakerProfile (self) or ArtistProfile (other) — switched via profileUserId
+  | "friends"  // Phase 3: Friends list + search + pending requests
+  | "studio"   // Phase 5.B: sound inventory + producer publish + discover
   | "coop";    // Phase 4: co-production
+
+/**
+ * Stages that belong to the song-creation pipeline. Used by setStage's
+ * coop-sync logic: stage transitions INTO a creation stage broadcast to
+ * the partner (so both clients walk through template → stack → vocal →
+ * name → done together). Transitions OUT of creation are personal —
+ * navigating home / booth / profile / friends doesn't drag the partner.
+ */
+const CREATION_STAGES = new Set<Stage>(["template", "stack", "vocal", "name", "done"]);
 
 /* -------------------------------------------------------------------------- */
 /* Publish-tier energy economy                                                 */
@@ -58,6 +88,7 @@ export const ENERGY_REGEN_MS = 5 * 60 * 1000;
 export const ENERGY_COSTS = {
   endorse:         15,
   publishSong:     40,
+  publishSound:    15,
   publishTemplate: 40,
   visitCrib:       3,
   inviteToCrib:    5,
@@ -199,6 +230,54 @@ interface State {
 
   // ------- actions -------
   setStage: (s: Stage) => void;
+  /**
+   * Which user's profile the "profile" stage should show.
+   * - null → your own TastemakerProfile (listener stats).
+   * - a uuid → that user's ArtistProfile (their drops, stats, become-fan).
+   * When the caller equals the current userId we still render ArtistProfile
+   * so you can see "how I look to everyone else."
+   */
+  profileUserId: string | null;
+  /** Navigate to the Profile stage in one shot. Pass null/undefined for self. */
+  openProfile: (userId?: string | null) => void;
+
+  /**
+   * Coop (Phase 4). Session id of the currently-active coop the user is in,
+   * or null if they're not in a session. The Coop screen subscribes to this
+   * row via Supabase Realtime; Phase 4.2 will use the same subscription to
+   * sync shared DAW state.
+   */
+  activeCoopSessionId: string | null;
+  setActiveCoopSession: (sessionId: string | null) => void;
+  /** Navigate to the Coop stage, optionally entering a specific session. */
+  openCoop: (sessionId?: string | null) => void;
+
+  /**
+   * Cached row of the currently-active coop session. Single source of
+   * truth populated by AppCore's useCoopSession subscription so that
+   * downstream components (Coop, future shared-DAW UI) can read the
+   * row without each opening their own Realtime channel. null when no
+   * session is active or the row hasn't loaded yet.
+   */
+  activeCoopRow: import("../lib/coop-db").CoopSession | null;
+  setActiveCoopRow: (row: import("../lib/coop-db").CoopSession | null) => void;
+
+  /**
+   * Internal-ish flag flipped true while we're applying a shared-state blob
+   * that came in from Supabase Realtime. Wrapped store actions (pickTemplate,
+   * pickLayer, setStage, setSongName…) check this and SKIP their coop-sync
+   * write — otherwise we'd bounce the same patch back to the server and
+   * trigger a loop. Not persisted; purely a transient guard.
+   */
+  isApplyingCoopState: boolean;
+  /**
+   * Apply an incoming Phase 4.2 shared-state blob from the coop session.
+   * Called by the useCoopSync hook when a Realtime row change fires.
+   * This mirrors the fields we sync (template, layers, recipe index, song
+   * name, stage) and deliberately ignores local-only fields (vocal buffer,
+   * pitch score, audio-engine state) so each seat keeps its own audio.
+   */
+  applyCoopSharedState: (remote: Record<string, unknown>) => void;
   pickTemplate: (t: Template) => void;
   pickLayer: (kind: LayerKind, variant: string, soundId: string) => void;
   swapLayer: (kind: LayerKind, variant: string, soundId: string) => void;
@@ -263,6 +342,81 @@ interface State {
   rateSong: (songId: string, stars: number) => Promise<void>;
   /** Endorse a song (energy-gated, atomic). Returns true on success. */
   endorseSong: (songId: string) => Promise<boolean>;
+  /**
+   * Publish an inventory song to the public booth. Renders the WAV,
+   * uploads to Supabase Storage, calls publish_song RPC (which enforces
+   * energy cost + daily cap + snapshots artist identity). On success
+   * marks the song as published in-memory so the UI disables the button.
+   */
+  publishSong: (songId: string) => Promise<PublishSongResult | null>;
+  /** Whether a publish is currently in flight (for UI disable + spinner). */
+  publishingSongId: string | null;
+  /**
+   * Producer publish-sound flow (Phase 5.B step 4):
+   *   1. Upload the recorded clip to the producer-sounds bucket.
+   *   2. Call publish_sound RPC (validates inputs + charges energy +
+   *      awards XP + inserts the catalog row + grants the producer
+   *      the new sound).
+   *   3. Commit authoritative server numbers to the store on success.
+   * Returns the RPC result so the caller can surface the message.
+   */
+  publishSound: (args: {
+    blob:        Blob;
+    kind:        LayerKind;
+    displayName: string;
+    glyph:       string;
+    variant?:    string | null;
+    bpm?:        number | null;
+    keyRoot?:    string | null;
+  }) => Promise<PublishSoundResult | null>;
+  /** Whether a publish-sound is currently in flight (UI disable + spinner). */
+  publishingSound: boolean;
+  /**
+   * Producer claim flow (Phase 5.B step 5). Idempotent — if the player
+   * already owns the sound, returns success with alreadyOwned=true and
+   * no XP change. Producers self-claiming their own drop is a no-op.
+   * Returns the RPC result so the caller can update local state.
+   */
+  claimSound: (soundId: string) => Promise<ClaimSoundResult | null>;
+  /** sound_id currently being claimed — for per-tile spinner gating. */
+  claimingSoundId: string | null;
+  /**
+   * Phase 5.B step 6 — the live inventory of soundIds the current user
+   * owns. Drives the DAW sound picker (StackingView) so it filters to
+   * what the player has, not the entire static catalog.
+   *
+   * `null` = inventory not yet loaded (guests, or first paint before
+   * loadInventory resolves). Picker falls back to ALL_SOUNDS in that
+   * state so the experience still works.
+   *
+   * Producer-published rows in this set also get pushed into
+   * data/sounds.ts's dynamic registry on every load, so the audio engine
+   * can resolve their fileUrl via getSound(id).
+   */
+  ownedSoundIds: Set<string> | null;
+  /** Re-fetch the user's inventory + register producer drops. Safe to call
+   *  repeatedly; idempotent. */
+  loadInventory: () => Promise<void>;
+  /**
+   * Phase 5.B step 9 — local-only layer mute set.
+   *
+   * Each seat keeps an independent client-side set of muted layer ids.
+   * Toggling adds/removes the id locally and routes through
+   * engine.updateMuteState; we deliberately do NOT touch Layer.muted on
+   * the synced layers array, so the partner's playback is unaffected.
+   *
+   * Cleared on abandon/finalize/coop-leave so stale ids never linger.
+   */
+  localMutedLayerIds: Set<string>;
+  toggleLocalLayerMute: (layerId: string) => void;
+  /**
+   * Phase 5.B step 7 — when the active coop session's available_sound_ids
+   * snapshot updates, fetch any catalog rows we don't already know +
+   * register them with the audio engine. The picker reads availableSoundIds
+   * directly from activeCoopRow; this action only handles the
+   * register-for-engine-playback side effect.
+   */
+  ensureCoopUnionSounds: (ids: string[]) => Promise<void>;
   /**
    * Client-side optimistic energy spend — matches the server RPC's effect
    * locally so the meter animates immediately. Server authority still wins on
@@ -347,30 +501,111 @@ export const useStore = create<State>((set, get) => ({
   userRatings: {},
   userEndorsements: [],
   catalogLoading: false,
+  publishingSongId: null,
+  publishingSound:  false,
+  claimingSoundId:  null,
+  ownedSoundIds:    null,
+  localMutedLayerIds: new Set<string>(),
 
   // Auth
   userId: null,
 
-  setStage: (s) => set({ stage: s }),
+  setStage: (s) => {
+    set({ stage: s });
+    // Coop sync (Phase 4.2): broadcast stage transitions ONLY when
+    // moving INTO a creation stage. This way the host clicking "start
+    // cooking together" or picking a template still pulls the guest
+    // along, but stepping OUT of the DAW (back to home / booth / a
+    // profile / friends) is a personal action — the partner stays
+    // where they are. Avoids the rude "host clicked back, why am I on
+    // home now?" surprise. Going from creation→creation (e.g. stack
+    // → vocal → name → done) still syncs because all those are in the
+    // creation set.
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState && CREATION_STAGES.has(s)) {
+      patchCoopState(sid, { stage: s });
+    }
+  },
+  profileUserId: null,
+  openProfile: (userId) => set({ stage: "profile", profileUserId: userId ?? null }),
+  activeCoopSessionId: null,
+  setActiveCoopSession: (sessionId) => set({ activeCoopSessionId: sessionId }),
+  openCoop: (sessionId) =>
+    set({ stage: "coop", activeCoopSessionId: sessionId ?? null }),
+  activeCoopRow: null,
+  setActiveCoopRow: (row) => set({ activeCoopRow: row }),
+
+  isApplyingCoopState: false,
+  applyCoopSharedState: (remote) => {
+    // Narrow the blob to the fields we sync. Everything else is ignored.
+    // The `isApplyingCoopState` guard prevents the wrapped actions from
+    // re-emitting patches back to the server during this set().
+    set({ isApplyingCoopState: true });
+    try {
+      const patch: Partial<State> = {};
+
+      if (typeof remote.stage === "string") {
+        patch.stage = remote.stage as Stage;
+      }
+      if (typeof remote.template_id === "string") {
+        const tpl = TEMPLATES.find((t) => t.id === remote.template_id);
+        if (tpl) patch.activeTemplate = tpl;
+      } else if (remote.template_id === null) {
+        patch.activeTemplate = null;
+      }
+      if (Array.isArray(remote.layers)) {
+        patch.layers = remote.layers as Layer[];
+      }
+      if (typeof remote.recipe_index === "number") {
+        patch.recipeIndex = remote.recipe_index;
+      }
+      if (typeof remote.song_name === "string") {
+        patch.songName = remote.song_name;
+      }
+      if (typeof remote.session_started_at === "number") {
+        patch.sessionStartedAt = remote.session_started_at;
+      }
+
+      if (Object.keys(patch).length > 0) set(patch);
+    } finally {
+      set({ isApplyingCoopState: false });
+    }
+  },
 
   pickTemplate: (t) => {
+    const newName = `${t.name} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    const startedAt = Date.now();
     set({
       activeTemplate: t,
       layers: [],
       recipeIndex: 0,
-      songName: `${t.name} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+      songName: newName,
       stage: "stack",
-      sessionStartedAt: Date.now(), // ← 60-second clock starts here
+      sessionStartedAt: startedAt, // ← 60-second clock starts here
+      localMutedLayerIds: new Set<string>(),  // step 9 — fresh slate per song
     });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, {
+        template_id:        t.id,
+        layers:             [],
+        recipe_index:       0,
+        song_name:          newName,
+        stage:              "stack",
+        session_started_at: startedAt,
+      });
+    }
   },
 
   pickLayer: (kind, variant, soundId) => {
     const existingIdx = get().layers.findIndex((l) => l.kind === kind);
+    const ownerId = get().userId ?? undefined;  // step 8 attribution
     const layer: Layer = {
       id: `${kind}-${Date.now()}`,
       kind,
       variant,
       soundId,
+      sourceOwnerId: ownerId,
     };
     const layers = [...get().layers];
     if (existingIdx >= 0) {
@@ -386,22 +621,41 @@ export const useStore = create<State>((set, get) => ({
       layers,
       recipeIndex: recipeDone ? nextIdx : nextIdx,
     });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { layers, recipe_index: nextIdx });
+    }
   },
 
   swapLayer: (kind, variant, soundId) => {
+    const ownerId = get().userId ?? undefined;  // step 8 — re-attribute on swap
     const layers = get().layers.map((l) =>
-      l.kind === kind ? { ...l, variant, soundId } : l
+      l.kind === kind ? { ...l, variant, soundId, sourceOwnerId: ownerId } : l
     );
     set({ layers });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { layers });
+    }
   },
 
-  setRecipeIndex: (i) => set({ recipeIndex: i }),
+  setRecipeIndex: (i) => {
+    set({ recipeIndex: i });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { recipe_index: i });
+    }
+  },
 
   skipKind: () => {
     const tpl = get().activeTemplate;
     const nextIdx = get().recipeIndex + 1;
     if (!tpl) return;
     set({ recipeIndex: nextIdx });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { recipe_index: nextIdx });
+    }
   },
 
   undoLast: () => {
@@ -446,7 +700,13 @@ export const useStore = create<State>((set, get) => ({
 
   setArrangeMutes: (m) => set({ arrangeMutes: m }),
 
-  setSongName: (name) => set({ songName: name }),
+  setSongName: (name) => {
+    set({ songName: name });
+    const sid = get().activeCoopSessionId;
+    if (sid && !get().isApplyingCoopState) {
+      patchCoopState(sid, { song_name: name });
+    }
+  },
 
   finalizeSong: (collaborators = []) => {
     const { activeTemplate, layers, songName, vocalBlobUrl, pitchScore, arrangeMutes, tamagotchi, player, sessionStartedAt, longestSessionMs, longestStreak } = get();
@@ -521,6 +781,7 @@ export const useStore = create<State>((set, get) => ({
       sessionStartedAt: null,
       tamagotchi: newTam,
       isPlaying: false,
+      localMutedLayerIds: new Set<string>(),  // step 9 — drop stale per-seat mutes
     });
   },
 
@@ -836,7 +1097,10 @@ export const useStore = create<State>((set, get) => ({
 
   loadPublishedCatalog: async () => {
     set({ catalogLoading: true });
-    const rows = await fetchPublishedCatalog();
+    // Pass the current user id so the booth catalog excludes the player's
+    // own drops. Artists shouldn't be able to rate or push their own songs.
+    // Guests (no userId) see everyone's catalog.
+    const rows = await fetchPublishedCatalog(50, get().userId ?? null);
     set({ publishedCatalog: rows, catalogLoading: false });
   },
 
@@ -890,13 +1154,19 @@ export const useStore = create<State>((set, get) => ({
   endorseSong: async (songId) => {
     const uid = get().userId;
     if (get().userEndorsements.includes(songId)) return false;
-    // Client-side affordability check (server also enforces atomically).
+
+    // Client-side affordability precheck — fast fail without a round-trip.
+    // The server (endorse_song RPC) is the real authority; it ALSO checks
+    // the level-scaled daily cap, which we can't know locally without an
+    // extra round-trip. If the cap is hit, we'll find out from the RPC
+    // response and roll back.
     const liveNow = computeLiveEnergy(get().energy, get().energyUpdatedAt);
     if (liveNow < ENERGY_COSTS.endorse) {
       get().sayLine("not enough energy for that push", 2400);
       return false;
     }
-    // Optimistic energy deduction and endorsement list append
+
+    // Optimistic local update: feels snappy, rollback on server rejection.
     set((s) => ({
       energy:          Math.max(0, liveNow - ENERGY_COSTS.endorse),
       energyUpdatedAt: Date.now(),
@@ -905,33 +1175,304 @@ export const useStore = create<State>((set, get) => ({
         r.songId === songId ? { ...r, endorsementCount: r.endorsementCount + 1 } : r
       ),
     }));
-    if (!uid) return true; // guests can "endorse" locally but nothing persists
-    const result = await endorseSongRpc(songId, ENERGY_COSTS.endorse, 10);
+
+    if (!uid) return true; // guests push locally; no server write
+
+    // Atomic server call — spends energy, awards XP, inserts the endorsement,
+    // enforces the daily cap, and logs the event in one transaction.
+    const result = await endorseSongRpc(songId);
+
     if (!result || !result.success) {
-      // Roll back optimistic changes.
+      // Roll back optimistic local state.
       set((s) => ({
-        energy:          liveNow, // restore
+        energy:          liveNow,
         energyUpdatedAt: Date.now(),
         userEndorsements: s.userEndorsements.filter((id) => id !== songId),
         publishedCatalog: s.publishedCatalog.map((r) =>
           r.songId === songId ? { ...r, endorsementCount: Math.max(0, r.endorsementCount - 1) } : r
         ),
       }));
-      get().sayLine(result?.message ?? "couldn't push that one", 2400);
+      // Server message is the source of truth for the reason — cap reached,
+      // duplicate push, not enough energy, etc. Surface it verbatim.
+      get().sayLine(result?.message ?? "couldn't push that one", 2600);
       return false;
     }
+
+    // Commit the authoritative numbers from the server.
     set({
       energy:          result.newEnergy,
       energyUpdatedAt: Date.now(),
       totalXP:         result.newXp || get().totalXP,
+      level:           result.newLevel || get().level,
     });
-    // Low-energy warning if this push left the tank near-empty.
-    const postLine =
-      result.newEnergy < ENERGY_COSTS.endorse
+
+    // Companion reaction — prefer the cap-aware server message when we're
+    // approaching the cap, otherwise use our own "low tank" warning.
+    const atCapEdge = result.endorsementsToday >= result.dailyCap - 1;
+    const postLine = atCapEdge
+      ? `push sent 🔥 — ${result.endorsementsToday}/${result.dailyCap} today`
+      : result.newEnergy < ENERGY_COSTS.endorse
         ? "push sent 🔥 — tank's running low"
         : "push sent 🔥 let's see who else hears it";
     get().sayLine(postLine, 2600);
     return true;
+  },
+
+  publishSong: async (songId) => {
+    const uid = get().userId;
+    if (!uid) {
+      get().sayLine("sign in to publish", 2400);
+      return null;
+    }
+    if (get().publishingSongId) {
+      // Already publishing another song; avoid concurrent WAV renders.
+      get().sayLine("one at a time", 2000);
+      return null;
+    }
+
+    const song = get().inventory.find((s) => s.id === songId);
+    if (!song) {
+      get().sayLine("song not found", 2000);
+      return null;
+    }
+    // Already-published guard: server also checks this and returns a clean
+    // message, but we short-circuit locally to skip the render + upload.
+    if (song.publishedPublicationId) {
+      get().sayLine("already out there", 2200);
+      return null;
+    }
+
+    set({ publishingSongId: songId });
+    get().sayLine("rendering the final mix…", 3000);
+
+    try {
+      // 1. Render the WAV. Uses the same path the Logbook download button uses.
+      //    vocalBuffer is only in memory for the most recently recorded song;
+      //    historical songs render without the vocal stem — acceptable.
+      const wav = await renderSongToWav(song, get().vocalBuffer);
+
+      // 2. Upload to storage.
+      get().sayLine("uploading to the booth…", 3000);
+      const uploadResult = await uploadSongAudio(uid, songId, wav);
+      if (!uploadResult.publicUrl) {
+        // Surface the actual Supabase error — helps diagnose RLS /
+        // permission / size issues in the field.
+        const reason = uploadResult.error ?? "unknown";
+        get().sayLine(`upload failed: ${reason}`, 4000);
+        return null;
+      }
+      const audioUrl = uploadResult.publicUrl;
+
+      // 3. Gather any collaborators (Phase 5.A). If we're publishing from
+      //    inside an active coop session, include the other participants
+      //    so the booth/leaderboard/profile attribute the drop correctly.
+      //    Server dedupes + drops the caller, so it's safe to send everyone.
+      let collaboratorIds: string[] = [];
+      const coopId = get().activeCoopSessionId;
+      if (coopId) {
+        const session = await fetchCoopSession(coopId);
+        if (session) {
+          collaboratorIds = [session.hostId, session.guestId]
+            .filter((id): id is string => !!id && id !== uid);
+        }
+      }
+
+      // 4. Atomic server commit.
+      const result = await publishSongRpc(songId, audioUrl, collaboratorIds);
+      if (!result || !result.success) {
+        get().sayLine(result?.message ?? "publish failed", 2800);
+        return result;
+      }
+
+      // 4. Commit authoritative server numbers + mark in-memory song as
+      //    published so the button disables on repeat.
+      set((s) => ({
+        energy:          result.newEnergy,
+        energyUpdatedAt: Date.now(),
+        totalXP:         result.newXp || s.totalXP,
+        level:           result.newLevel || s.level,
+        inventory: s.inventory.map((row) =>
+          row.id === songId
+            ? { ...row, publishedPublicationId: result.publicationId ?? undefined }
+            : row
+        ),
+      }));
+
+      // 5. Re-fetch the booth catalog in the background so the new drop
+      //    shows up next time the booth loads (don't await — UX concern
+      //    is that publish returns fast).
+      get().loadPublishedCatalog();
+
+      // 6. Companion reaction — cap-aware "keep one in the tank".
+      const atCapEdge = result.publicationsToday >= result.dailyCap;
+      get().sayLine(
+        atCapEdge
+          ? `dropped 🎧 — that's your ${result.publicationsToday}/${result.dailyCap} for today`
+          : "dropped 🎧 it's out there now",
+        2800,
+      );
+
+      return result;
+    } catch (err) {
+      console.error("[store] publishSong:", err);
+      get().sayLine("render failed — check the console", 2800);
+      return null;
+    } finally {
+      set({ publishingSongId: null });
+    }
+  },
+
+  publishSound: async ({ blob, kind, displayName, glyph, variant, bpm, keyRoot }) => {
+    const uid = get().userId;
+    if (!uid) {
+      get().sayLine("sign in to publish sounds", 2400);
+      return null;
+    }
+    if (get().publishingSound) {
+      get().sayLine("one at a time", 2000);
+      return null;
+    }
+
+    set({ publishingSound: true });
+    get().sayLine("uploading the clip…", 2400);
+
+    try {
+      // 1. Upload clip to storage. Storage RLS enforces own-folder writes.
+      const upload = await uploadProducerSound(blob);
+      if (!upload.publicUrl) {
+        get().sayLine(`upload failed: ${upload.error ?? "unknown"}`, 4000);
+        return null;
+      }
+
+      // 2. Atomic server commit.
+      const result = await publishSoundRpc({
+        kind,
+        displayName,
+        glyph,
+        audioUrl: upload.publicUrl,
+        variant,
+        bpm,
+        keyRoot,
+      });
+      if (!result || !result.success) {
+        get().sayLine(result?.message ?? "publish failed", 2800);
+        return result;
+      }
+
+      // 3. Commit authoritative server numbers.
+      set((s) => ({
+        energy:          result.newEnergy,
+        energyUpdatedAt: Date.now(),
+        totalXP:         result.newXp    || s.totalXP,
+        level:           result.newLevel || s.level,
+      }));
+
+      // 4. Refresh inventory so the auto-granted producer row appears in
+      //    the DAW picker + Studio MINE without a stale-cache window.
+      get().loadInventory();
+
+      // 5. Companion reaction.
+      const atCapEdge = result.publicationsToday >= result.dailyCap;
+      get().sayLine(
+        atCapEdge
+          ? `dropped 🎛️ — that's your ${result.publicationsToday}/${result.dailyCap} for today`
+          : "dropped 🎛️ producers eat",
+        2800,
+      );
+
+      return result;
+    } catch (err) {
+      console.error("[store] publishSound:", err);
+      get().sayLine("publish failed — check the console", 2800);
+      return null;
+    } finally {
+      set({ publishingSound: false });
+    }
+  },
+
+  claimSound: async (soundId) => {
+    const uid = get().userId;
+    if (!uid) {
+      get().sayLine("sign in to claim", 2400);
+      return null;
+    }
+    if (get().claimingSoundId) {
+      // Already mid-claim somewhere — avoid pile-ups while waiting on RPC.
+      return null;
+    }
+    set({ claimingSoundId: soundId });
+    try {
+      const result = await claimSoundRpc(soundId);
+      if (!result) {
+        get().sayLine("claim failed", 2400);
+        return null;
+      }
+      if (!result.success) {
+        get().sayLine(result.message ?? "claim failed", 2800);
+        return result;
+      }
+      // Server-authoritative messaging. The claimer doesn't get XP from
+      // claiming today — producer XP is awarded on the server side.
+      if (result.alreadyOwned) {
+        get().sayLine("already in your bag", 2200);
+      } else {
+        // Refresh inventory so the new sound shows up in the DAW picker
+        // + MINE inventory grid immediately.
+        get().loadInventory();
+        get().sayLine("claimed 💿 it's yours now", 2400);
+      }
+      return result;
+    } catch (err) {
+      console.error("[store] claimSound:", err);
+      get().sayLine("claim failed — check the console", 2800);
+      return null;
+    } finally {
+      set({ claimingSoundId: null });
+    }
+  },
+
+  loadInventory: async () => {
+    const uid = get().userId;
+    if (!uid) {
+      // Guests have no inventory in the DB; clear and let the picker
+      // fall back to ALL_SOUNDS (the original starter-everywhere mode).
+      set({ ownedSoundIds: null });
+      return;
+    }
+    const rows = await fetchMyInventory(uid);
+    // Register every owned producer-published row so the audio engine
+    // can resolve their fileUrl in getSound(id). Starter rows already
+    // exist in ALL_SOUNDS so we skip registering them — keeps the
+    // synth-rendered starter behavior intact.
+    const dynamic = rows
+      .filter((r) => r.category === "producer_published")
+      .map(catalogRowToSoundOption);
+    if (dynamic.length > 0) registerDynamicSounds(dynamic);
+    set({ ownedSoundIds: new Set(rows.map((r) => r.id)) });
+  },
+
+  toggleLocalLayerMute: (layerId) => {
+    const next = new Set(get().localMutedLayerIds);
+    const willMute = !next.has(layerId);
+    if (willMute) next.add(layerId);
+    else          next.delete(layerId);
+    // Update audio first so the change is audible immediately; the React
+    // rerender from set() lags by a frame and the latency is felt.
+    updateMuteState(layerId, willMute);
+    set({ localMutedLayerIds: next });
+  },
+
+  ensureCoopUnionSounds: async (ids) => {
+    if (!ids.length) return;
+    // Skip ids the engine can already resolve (static catalog OR previously
+    // registered dynamic). The remaining set is the partner's exclusive
+    // producer drops we haven't seen yet.
+    const unknown = ids.filter((id) => !getSound(id));
+    if (unknown.length === 0) return;
+    const rows = await fetchCatalogByIds(unknown);
+    if (rows.length > 0) {
+      registerDynamicSounds(rows.map(catalogRowToSoundOption));
+    }
   },
 
   spendEnergyOptimistic: async (cost, eventType, targetId, xp = 0) => {

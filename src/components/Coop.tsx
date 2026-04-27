@@ -1,364 +1,693 @@
 /**
- * Coop — real-time co-production via Supabase Realtime.
+ * Coop — Phase 4.1 session room.
  *
- * Flow:
- *   Host → clicks "start a session" → gets a 6-char join code
- *   Guest → enters the code → joins the session
+ * Three modes, dispatched on store.activeCoopSessionId + auth state:
  *
- * Once both are in, any layer pick or template choice is broadcast
- * over a Supabase Realtime channel. Both sides see the same state.
- * When the host finalizes the song, both users' names are attached as collaborators.
+ *  1. NO SESSION     → two-option landing:
+ *                        • create a session + share a code / invite a friend
+ *                        • paste a code to join an existing one
+ *  2. IN A SESSION   → room view showing participants, join code,
+ *                      pending/active status, leave button. Live-updated
+ *                      via Supabase Realtime through useCoopSession.
+ *  3. LOADING        → while the session id is set but the row hasn't
+ *                      come back yet.
+ *
+ * Incoming invites surface as an accept/decline row at the top whether or
+ * not you're already in a session.
+ *
+ * Phase 4.2 will expand this screen to host the shared DAW state. Right
+ * now we're shipping the social plumbing only — "being in a session" is
+ * a place you can be, not yet a place you can co-create.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { supabase } from "../lib/supabase";
-import { useAuth } from "../lib/auth";
+import { useEffect, useState } from "react";
 import { useStore } from "../store/useStore";
-import { TEMPLATES } from "../data/templates";
-import type { LayerKind } from "../data/types";
-
-/* -------------------------------------------------------------------------- */
-/* Types                                                                       */
-/* -------------------------------------------------------------------------- */
-
-type CoopStatus = "idle" | "hosting" | "joining" | "active";
-
-interface CoopMessage {
-  type: "pick_template" | "pick_layer" | "swap_layer" | "peer_info" | "sync_state";
-  payload: Record<string, unknown>;
-}
-
-interface PeerInfo {
-  name: string;
-  avatar: string;
-  userId: string;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
-/* -------------------------------------------------------------------------- */
-
-function genJoinCode(): string {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
-}
-
-/* -------------------------------------------------------------------------- */
-/* Component                                                                   */
-/* -------------------------------------------------------------------------- */
+import {
+  createCoopSession,
+  acceptCoopInvite,
+  declineCoopInvite,
+  joinCoopByCode,
+  leaveCoopSession,
+  useIncomingCoopInvites,
+  type CoopSession,
+} from "../lib/coop-db";
+import { fetchProfileById, type PublicProfile } from "../lib/social-db";
+import { useCoopPresence } from "../lib/coop-presence";
 
 export function Coop() {
-  const { user } = useAuth();
-  const {
-    setCoopPeer, setStage, feedNeed,
-    pickTemplate, pickLayer, swapLayer, activeTemplate, layers,
-  } = useStore();
+  const userId              = useStore((s) => s.userId);
+  const setStage            = useStore((s) => s.setStage);
+  const activeCoopSessionId = useStore((s) => s.activeCoopSessionId);
+  const setActiveCoopSession = useStore((s) => s.setActiveCoopSession);
+  const sayLine             = useStore((s) => s.sayLine);
 
-  const [status,   setStatus]   = useState<CoopStatus>("idle");
-  const [joinCode, setJoinCode] = useState("");
-  const [inputCode, setInputCode] = useState("");
-  const [peer,     setPeer]     = useState<PeerInfo | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [error,    setError]    = useState<string | null>(null);
-  const [copied,   setCopied]   = useState(false);
+  // Single subscription lives at AppCore (see useCoopSession call there);
+  // we read the cached row from the store. Avoids opening a duplicate
+  // Realtime channel just because this screen is mounted.
+  const session = useStore((s) => s.activeCoopRow);
+  const invites = useIncomingCoopInvites(userId);
 
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-
-  const myName   = user?.email?.split("@")[0] ?? "unknown";
-  const myAvatar = "🎛️";
-
-  /* ── Broadcast helpers ─────────────────────────────────────── */
-
-  function broadcast(msg: CoopMessage) {
-    channelRef.current?.send({ type: "broadcast", event: "daw", payload: msg });
-  }
-
-  /* ── Subscribe to a channel ────────────────────────────────── */
-
-  function subscribeToChannel(code: string) {
-    if (channelRef.current) channelRef.current.unsubscribe();
-
-    const channel = supabase
-      .channel(`coop:${code}`)
-      .on("broadcast", { event: "daw" }, ({ payload }: { payload: CoopMessage }) => {
-        handleIncoming(payload);
-      })
-      .subscribe();
-
-    channelRef.current = channel;
-  }
-
-  function handleIncoming(msg: CoopMessage) {
-    switch (msg.type) {
-      case "peer_info": {
-        const info = msg.payload as unknown as PeerInfo;
-        setPeer(info);
-        setCoopPeer(info.name, info.avatar);
-        feedNeed("social", 20);
-        setStatus("active");
-        break;
-      }
-      case "pick_template": {
-        const tpl = TEMPLATES.find((t) => t.id === msg.payload.templateId);
-        if (tpl) pickTemplate(tpl);
-        break;
-      }
-      case "pick_layer": {
-        pickLayer(
-          msg.payload.kind as LayerKind,
-          msg.payload.variant as string,
-          msg.payload.soundId as string
-        );
-        break;
-      }
-      case "swap_layer": {
-        swapLayer(
-          msg.payload.kind as LayerKind,
-          msg.payload.variant as string,
-          msg.payload.soundId as string
-        );
-        break;
-      }
-    }
-  }
-
-  /* ── Create session (host) ─────────────────────────────────── */
-
-  async function handleHost() {
-    if (!user) return;
-    setError(null);
-    const code = genJoinCode();
-    const { data, error: dbErr } = await supabase
-      .from("coop_sessions")
-      .insert({
-        host_id:   user.id,
-        join_code: code,
-        status:    "waiting",
-        state:     {},
-      })
-      .select("id")
-      .single();
-
-    if (dbErr) { setError(dbErr.message); return; }
-
-    setSessionId(data.id);
-    setJoinCode(code);
-    setStatus("hosting");
-    subscribeToChannel(code);
-
-    // Broadcast own info once joined
-    broadcast({
-      type: "peer_info",
-      payload: { name: myName, avatar: myAvatar, userId: user.id },
-    });
-  }
-
-  /* ── Join session (guest) ──────────────────────────────────── */
-
-  async function handleJoin() {
-    if (!user || !inputCode.trim()) return;
-    setError(null);
-    const code = inputCode.trim().toUpperCase();
-
-    const { data, error: dbErr } = await supabase
-      .from("coop_sessions")
-      .select("*")
-      .eq("join_code", code)
-      .eq("status", "waiting")
-      .single();
-
-    if (dbErr || !data) { setError("session not found or already started."); return; }
-
-    // Mark session as active
-    await supabase
-      .from("coop_sessions")
-      .update({ guest_id: user.id, status: "active" })
-      .eq("id", data.id);
-
-    setSessionId(data.id);
-    setJoinCode(code);
-    setStatus("active");
-    subscribeToChannel(code);
-
-    // Send own info to host
-    broadcast({
-      type: "peer_info",
-      payload: { name: myName, avatar: myAvatar, userId: user.id },
-    });
-  }
-
-  /* ── Expose broadcast so StackingView can use it ──────────────
-     We patch the store actions to also broadcast when in a coop session.
-     Simple approach: override pickLayer / pickTemplate on this render only.
-     (A cleaner approach would store the broadcast fn in the store,
-      but this keeps Supabase out of the store.) */
-  const origPickTemplate = pickTemplate;
-  function coopPickTemplate(tpl: typeof TEMPLATES[number]) {
-    origPickTemplate(tpl);
-    broadcast({ type: "pick_template", payload: { templateId: tpl.id } });
-  }
-
-  /* ── Cleanup on unmount ────────────────────────────────────── */
-
+  // If the active session transitions to "abandoned" (partner leaves), bail.
   useEffect(() => {
-    return () => {
-      channelRef.current?.unsubscribe();
-    };
-  }, []);
-
-  /* ── Copy join code ────────────────────────────────────────── */
-
-  function copyCode() {
-    navigator.clipboard.writeText(joinCode).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }
-
-  /* ── Render ─────────────────────────────────────────────────── */
-
-  const S = {
-    root:  { padding: "20px 16px", maxWidth: 480, margin: "0 auto", fontFamily: "monospace" } as React.CSSProperties,
-    back:  { background: "none", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", fontSize: 12, marginBottom: 16 } as React.CSSProperties,
-    card:  { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14, padding: "20px 18px" } as React.CSSProperties,
-    h2:    { fontSize: 17, fontWeight: 900, color: "#fff", margin: "0 0 6px" } as React.CSSProperties,
-    muted: { fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 } as React.CSSProperties,
-    input: { padding: "10px 14px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff", fontFamily: "monospace", fontSize: 14, width: "100%", outline: "none" } as React.CSSProperties,
-    btn:   (bg: string): React.CSSProperties => ({
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-      padding: "9px 18px", borderRadius: 10,
-      background: bg, border: "none",
-      color: "#fff", fontFamily: "monospace", fontSize: 12, fontWeight: 700,
-      cursor: "pointer", transition: "all 0.15s",
-    }),
-  };
+    if (session?.status === "abandoned") {
+      sayLine("session ended", 2200);
+      setActiveCoopSession(null);
+    }
+  }, [session?.status, sayLine, setActiveCoopSession]);
 
   return (
-    <div style={S.root}>
-      <button style={S.back} onClick={() => setStage("crib")}>← back</button>
-
-      <div style={{ marginBottom: 20 }}>
-        <div style={S.h2}>co-production</div>
-        <div style={S.muted}>real-time session · both names on the song</div>
-      </div>
-
-      {error && (
-        <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 8, padding: "8px 12px", color: "#f87171", fontSize: 11, marginBottom: 16 }}>
-          {error}
-        </div>
+    <Wrapper onBack={() => setStage("home")}>
+      {invites.length > 0 && (
+        <IncomingInvites
+          invites={invites}
+          onJoined={(sid) => setActiveCoopSession(sid)}
+        />
       )}
 
-      {/* ── IDLE: choose to host or join ── */}
-      {status === "idle" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={S.card}>
-            <div style={{ fontSize: 13, fontWeight: 900, color: "#fff", marginBottom: 6 }}>start a session</div>
-            <div style={{ ...S.muted, marginBottom: 14 }}>
-              generate a 6-character code. share it with your collaborator so they can join.
-            </div>
-            <button style={S.btn("rgba(124,58,237,0.8)")} onClick={handleHost}>
-              🎛️ create session
-            </button>
-          </div>
-
-          <div style={S.card}>
-            <div style={{ fontSize: 13, fontWeight: 900, color: "#fff", marginBottom: 6 }}>join a session</div>
-            <div style={{ ...S.muted, marginBottom: 10 }}>
-              enter the code your collaborator shared.
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                style={{ ...S.input, letterSpacing: "0.2em", textTransform: "uppercase", flex: 1 }}
-                placeholder="ABC123"
-                maxLength={6}
-                value={inputCode}
-                onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-              />
-              <button style={S.btn("rgba(255,255,255,0.1)")} onClick={handleJoin}>
-                join →
-              </button>
-            </div>
-          </div>
-        </div>
+      {activeCoopSessionId && !session && (
+        <div style={emptyState}>loading session…</div>
       )}
 
-      {/* ── HOSTING: waiting for guest ── */}
-      {status === "hosting" && (
-        <div style={{ ...S.card, textAlign: "center" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.12em" }}>
-            your join code
-          </div>
-          <div style={{
-            fontSize: 40, fontWeight: 900, letterSpacing: "0.3em", color: "#a78bfa",
-            background: "rgba(124,58,237,0.12)", borderRadius: 12, padding: "18px 24px",
-            marginBottom: 14,
-          }}>
-            {joinCode}
-          </div>
-          <button style={{ ...S.btn("rgba(255,255,255,0.08)"), marginBottom: 16 }} onClick={copyCode}>
-            {copied ? "✓ copied" : "copy code"}
+      {activeCoopSessionId && session && (
+        <SessionRoom
+          session={session}
+          onLeave={async () => {
+            const r = await leaveCoopSession(session.id);
+            if (r?.success) {
+              sayLine("left the room", 2000);
+              setActiveCoopSession(null);
+            } else {
+              sayLine(r?.message ?? "couldn't leave", 2200);
+            }
+          }}
+        />
+      )}
+
+      {!activeCoopSessionId && <CoopLanding />}
+    </Wrapper>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Landing — not yet in a session                                              */
+/* -------------------------------------------------------------------------- */
+
+function CoopLanding() {
+  const sayLine              = useStore((s) => s.sayLine);
+  const setActiveCoopSession = useStore((s) => s.setActiveCoopSession);
+  const setStage             = useStore((s) => s.setStage);
+
+  const [creating, setCreating]       = useState(false);
+  const [joiningCode, setJoiningCode] = useState("");
+  const [joining, setJoining]         = useState(false);
+
+  async function onCreate() {
+    setCreating(true);
+    const r = await createCoopSession(null);
+    setCreating(false);
+    if (!r) { sayLine("couldn't create the session", 2400); return; }
+    setActiveCoopSession(r.id);
+    sayLine(`room open · code ${r.joinCode}`, 3000);
+  }
+
+  async function onJoin() {
+    const code = joiningCode.trim();
+    if (code.length === 0) return;
+    setJoining(true);
+    const r = await joinCoopByCode(code);
+    setJoining(false);
+    if (!r || !r.success) { sayLine(r?.message ?? "couldn't join", 2400); return; }
+    if (r.sessionId) setActiveCoopSession(r.sessionId);
+    sayLine("joined the room", 2200);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Section title="start a session" accent="#22d3ee">
+        <p style={bodyText}>
+          open a room and share the code with a friend, or invite someone from
+          your <button onClick={() => setStage("friends")} style={inlineLinkBtn}>friends list</button>.
+        </p>
+        <button
+          onClick={onCreate}
+          disabled={creating}
+          style={{
+            ...primaryCtaBtn,
+            background: creating
+              ? "rgba(34,211,238,0.2)"
+              : "linear-gradient(135deg, #22d3ee 0%, #3b82f6 100%)",
+          }}
+        >
+          {creating ? "opening…" : "🎛️ create a room"}
+        </button>
+      </Section>
+
+      <Section title="or join by code" accent="#a78bfa">
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type="text"
+            value={joiningCode}
+            onChange={(e) => setJoiningCode(e.target.value.toUpperCase())}
+            placeholder="paste 6-char code"
+            maxLength={6}
+            style={codeInput}
+          />
+          <button
+            onClick={onJoin}
+            disabled={joining || joiningCode.trim().length === 0}
+            style={{
+              ...secondaryCtaBtn,
+              opacity: joining || joiningCode.trim().length === 0 ? 0.5 : 1,
+            }}
+          >
+            {joining ? "joining…" : "join"}
           </button>
-          <div style={S.muted}>
-            waiting for your collaborator to enter the code…
-          </div>
-          <div style={{ marginTop: 16, display: "flex", gap: 6, fontSize: 9, color: "rgba(255,255,255,0.2)", textAlign: "center", justifyContent: "center" }}>
-            <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#a78bfa", animation: "pulsebeat 1s infinite" }} />
-            live
-          </div>
         </div>
-      )}
-
-      {/* ── JOINING: waiting to connect ── */}
-      {status === "joining" && (
-        <div style={{ ...S.card, textAlign: "center" }}>
-          <div style={S.muted}>connecting…</div>
-        </div>
-      )}
-
-      {/* ── ACTIVE: both in the room ── */}
-      {status === "active" && peer && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ ...S.card, textAlign: "center" }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>{peer.avatar}</div>
-            <div style={{ fontSize: 16, fontWeight: 900, color: "#fff", marginBottom: 4 }}>
-              {peer.name} is in the room
-            </div>
-            <div style={S.muted}>
-              pick a template and start stacking. both names will be on the song.
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {TEMPLATES.map((tpl) => (
-              <button
-                key={tpl.id}
-                onClick={() => coopPickTemplate(tpl)}
-                style={{
-                  ...S.btn(activeTemplate?.id === tpl.id
-                    ? "rgba(124,58,237,0.7)"
-                    : "rgba(255,255,255,0.05)"),
-                  flexDirection: "column", padding: "12px",
-                  border: `1.5px solid ${activeTemplate?.id === tpl.id ? "#7c3aed" : "rgba(255,255,255,0.08)"}`,
-                  borderRadius: 10,
-                }}
-              >
-                <span style={{ fontSize: 13, fontWeight: 900 }}>{tpl.name}</span>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>
-                  {tpl.bpm} bpm · {tpl.bars} bars
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {activeTemplate && (
-            <button
-              style={{ ...S.btn("rgba(124,58,237,0.85)"), boxShadow: "0 0 20px rgba(124,58,237,0.35)" }}
-              onClick={() => { setCoopPeer(peer.name, peer.avatar); setStage("stack"); }}
-            >
-              start stacking →
-            </button>
-          )}
-        </div>
-      )}
+      </Section>
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Incoming invites                                                            */
+/* -------------------------------------------------------------------------- */
+
+function IncomingInvites({
+  invites, onJoined,
+}: {
+  invites: CoopSession[];
+  onJoined: (sessionId: string | null) => void;
+}) {
+  const sayLine = useStore((s) => s.sayLine);
+
+  return (
+    <Section title={`invites · ${invites.length}`} accent="#facc15">
+      {invites.map((inv) => (
+        <InviteRow
+          key={inv.id}
+          session={inv}
+          onAccept={async () => {
+            const r = await acceptCoopInvite(inv.id);
+            if (r?.success) {
+              sayLine("joined the room", 2000);
+              onJoined(inv.id);
+            } else {
+              sayLine(r?.message ?? "couldn't accept", 2400);
+            }
+          }}
+          onDecline={async () => {
+            const r = await declineCoopInvite(inv.id);
+            if (r?.success) sayLine("declined", 1800);
+          }}
+        />
+      ))}
+    </Section>
+  );
+}
+
+function InviteRow({
+  session, onAccept, onDecline,
+}: {
+  session: CoopSession;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  const [hostProfile, setHostProfile] = useState<PublicProfile | null>(null);
+  useEffect(() => {
+    fetchProfileById(session.hostId).then(setHostProfile);
+  }, [session.hostId]);
+
+  return (
+    <div style={rowStyle}>
+      <span style={avatarSlot}>{hostProfile?.avatar ?? "👤"}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={rowTitle}>{hostProfile?.username ?? "…"}</div>
+        <div style={rowSub}>wants to cook with you</div>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <InlineBtn label="join"    accent="#4ade80" onClick={onAccept} />
+        <InlineBtn label="decline" accent="rgba(255,255,255,0.35)" onClick={onDecline} />
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Session room — you're in a session                                          */
+/* -------------------------------------------------------------------------- */
+
+function SessionRoom({
+  session, onLeave,
+}: {
+  session: CoopSession;
+  onLeave: () => void;
+}) {
+  const userId = useStore((s) => s.userId);
+
+  // Presence channel — tells us who's ACTUALLY live in the room right now
+  // (vs what the DB status says). The two diverge when someone closes
+  // their tab without calling leave_coop_session.
+  const presence = useCoopPresence(session.id, userId);
+
+  const [hostProfile, setHostProfile]         = useState<PublicProfile | null>(null);
+  const [guestProfile, setGuestProfile]       = useState<PublicProfile | null>(null);
+  const [invitedProfile, setInvitedProfile]   = useState<PublicProfile | null>(null);
+
+  useEffect(() => {
+    fetchProfileById(session.hostId).then(setHostProfile);
+    if (session.guestId) fetchProfileById(session.guestId).then(setGuestProfile);
+    else setGuestProfile(null);
+    if (session.invitedUserId && session.invitedUserId !== session.guestId) {
+      fetchProfileById(session.invitedUserId).then(setInvitedProfile);
+    } else {
+      setInvitedProfile(null);
+    }
+  }, [session.hostId, session.guestId, session.invitedUserId]);
+
+  const iAmHost = userId === session.hostId;
+  const statusLabel =
+    session.status === "pending" ? "waiting for your friend" :
+    session.status === "active"  ? "live · both here" :
+                                   "session ended";
+  const statusAccent =
+    session.status === "pending" ? "#facc15" :
+    session.status === "active"  ? "#4ade80" :
+                                   "rgba(255,255,255,0.35)";
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(session.joinCode);
+      useStore.getState().sayLine(`code ${session.joinCode} copied`, 2000);
+    } catch { /* clipboard API may be blocked; swallow */ }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Status + code header */}
+      <div
+        style={{
+          padding: "14px 16px",
+          borderRadius: 14,
+          background: `linear-gradient(135deg, ${statusAccent}22 0%, rgba(0,0,0,0.45) 100%)`,
+          border: `1px solid ${statusAccent}55`,
+          boxShadow: `0 0 16px ${statusAccent}22`,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "monospace",
+            fontSize: 9,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            color: statusAccent,
+          }}
+        >
+          🎛️ coop room
+        </div>
+        <div
+          style={{
+            fontFamily: "'Space Grotesk', system-ui, sans-serif",
+            fontSize: 20,
+            fontWeight: 800,
+            color: "#fff",
+            marginTop: 2,
+          }}
+        >
+          {statusLabel}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontSize: 10,
+              color: "rgba(255,255,255,0.5)",
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+            }}
+          >
+            code
+          </span>
+          <button
+            onClick={copyCode}
+            title="copy code to clipboard"
+            style={{
+              fontFamily: "monospace",
+              fontSize: 18,
+              fontWeight: 900,
+              letterSpacing: "0.3em",
+              color: "#fff",
+              background: "rgba(0,0,0,0.35)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              padding: "4px 12px",
+              borderRadius: 8,
+              cursor: "pointer",
+            }}
+          >
+            {session.joinCode}
+          </button>
+        </div>
+      </div>
+
+      {/* Seats — presence dots reflect ACTUAL channel liveness, not just
+       * the DB status. Your own seat is always "present" (the tab running
+       * this code); peers are "present" only if their presence entry is
+       * in the channel. */}
+      <Section title="seats" accent="#22d3ee">
+        <SeatRow
+          label={iAmHost ? "you (host)" : "host"}
+          profile={hostProfile}
+          present={iAmHost ? true : session.hostId in presence}
+        />
+        {session.guestId && (
+          <SeatRow
+            label={!iAmHost ? "you" : "guest"}
+            profile={guestProfile}
+            present={!iAmHost ? true : session.guestId in presence}
+          />
+        )}
+        {!session.guestId && invitedProfile && (
+          <SeatRow
+            label="invited"
+            profile={invitedProfile}
+            present={false}
+          />
+        )}
+        {!session.guestId && !invitedProfile && (
+          <div style={{ ...emptyState, padding: 12 }}>
+            share the code above or invite a friend from the friends list.
+          </div>
+        )}
+      </Section>
+
+      {/* Phase 4.2 hero action — start the shared DAW once both seats are in.
+       * Tapping sets stage='template' on the shared state, which propagates
+       * via Realtime so both clients navigate to the picker together. */}
+      {session.status === "active" && session.guestId && (
+        <button
+          onClick={() => useStore.getState().setStage("template")}
+          style={{
+            ...primaryCtaBtn,
+            background: "linear-gradient(135deg, #ff4d6d 0%, #facc15 100%)",
+            border: "1px solid rgba(255,77,109,0.7)",
+            boxShadow: "0 0 18px rgba(255,77,109,0.35)",
+          }}
+        >
+          🎛️ start cooking together
+        </button>
+      )}
+
+      {session.status === "active" && !session.guestId && (
+        <div style={placeholder}>
+          waiting for your friend to join · share the code above
+        </div>
+      )}
+
+      <button onClick={onLeave} style={dangerBtn}>
+        leave room
+      </button>
+    </div>
+  );
+}
+
+function SeatRow({
+  label, profile, present,
+}: {
+  label: string;
+  profile: PublicProfile | null;
+  present: boolean;
+}) {
+  return (
+    <div style={rowStyle}>
+      <span style={{
+        ...avatarSlot,
+        opacity: present ? 1 : 0.45,
+        filter: present ? "none" : "grayscale(0.6)",
+      }}>
+        {profile?.avatar ?? "👤"}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={rowTitle}>{profile?.username ?? "…"}</div>
+        <div style={rowSub}>{label}</div>
+      </div>
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: present ? "#4ade80" : "rgba(255,255,255,0.2)",
+          boxShadow: present ? "0 0 6px #4ade80" : "none",
+          flexShrink: 0,
+        }}
+      />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Layout primitives                                                           */
+/* -------------------------------------------------------------------------- */
+
+function Wrapper({ children, onBack }: { children: React.ReactNode; onBack: () => void }) {
+  return (
+    <div
+      style={{
+        padding: "34px 14px 80px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+        maxWidth: 520,
+        width: "100%",
+        margin: "0 auto",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+        <div>
+          <div
+            style={{
+              fontFamily: "monospace",
+              fontSize: 9,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: "#22d3ee",
+            }}
+          >
+            🎛️ coop
+          </div>
+          <div
+            style={{
+              fontFamily: "'Space Grotesk', system-ui, sans-serif",
+              fontSize: 18,
+              fontWeight: 800,
+              color: "#fff",
+              marginTop: 2,
+            }}
+          >
+            cook together
+          </div>
+        </div>
+        <button
+          onClick={onBack}
+          style={{
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            color: "rgba(255,255,255,0.7)",
+            fontFamily: "monospace",
+            fontSize: 11,
+            padding: "6px 10px",
+            borderRadius: 8,
+            cursor: "pointer",
+          }}
+        >
+          ← back
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Section({
+  title, accent, children,
+}: {
+  title: string;
+  accent: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div
+        style={{
+          fontFamily: "monospace",
+          fontSize: 9,
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          color: accent,
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function InlineBtn({ label, accent, onClick }: { label: string; accent: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "5px 10px",
+        background: `${accent}22`,
+        border: `1px solid ${accent}66`,
+        color: accent,
+        fontFamily: "monospace",
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        borderRadius: 6,
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+const rowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "8px 10px",
+  background: "rgba(255,255,255,0.03)",
+  border: "1px solid rgba(255,255,255,0.06)",
+  borderRadius: 10,
+};
+
+const avatarSlot: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 17,
+  background: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 18,
+  flexShrink: 0,
+};
+
+const rowTitle: React.CSSProperties = {
+  fontFamily: "'Space Grotesk', system-ui, sans-serif",
+  fontSize: 13,
+  fontWeight: 700,
+  color: "#fff",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const rowSub: React.CSSProperties = {
+  fontFamily: "monospace",
+  fontSize: 10,
+  color: "rgba(255,255,255,0.5)",
+};
+
+const bodyText: React.CSSProperties = {
+  fontFamily: "monospace",
+  fontSize: 11,
+  color: "rgba(255,255,255,0.6)",
+  lineHeight: 1.5,
+  margin: 0,
+};
+
+const primaryCtaBtn: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(34,211,238,0.6)",
+  color: "#fff",
+  fontFamily: "monospace",
+  fontSize: 12,
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  cursor: "pointer",
+  boxShadow: "0 0 12px rgba(34,211,238,0.25)",
+};
+
+const secondaryCtaBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  background: "rgba(167,139,250,0.2)",
+  border: "1px solid rgba(167,139,250,0.5)",
+  color: "#a78bfa",
+  fontFamily: "monospace",
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  borderRadius: 10,
+  cursor: "pointer",
+};
+
+const codeInput: React.CSSProperties = {
+  flex: 1,
+  padding: "10px 12px",
+  background: "rgba(0,0,0,0.4)",
+  border: "1px solid rgba(167,139,250,0.3)",
+  borderRadius: 10,
+  color: "#fff",
+  fontFamily: "monospace",
+  fontSize: 14,
+  letterSpacing: "0.25em",
+  textTransform: "uppercase",
+  outline: "none",
+};
+
+const inlineLinkBtn: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  color: "#22d3ee",
+  cursor: "pointer",
+  textDecoration: "underline",
+  fontFamily: "monospace",
+  fontSize: 11,
+};
+
+const dangerBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  background: "rgba(255,77,109,0.15)",
+  border: "1px solid rgba(255,77,109,0.5)",
+  color: "#ff4d6d",
+  fontFamily: "monospace",
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  borderRadius: 10,
+  cursor: "pointer",
+  marginTop: 6,
+};
+
+const placeholder: React.CSSProperties = {
+  padding: "28px 16px",
+  textAlign: "center",
+  fontFamily: "monospace",
+  fontSize: 11,
+  color: "rgba(255,255,255,0.4)",
+  lineHeight: 1.5,
+  border: "1px dashed rgba(255,255,255,0.1)",
+  borderRadius: 12,
+};
+
+const emptyState: React.CSSProperties = {
+  padding: "16px 14px",
+  textAlign: "center",
+  fontFamily: "monospace",
+  fontSize: 11,
+  color: "rgba(255,255,255,0.4)",
+  border: "1px dashed rgba(255,255,255,0.1)",
+  borderRadius: 10,
+};

@@ -18,10 +18,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store/useStore";
 import { NeedsMeters } from "./NeedsMeters";
-import { SOUNDS, getSound } from "../data/sounds";
+import { SOUNDS, ALL_SOUNDS, getDynamicSounds, getSound } from "../data/sounds";
 import type { LayerKind } from "../data/types";
 import { KIND_LABEL } from "../data/types";
-import { ensureAudio, playSong, previewLayer, stopPreview, stopSong, updateMuteState } from "../audio/engine";
+import { ensureAudio, playSong, previewLayer, stopPreview, stopSong } from "../audio/engine";
 import { LAYER_XP } from "../data/achievements";
 
 export function StackingView() {
@@ -40,7 +40,41 @@ export function StackingView() {
     setIsPlaying,
     addXP,
     sayLine,
+    ownedSoundIds,
+    activeCoopRow,
+    userId,
+    localMutedLayerIds,
+    toggleLocalLayerMute,
   } = useStore();
+
+  /* Phase 5.B step 7 — coop material union.
+   *
+   * In an active coop session the picker swaps from "what I own" to "what
+   * the group owns combined." Each seat sees the partner's exclusive
+   * producer drops alongside their own. The union is snapshotted at
+   * session activation server-side; we read it via the live coop row.
+   *
+   * Outside coop, this returns null → picker uses ownedSoundIds as before. */
+  const effectiveSoundIds: Set<string> | null = useMemo(() => {
+    if (activeCoopRow?.status === "active" && activeCoopRow.availableSoundIds.length > 0) {
+      return new Set(activeCoopRow.availableSoundIds);
+    }
+    return ownedSoundIds;
+  }, [activeCoopRow, ownedSoundIds]);
+
+  // For the shared-pool pill: how many of the union ids does the LOCAL
+  // user already own (so we can show "your N + partner M = total").
+  const coopBreakdown = useMemo(() => {
+    if (!activeCoopRow || activeCoopRow.status !== "active") return null;
+    const total = activeCoopRow.availableSoundIds.length;
+    if (total === 0 || !ownedSoundIds) return null;
+    const yours    = activeCoopRow.availableSoundIds.filter((id) => ownedSoundIds.has(id)).length;
+    const partner  = total - yours;
+    return { yours, partner, total };
+  }, [activeCoopRow, ownedSoundIds]);
+
+  // userId is read above so the picker re-derives if auth flips.
+  void userId;
 
   const [playing,     setPlaying]     = useState(false);
   const [needsOpen,   setNeedsOpen]   = useState(false);
@@ -51,17 +85,52 @@ export function StackingView() {
     return activeTemplate.recipe[recipeIndex] ?? null;
   }, [activeTemplate, recipeIndex]);
 
+  /* Phase 5.B step 6 — picker filters to the player's inventory.
+   *
+   * Logic:
+   *   1. Pull template-suggested ids; resolve via getSound (covers static
+   *      starter sounds AND producer drops registered at inventory load).
+   *   2. If we have an owned-set, drop suggestions the player doesn't own
+   *      AND backfill the kind section with the rest of THEIR inventory
+   *      (starter + producer drops they've claimed).
+   *   3. If the owned-set is null (guest mode, or pre-load), preserve the
+   *      original behavior: full ALL_SOUNDS catalog, suggested-first.
+   *
+   * Producer drops register in the dynamic registry on inventory load, so
+   * getSound + getDynamicSounds resolve them transparently here. */
   const suggestions = useMemo(() => {
     if (!activeTemplate || !currentKind) return [];
     const suggestedIds = activeTemplate.suggested[currentKind] ?? [];
-    const suggested    = suggestedIds.map((id) => getSound(id)).filter(Boolean);
-    const hasReal      = suggested.some((s) => s?.fileUrl);
-    if (hasReal) return suggested.filter(Boolean) as ReturnType<typeof getSound>[];
-    const others = SOUNDS.filter(
-      (s) => s.kind === currentKind && !suggestedIds.includes(s.id)
+
+    // Resolve suggested ids first.
+    const suggested = suggestedIds
+      .map((id) => getSound(id))
+      .filter(Boolean) as ReturnType<typeof getSound>[];
+
+    // Guest / pre-load: keep the original "everything in catalog" behavior.
+    if (!effectiveSoundIds) {
+      const hasReal = suggested.some((s) => s?.fileUrl);
+      if (hasReal) return suggested;
+      const others = SOUNDS.filter(
+        (s) => s.kind === currentKind && !suggestedIds.includes(s.id),
+      );
+      return [...suggested, ...others];
+    }
+
+    // Owned-set (or coop union) known: filter suggestions + backfill with
+    // every sound in the effective pool of this kind (static starters +
+    // producer drops claimed or borrowed via coop).
+    const allowedSuggested = suggested.filter((s) => s && effectiveSoundIds.has(s.id));
+
+    const seen = new Set(allowedSuggested.map((s) => s!.id));
+    const allowedRest = [...ALL_SOUNDS, ...getDynamicSounds()].filter(
+      (s) => s.kind === currentKind
+          && effectiveSoundIds.has(s.id)
+          && !seen.has(s.id),
     );
-    return [...suggested, ...others].filter(Boolean) as ReturnType<typeof getSound>[];
-  }, [activeTemplate, currentKind]);
+
+    return [...allowedSuggested, ...allowedRest];
+  }, [activeTemplate, currentKind, effectiveSoundIds]);
 
   // Sync to store so CanvasBoard wires know when audio is live
   useEffect(() => { setIsPlaying(playing); }, [playing, setIsPlaying]);
@@ -106,7 +175,8 @@ export function StackingView() {
         layers: songLayers.filter((l) => l.kind !== "vocal"),
         tags: tpl.tags, collaborators: [], createdAt: Date.now(),
       },
-      null
+      null,
+      localMutedLayerIds,
     );
   }
 
@@ -332,6 +402,34 @@ export function StackingView() {
               </button>
             </div>
 
+            {/* Phase 5.B step 7 — shared pool indicator. Only when a coop
+                session is active and the union has more than just my sounds. */}
+            {coopBreakdown && coopBreakdown.partner > 0 && (
+              <div style={{
+                fontFamily:    "monospace",
+                fontSize:      9.5,
+                fontWeight:    700,
+                color:         "rgba(255,255,255,0.65)",
+                background:    "linear-gradient(90deg, rgba(124,58,237,0.18), rgba(34,211,238,0.12))",
+                border:        "1px solid rgba(167,139,250,0.32)",
+                borderRadius:  18,
+                padding:       "5px 12px",
+                display:       "inline-flex",
+                alignItems:    "center",
+                gap:           6,
+                marginBottom:  10,
+                letterSpacing: "0.02em",
+              }}>
+                <span>🤝 shared pool</span>
+                <span style={{ opacity: 0.5 }}>·</span>
+                <span style={{ color: "#fff" }}>your {coopBreakdown.yours}</span>
+                <span style={{ opacity: 0.5 }}>+</span>
+                <span style={{ color: "#fbbf24" }}>partner {coopBreakdown.partner}</span>
+                <span style={{ opacity: 0.5 }}>=</span>
+                <span style={{ color: "#a78bfa", fontWeight: 900 }}>{coopBreakdown.total} sounds</span>
+              </div>
+            )}
+
             {/*
               Sound cards: auto-fill grid.
               minmax(180px, 1fr) means:
@@ -464,9 +562,17 @@ export function StackingView() {
               })}
             </div>
 
-            {/* Currently picked — mute toggle row */}
+            {/* Currently picked — mute toggle row.
+             *
+             * Phase 5.B step 9 — reads/writes localMutedLayerIds, NOT
+             * Layer.muted. The mute state is per-seat: my local engine
+             * silences the layer, but my partner's engine is untouched
+             * (toggleLocalLayerMute never patches the synced coop state).
+             */}
             {existingForKind(currentKind) && (() => {
               const layer = existingForKind(currentKind)!;
+              const isMuted = localMutedLayerIds.has(layer.id);
+              const isCoop  = !!activeCoopRow;
               return (
                 <div style={{
                   marginTop: 10,
@@ -477,21 +583,21 @@ export function StackingView() {
                   borderRadius: 8,
                 }}>
                   <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                    currently picked
+                    {isCoop ? "currently picked · local mute only" : "currently picked"}
                   </span>
                   <button
-                    onClick={() => {
-                      updateMuteState(layer.id, !layer.muted);
-                      swapLayer(layer.kind, layer.variant, layer.soundId);
-                    }}
+                    onClick={() => toggleLocalLayerMute(layer.id)}
+                    title={isCoop
+                      ? "silences this layer ON YOUR PLAYBACK ONLY — partner is unaffected"
+                      : "mute this layer for previewing/playback"}
                     style={{
-                      ...pillBtn(layer.muted ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)"),
+                      ...pillBtn(isMuted ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)"),
                       fontSize: 10, padding: "3px 10px",
-                      border: `1px solid ${layer.muted ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.1)"}`,
-                      color: layer.muted ? "#f87171" : "rgba(255,255,255,0.5)",
+                      border: `1px solid ${isMuted ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.1)"}`,
+                      color: isMuted ? "#f87171" : "rgba(255,255,255,0.5)",
                     }}
                   >
-                    {layer.muted ? "unmute" : "mute"}
+                    {isMuted ? "unmute" : "mute"}
                   </button>
                 </div>
               );

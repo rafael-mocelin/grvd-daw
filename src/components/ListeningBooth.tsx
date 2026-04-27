@@ -47,6 +47,11 @@ export function ListeningBooth() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playPos, setPlayPos]     = useState(0);  // seconds elapsed in current track
   const [playDur, setPlayDur]     = useState(0);  // seconds total (from metadata)
+  // EndorseSheet state — when the player taps "push", we open a confirmation
+  // modal instead of spending immediately. Only committing on explicit
+  // confirm makes the energy spend feel deliberate (the "scarcity ritual"
+  // called out in TASTEMAKER_PLAN.md § 6).
+  const [endorsePromptOpen, setEndorsePromptOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const song = publishedCatalog[index];
@@ -307,16 +312,35 @@ export function ListeningBooth() {
               >
                 {song.title}
               </div>
-              <div
+              <button
+                onClick={() => song.artistId && useStore.getState().openProfile(song.artistId)}
+                title={`open ${song.artistName}'s profile`}
                 style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
                   fontFamily: "monospace",
                   fontSize: 11,
-                  color: "rgba(255,255,255,0.65)",
+                  color: "rgba(255,255,255,0.75)",
                   marginTop: 2,
+                  textDecoration: "underline",
+                  textDecorationColor: "rgba(255,255,255,0.15)",
+                  textUnderlineOffset: 3,
                 }}
               >
                 {song.artistName}
-              </div>
+                {/* Phase 5.A — group attribution. Tap the primary artist
+                 * to open their profile; collaborators are listed inline
+                 * but non-tappable for now (future iteration: make each
+                 * name its own tappable link). */}
+                {song.collaboratorNames.length > 0 && (
+                  <span style={{ opacity: 0.7 }}>
+                    {" × "}
+                    {song.collaboratorNames.join(" × ")}
+                  </span>
+                )}
+              </button>
               <div
                 style={{
                   fontFamily: "monospace",
@@ -434,7 +458,13 @@ export function ListeningBooth() {
             </div>
 
             <button
-              onClick={() => canEndorse && endorseSong(song.songId)}
+              onClick={() => {
+                if (!canEndorse) return;
+                // Open the EndorseSheet instead of spending immediately.
+                // The actual endorseSong call happens inside the modal's
+                // confirm handler below. See also TASTEMAKER_PLAN.md § 6.
+                setEndorsePromptOpen(true);
+              }}
               disabled={!canEndorse}
               title={
                 endorsed
@@ -482,7 +512,233 @@ export function ListeningBooth() {
           </div>
         )}
       </div>
+
+      {/* Confirm-push ritual. Opens from the push button; commits on
+       * confirm, closes on cancel. Portaled under the card so it floats
+       * above the reveal card without stacking-context fights. */}
+      {endorsePromptOpen && (
+        <EndorseSheet
+          song={song}
+          cost={ENERGY_COSTS.endorse}
+          liveEnergy={liveEnergy}
+          onCancel={() => setEndorsePromptOpen(false)}
+          onConfirm={async () => {
+            setEndorsePromptOpen(false);
+            await endorseSong(song.songId);
+          }}
+        />
+      )}
     </Wrapper>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* EndorseSheet — confirmation modal for energy spends                         */
+/*                                                                             */
+/* Shown when the player taps "push" on a revealed drop. Lists what they're   */
+/* about to spend, what they get back, and forces an explicit confirm. The    */
+/* store-level endorseSong already returns a message on failure; the sheet    */
+/* closes optimistically and any failure surface lands in the companion       */
+/* ticker. Design goal: make the spend feel deliberate, not reflexive.         */
+/* -------------------------------------------------------------------------- */
+
+function EndorseSheet({
+  song,
+  cost,
+  liveEnergy,
+  onCancel,
+  onConfirm,
+}: {
+  song: PublishedSong;
+  cost: number;
+  liveEnergy: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Confirm push"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 200,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(0,0,0,0.55)",
+        backdropFilter: "blur(6px)",
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: 380,
+          width: "100%",
+          background: "linear-gradient(135deg, rgba(255,77,109,0.12) 0%, rgba(0,0,0,0.6) 100%)",
+          border: "1px solid rgba(255,77,109,0.4)",
+          borderRadius: 16,
+          padding: 20,
+          boxShadow: "0 12px 40px rgba(0,0,0,0.55), 0 0 24px rgba(255,77,109,0.2)",
+          color: "#fff",
+          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "monospace",
+            fontSize: 10,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            color: "#ff4d6d",
+          }}
+        >
+          🔥 push this drop
+        </div>
+        <div
+          style={{
+            fontSize: 20,
+            fontWeight: 800,
+            letterSpacing: "-0.01em",
+            lineHeight: 1.1,
+          }}
+        >
+          {song.title}
+        </div>
+        <div
+          style={{
+            fontFamily: "monospace",
+            fontSize: 11,
+            color: "rgba(255,255,255,0.65)",
+            marginTop: -6,
+          }}
+        >
+          {song.artistAvatar || "🎧"}  {song.artistName}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 10,
+            marginTop: 6,
+          }}
+        >
+          <SheetStat
+            label="cost"
+            value={`-${cost} ⚡`}
+            accent="#ff4d6d"
+          />
+          <SheetStat
+            label="you'll have"
+            value={`${Math.max(0, liveEnergy - cost)} / 100 ⚡`}
+            accent="rgba(255,255,255,0.9)"
+          />
+        </div>
+
+        <p
+          style={{
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: "rgba(255,255,255,0.65)",
+            margin: "4px 0 0",
+          }}
+        >
+          pushing bumps this drop's visibility and signals your taste. early pushes earn bonus XP if it trends.
+        </p>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              padding: "10px 14px",
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.8)",
+              fontFamily: "monospace",
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              cursor: "pointer",
+            }}
+          >
+            not yet
+          </button>
+          <button
+            onClick={onConfirm}
+            autoFocus
+            style={{
+              flex: 1,
+              padding: "10px 14px",
+              borderRadius: 10,
+              background: "linear-gradient(135deg, #ff4d6d 0%, #facc15 100%)",
+              border: "1px solid rgba(255,77,109,0.7)",
+              color: "#fff",
+              fontFamily: "monospace",
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              boxShadow: "0 0 14px rgba(255,77,109,0.35)",
+            }}
+          >
+            push · {cost}⚡
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SheetStat({
+  label, value, accent,
+}: {
+  label: string;
+  value: string;
+  accent: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: "8px 10px",
+        background: "rgba(0,0,0,0.35)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 8,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "monospace",
+          fontSize: 9,
+          letterSpacing: "0.15em",
+          textTransform: "uppercase",
+          color: "rgba(255,255,255,0.45)",
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: "monospace",
+          fontSize: 14,
+          fontWeight: 800,
+          color: accent,
+          marginTop: 2,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {value}
+      </div>
+    </div>
   );
 }
 

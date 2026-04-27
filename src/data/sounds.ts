@@ -81,6 +81,35 @@ export const SOUNDS_BY_KIND = ALL_SOUNDS.reduce(
   {} as Record<string, SoundOption[]>
 );
 
+/* -------------------------------------------------------------------------- */
+/* Dynamic sound registry — Phase 5.B step 6                                    */
+/*                                                                              */
+/* Producer-published sounds (category='producer_published') don't live in     */
+/* the static arrays above — their audio_url comes from Supabase Storage,      */
+/* not the public/ folder. We register them at runtime so getSound(id) works   */
+/* uniformly for the engine + picker, regardless of origin.                    */
+/*                                                                              */
+/* The registry is intentionally a plain Map: synchronous reads (the engine    */
+/* needs getSound during voice construction), no React re-render needed.       */
+/* -------------------------------------------------------------------------- */
+
+const dynamicSounds = new Map<string, SoundOption>();
+
+/** Bulk-register dynamic SoundOption rows. Idempotent — re-registering the
+ *  same id overwrites the previous entry, so a fresh fetchMyInventory pass
+ *  is safe to call repeatedly. */
+export function registerDynamicSounds(items: SoundOption[]): void {
+  for (const item of items) dynamicSounds.set(item.id, item);
+}
+
+/** Resolve a sound by id. Dynamic registry wins over the static catalog so
+ *  producer drops reach the engine's file-loop path via their audio_url. */
 export function getSound(id: string): SoundOption | undefined {
-  return ALL_SOUNDS.find((s) => s.id === id);
+  return dynamicSounds.get(id) ?? ALL_SOUNDS.find((s) => s.id === id);
+}
+
+/** All currently-registered dynamic rows — used by the picker to surface
+ *  producer drops in their kind sections. */
+export function getDynamicSounds(): SoundOption[] {
+  return Array.from(dynamicSounds.values());
 }

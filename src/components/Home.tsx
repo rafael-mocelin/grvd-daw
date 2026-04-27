@@ -26,6 +26,7 @@ export function Home() {
     inventory,
     setStage,
     toggleLogbook,
+    openProfile,
     sayLine,
   } = useStore();
 
@@ -93,14 +94,13 @@ export function Home() {
         onClick={() => setStage("template")}
       />
 
-      {/* ── CTA 3: Visit a crib (placeholder) ────────────────────────── */}
+      {/* ── CTA 3: Studio (Phase 5.B sound inventory + producer publishing) ── */}
       <CTA
-        icon="🏠"
-        title="visit a crib"
-        sub="coming soon"
+        icon="🎚️"
+        title="studio"
+        sub="your sounds · publish · discover"
         accent="#a78bfa"
-        disabled
-        onClick={() => { /* no-op */ }}
+        onClick={() => setStage("studio")}
       />
 
       {/* Needs meters — secondary, tucked below the CTAs */}
@@ -109,11 +109,17 @@ export function Home() {
       </div>
 
       {/* Footer row — secondary links */}
-      <div className="flex gap-2 w-full mt-1">
-        <button className="btn-ghost text-xs flex-1" onClick={() => setStage("coop")}>
-          🤝 coop
+      <div className="flex gap-2 w-full mt-1 flex-wrap">
+        <button className="btn-ghost text-xs flex-1 min-w-0" onClick={() => openProfile(null)}>
+          👤 me
         </button>
-        <button className="btn-ghost text-xs flex-1" onClick={toggleLogbook}>
+        <button className="btn-ghost text-xs flex-1 min-w-0" onClick={() => setStage("leaderboard")}>
+          🏆 charts
+        </button>
+        <button className="btn-ghost text-xs flex-1 min-w-0" onClick={() => setStage("friends")}>
+          🤝 friends
+        </button>
+        <button className="btn-ghost text-xs flex-1 min-w-0" onClick={toggleLogbook}>
           📓 logbook {inventory.length > 0 && `(${inventory.length})`}
         </button>
       </div>
