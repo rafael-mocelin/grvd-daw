@@ -37,7 +37,7 @@ function AppCore() {
     stage, showLogbook,
     applyDailyDecay, setUserId, setSkin,
     activeCoopSessionId, applyCoopSharedState, setActiveCoopRow,
-    loadInventory,
+    loadInventory, ensureCoopUnionSounds,
   } = useStore();
   const { user } = useAuth();
   const [samplesReady, setSamplesReady] = useState(false);
@@ -56,6 +56,12 @@ function AppCore() {
   useCoopSession(activeCoopSessionId, (row) => {
     setActiveCoopRow(row);
     if (row?.state) applyCoopSharedState(row.state as Record<string, unknown>);
+    // Phase 5.B step 7 — when the union snapshot is present, register any
+    // partner-only producer drops with the audio engine so the local
+    // picker can preview / play them during the session.
+    if (row?.availableSoundIds?.length) {
+      ensureCoopUnionSounds(row.availableSoundIds);
+    }
   });
 
   // Keep userId in the store so finalizeSong can upsert without importing auth.

@@ -525,3 +525,15 @@ already supports live edits) without touching code.
   `buildVoice → makeFileLoop` branch already handles. Acquisition finally
   pays off creatively: claimed sounds appear in the DAW the next time the
   picker mounts.
+- **2026-04-27**: shipped step 7 (coop session material union). New
+  `coop_sessions.available_sound_ids text[]` column populated server-side
+  on session activation (accept_coop_invite + join_coop_by_code) via a
+  SECURITY DEFINER `_coop_compute_union()` helper that bypasses
+  user_sounds RLS to compute the cross-user merge. Client subscribes via
+  the existing realtime row; the App-level coop callback registers any
+  partner-only producer drops with the audio engine on each row update.
+  StackingView swaps its picker filter from `ownedSoundIds` to the union
+  during active sessions, with a small `🤝 shared pool · your N + partner
+  M = total` pill in the kind heading so the borrow is visible. Snapshot
+  only — mid-session publishing doesn't update the union (acceptable for
+  v1, easy to add a refresh RPC later).

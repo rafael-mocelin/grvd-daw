@@ -37,6 +37,13 @@ export interface CoopSession {
   joinCode:       string;
   status:         CoopStatus;
   state:          Record<string, unknown>;
+  /**
+   * Phase 5.B step 7 — snapshotted union of host + guest user_sounds at
+   * session activation. The DAW picker reads this during an active coop
+   * session so each seat sees the COMBINED inventory while the jam is live.
+   * Empty array on pending sessions.
+   */
+  availableSoundIds: string[];
   invitedAt:      string;
   acceptedAt:     string | null;
   createdAt:      string;
@@ -72,6 +79,7 @@ function rowToSession(row: CoopSessionRow): CoopSession {
     joinCode:      row.join_code,
     status:        row.status as CoopStatus,
     state:         (row.state as Record<string, unknown>) ?? {},
+    availableSoundIds: (row.available_sound_ids ?? []) as string[],
     invitedAt:     row.invited_at,
     acceptedAt:    row.accepted_at,
     createdAt:     row.created_at,

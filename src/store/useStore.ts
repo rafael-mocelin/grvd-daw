@@ -30,11 +30,12 @@ import {
   uploadProducerSound,
   claimSoundRpc,
   fetchMyInventory,
+  fetchCatalogByIds,
   catalogRowToSoundOption,
   type PublishSoundResult,
   type ClaimSoundResult,
 } from "../lib/sounds-db";
-import { registerDynamicSounds } from "../data/sounds";
+import { registerDynamicSounds, getSound } from "../data/sounds";
 import { renderSongToWav } from "../audio/engine";
 import { patchCoopState, fetchCoopSession } from "../lib/coop-db";
 import { TEMPLATES } from "../data/templates";
@@ -396,6 +397,14 @@ interface State {
   /** Re-fetch the user's inventory + register producer drops. Safe to call
    *  repeatedly; idempotent. */
   loadInventory: () => Promise<void>;
+  /**
+   * Phase 5.B step 7 — when the active coop session's available_sound_ids
+   * snapshot updates, fetch any catalog rows we don't already know +
+   * register them with the audio engine. The picker reads availableSoundIds
+   * directly from activeCoopRow; this action only handles the
+   * register-for-engine-playback side effect.
+   */
+  ensureCoopUnionSounds: (ids: string[]) => Promise<void>;
   /**
    * Client-side optimistic energy spend — matches the server RPC's effect
    * locally so the meter animates immediately. Server authority still wins on
@@ -1422,6 +1431,19 @@ export const useStore = create<State>((set, get) => ({
       .map(catalogRowToSoundOption);
     if (dynamic.length > 0) registerDynamicSounds(dynamic);
     set({ ownedSoundIds: new Set(rows.map((r) => r.id)) });
+  },
+
+  ensureCoopUnionSounds: async (ids) => {
+    if (!ids.length) return;
+    // Skip ids the engine can already resolve (static catalog OR previously
+    // registered dynamic). The remaining set is the partner's exclusive
+    // producer drops we haven't seen yet.
+    const unknown = ids.filter((id) => !getSound(id));
+    if (unknown.length === 0) return;
+    const rows = await fetchCatalogByIds(unknown);
+    if (rows.length > 0) {
+      registerDynamicSounds(rows.map(catalogRowToSoundOption));
+    }
   },
 
   spendEnergyOptimistic: async (cost, eventType, targetId, xp = 0) => {

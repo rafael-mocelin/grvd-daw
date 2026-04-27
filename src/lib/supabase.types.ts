@@ -17,6 +17,7 @@ export type Database = {
       coop_sessions: {
         Row: {
           accepted_at: string | null
+          available_sound_ids: string[]
           created_at: string
           guest_id: string | null
           host_id: string
@@ -30,6 +31,7 @@ export type Database = {
         }
         Insert: {
           accepted_at?: string | null
+          available_sound_ids?: string[]
           created_at?: string
           guest_id?: string | null
           host_id: string
@@ -43,6 +45,7 @@ export type Database = {
         }
         Update: {
           accepted_at?: string | null
+          available_sound_ids?: string[]
           created_at?: string
           guest_id?: string | null
           host_id?: string

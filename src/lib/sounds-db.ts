@@ -81,6 +81,25 @@ function rowToCatalogSound(row: {
 /* Reads                                                                        */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Fetch a specific subset of catalog rows by id. Used by the coop union
+ * loader: takes the union snapshot's ids and pulls any catalog rows we
+ * don't already know about (so the audio engine can resolve their
+ * audio_url at preview / playback time).
+ */
+export async function fetchCatalogByIds(ids: string[]): Promise<CatalogSound[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase
+    .from("sound_catalog")
+    .select("id, kind, variant, display_name, glyph, audio_url, bpm, key_root, category, producer_id, created_at")
+    .in("id", ids);
+  if (error) {
+    console.error("[sounds-db] fetchCatalogByIds:", error.message);
+    return [];
+  }
+  return (data ?? []).map(rowToCatalogSound);
+}
+
 /** Every sound in the game. Public read; works for guests too. */
 export async function fetchSoundCatalog(opts?: {
   kind?:     LayerKind;

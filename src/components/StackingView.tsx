@@ -41,7 +41,38 @@ export function StackingView() {
     addXP,
     sayLine,
     ownedSoundIds,
+    activeCoopRow,
+    userId,
   } = useStore();
+
+  /* Phase 5.B step 7 — coop material union.
+   *
+   * In an active coop session the picker swaps from "what I own" to "what
+   * the group owns combined." Each seat sees the partner's exclusive
+   * producer drops alongside their own. The union is snapshotted at
+   * session activation server-side; we read it via the live coop row.
+   *
+   * Outside coop, this returns null → picker uses ownedSoundIds as before. */
+  const effectiveSoundIds: Set<string> | null = useMemo(() => {
+    if (activeCoopRow?.status === "active" && activeCoopRow.availableSoundIds.length > 0) {
+      return new Set(activeCoopRow.availableSoundIds);
+    }
+    return ownedSoundIds;
+  }, [activeCoopRow, ownedSoundIds]);
+
+  // For the shared-pool pill: how many of the union ids does the LOCAL
+  // user already own (so we can show "your N + partner M = total").
+  const coopBreakdown = useMemo(() => {
+    if (!activeCoopRow || activeCoopRow.status !== "active") return null;
+    const total = activeCoopRow.availableSoundIds.length;
+    if (total === 0 || !ownedSoundIds) return null;
+    const yours    = activeCoopRow.availableSoundIds.filter((id) => ownedSoundIds.has(id)).length;
+    const partner  = total - yours;
+    return { yours, partner, total };
+  }, [activeCoopRow, ownedSoundIds]);
+
+  // userId is read above so the picker re-derives if auth flips.
+  void userId;
 
   const [playing,     setPlaying]     = useState(false);
   const [needsOpen,   setNeedsOpen]   = useState(false);
@@ -75,7 +106,7 @@ export function StackingView() {
       .filter(Boolean) as ReturnType<typeof getSound>[];
 
     // Guest / pre-load: keep the original "everything in catalog" behavior.
-    if (!ownedSoundIds) {
+    if (!effectiveSoundIds) {
       const hasReal = suggested.some((s) => s?.fileUrl);
       if (hasReal) return suggested;
       const others = SOUNDS.filter(
@@ -84,23 +115,20 @@ export function StackingView() {
       return [...suggested, ...others];
     }
 
-    // Owned-set known: filter suggestions to owned + backfill with owned
-    // sounds of this kind (static starters + producer drops).
-    const ownedSuggested = suggested.filter((s) => s && ownedSoundIds.has(s.id));
+    // Owned-set (or coop union) known: filter suggestions + backfill with
+    // every sound in the effective pool of this kind (static starters +
+    // producer drops claimed or borrowed via coop).
+    const allowedSuggested = suggested.filter((s) => s && effectiveSoundIds.has(s.id));
 
-    // Pool of every sound the player owns of this kind, minus the ones
-    // already in ownedSuggested. Pulls from ALL_SOUNDS (starters/REAL_SOUNDS)
-    // AND from the dynamic registry (producer drops they've claimed or
-    // self-published).
-    const seen = new Set(ownedSuggested.map((s) => s!.id));
-    const ownedRest = [...ALL_SOUNDS, ...getDynamicSounds()].filter(
+    const seen = new Set(allowedSuggested.map((s) => s!.id));
+    const allowedRest = [...ALL_SOUNDS, ...getDynamicSounds()].filter(
       (s) => s.kind === currentKind
-          && ownedSoundIds.has(s.id)
+          && effectiveSoundIds.has(s.id)
           && !seen.has(s.id),
     );
 
-    return [...ownedSuggested, ...ownedRest];
-  }, [activeTemplate, currentKind, ownedSoundIds]);
+    return [...allowedSuggested, ...allowedRest];
+  }, [activeTemplate, currentKind, effectiveSoundIds]);
 
   // Sync to store so CanvasBoard wires know when audio is live
   useEffect(() => { setIsPlaying(playing); }, [playing, setIsPlaying]);
@@ -370,6 +398,34 @@ export function StackingView() {
                 skip →
               </button>
             </div>
+
+            {/* Phase 5.B step 7 — shared pool indicator. Only when a coop
+                session is active and the union has more than just my sounds. */}
+            {coopBreakdown && coopBreakdown.partner > 0 && (
+              <div style={{
+                fontFamily:    "monospace",
+                fontSize:      9.5,
+                fontWeight:    700,
+                color:         "rgba(255,255,255,0.65)",
+                background:    "linear-gradient(90deg, rgba(124,58,237,0.18), rgba(34,211,238,0.12))",
+                border:        "1px solid rgba(167,139,250,0.32)",
+                borderRadius:  18,
+                padding:       "5px 12px",
+                display:       "inline-flex",
+                alignItems:    "center",
+                gap:           6,
+                marginBottom:  10,
+                letterSpacing: "0.02em",
+              }}>
+                <span>🤝 shared pool</span>
+                <span style={{ opacity: 0.5 }}>·</span>
+                <span style={{ color: "#fff" }}>your {coopBreakdown.yours}</span>
+                <span style={{ opacity: 0.5 }}>+</span>
+                <span style={{ color: "#fbbf24" }}>partner {coopBreakdown.partner}</span>
+                <span style={{ opacity: 0.5 }}>=</span>
+                <span style={{ color: "#a78bfa", fontWeight: 900 }}>{coopBreakdown.total} sounds</span>
+              </div>
+            )}
 
             {/*
               Sound cards: auto-fill grid.
