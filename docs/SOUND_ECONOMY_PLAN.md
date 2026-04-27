@@ -554,3 +554,16 @@ already supports live edits) without touching code.
   ships. Pre-step-8 songs and pre-publish drafts gracefully fall through
   the relaxed checks (no sourceOwnerId → no per-layer ownership
   requirement; no publication → modal shows "publish first" hint).
+- **2026-04-27**: shipped step 9 (per-seat audio mute, reframed). Plan
+  §5 envisioned a "mute the other seat" toggle, but coop today already
+  has independent per-seat playback — there's no cross-client audio to
+  mute. Reframed as the QoL primitive that actually maps cleanly: a
+  client-only `localMutedLayerIds: Set<string>` in the store, toggled
+  via `toggleLocalLayerMute(layerId)`. The engine's `playSong` learned
+  an optional `mutedLayerIds` ReadonlySet so the mute survives the
+  layer-volume rebuild that runs on each play call. StackingView's
+  existing (and previously broken) mute toggle now reads/writes the
+  local set; in coop the label says "currently picked · local mute
+  only" with a tooltip explaining the partner's playback is unaffected.
+  Auto-clears on pickTemplate / abandon. Same primitive scales up
+  cleanly to per-window seat control once multi-recipe coop ships.

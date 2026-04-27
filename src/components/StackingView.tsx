@@ -21,7 +21,7 @@ import { NeedsMeters } from "./NeedsMeters";
 import { SOUNDS, ALL_SOUNDS, getDynamicSounds, getSound } from "../data/sounds";
 import type { LayerKind } from "../data/types";
 import { KIND_LABEL } from "../data/types";
-import { ensureAudio, playSong, previewLayer, stopPreview, stopSong, updateMuteState } from "../audio/engine";
+import { ensureAudio, playSong, previewLayer, stopPreview, stopSong } from "../audio/engine";
 import { LAYER_XP } from "../data/achievements";
 
 export function StackingView() {
@@ -43,6 +43,8 @@ export function StackingView() {
     ownedSoundIds,
     activeCoopRow,
     userId,
+    localMutedLayerIds,
+    toggleLocalLayerMute,
   } = useStore();
 
   /* Phase 5.B step 7 — coop material union.
@@ -173,7 +175,8 @@ export function StackingView() {
         layers: songLayers.filter((l) => l.kind !== "vocal"),
         tags: tpl.tags, collaborators: [], createdAt: Date.now(),
       },
-      null
+      null,
+      localMutedLayerIds,
     );
   }
 
@@ -559,9 +562,17 @@ export function StackingView() {
               })}
             </div>
 
-            {/* Currently picked — mute toggle row */}
+            {/* Currently picked — mute toggle row.
+             *
+             * Phase 5.B step 9 — reads/writes localMutedLayerIds, NOT
+             * Layer.muted. The mute state is per-seat: my local engine
+             * silences the layer, but my partner's engine is untouched
+             * (toggleLocalLayerMute never patches the synced coop state).
+             */}
             {existingForKind(currentKind) && (() => {
               const layer = existingForKind(currentKind)!;
+              const isMuted = localMutedLayerIds.has(layer.id);
+              const isCoop  = !!activeCoopRow;
               return (
                 <div style={{
                   marginTop: 10,
@@ -572,21 +583,21 @@ export function StackingView() {
                   borderRadius: 8,
                 }}>
                   <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                    currently picked
+                    {isCoop ? "currently picked · local mute only" : "currently picked"}
                   </span>
                   <button
-                    onClick={() => {
-                      updateMuteState(layer.id, !layer.muted);
-                      swapLayer(layer.kind, layer.variant, layer.soundId);
-                    }}
+                    onClick={() => toggleLocalLayerMute(layer.id)}
+                    title={isCoop
+                      ? "silences this layer ON YOUR PLAYBACK ONLY — partner is unaffected"
+                      : "mute this layer for previewing/playback"}
                     style={{
-                      ...pillBtn(layer.muted ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)"),
+                      ...pillBtn(isMuted ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)"),
                       fontSize: 10, padding: "3px 10px",
-                      border: `1px solid ${layer.muted ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.1)"}`,
-                      color: layer.muted ? "#f87171" : "rgba(255,255,255,0.5)",
+                      border: `1px solid ${isMuted ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.1)"}`,
+                      color: isMuted ? "#f87171" : "rgba(255,255,255,0.5)",
                     }}
                   >
-                    {layer.muted ? "unmute" : "mute"}
+                    {isMuted ? "unmute" : "mute"}
                   </button>
                 </div>
               );

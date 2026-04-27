@@ -36,7 +36,7 @@ import {
   type ClaimSoundResult,
 } from "../lib/sounds-db";
 import { registerDynamicSounds, getSound } from "../data/sounds";
-import { renderSongToWav } from "../audio/engine";
+import { renderSongToWav, updateMuteState } from "../audio/engine";
 import { patchCoopState, fetchCoopSession } from "../lib/coop-db";
 import { TEMPLATES } from "../data/templates";
 
@@ -398,6 +398,18 @@ interface State {
    *  repeatedly; idempotent. */
   loadInventory: () => Promise<void>;
   /**
+   * Phase 5.B step 9 — local-only layer mute set.
+   *
+   * Each seat keeps an independent client-side set of muted layer ids.
+   * Toggling adds/removes the id locally and routes through
+   * engine.updateMuteState; we deliberately do NOT touch Layer.muted on
+   * the synced layers array, so the partner's playback is unaffected.
+   *
+   * Cleared on abandon/finalize/coop-leave so stale ids never linger.
+   */
+  localMutedLayerIds: Set<string>;
+  toggleLocalLayerMute: (layerId: string) => void;
+  /**
    * Phase 5.B step 7 — when the active coop session's available_sound_ids
    * snapshot updates, fetch any catalog rows we don't already know +
    * register them with the audio engine. The picker reads availableSoundIds
@@ -493,6 +505,7 @@ export const useStore = create<State>((set, get) => ({
   publishingSound:  false,
   claimingSoundId:  null,
   ownedSoundIds:    null,
+  localMutedLayerIds: new Set<string>(),
 
   // Auth
   userId: null,
@@ -569,6 +582,7 @@ export const useStore = create<State>((set, get) => ({
       songName: newName,
       stage: "stack",
       sessionStartedAt: startedAt, // ← 60-second clock starts here
+      localMutedLayerIds: new Set<string>(),  // step 9 — fresh slate per song
     });
     const sid = get().activeCoopSessionId;
     if (sid && !get().isApplyingCoopState) {
@@ -767,6 +781,7 @@ export const useStore = create<State>((set, get) => ({
       sessionStartedAt: null,
       tamagotchi: newTam,
       isPlaying: false,
+      localMutedLayerIds: new Set<string>(),  // step 9 — drop stale per-seat mutes
     });
   },
 
@@ -1434,6 +1449,17 @@ export const useStore = create<State>((set, get) => ({
       .map(catalogRowToSoundOption);
     if (dynamic.length > 0) registerDynamicSounds(dynamic);
     set({ ownedSoundIds: new Set(rows.map((r) => r.id)) });
+  },
+
+  toggleLocalLayerMute: (layerId) => {
+    const next = new Set(get().localMutedLayerIds);
+    const willMute = !next.has(layerId);
+    if (willMute) next.add(layerId);
+    else          next.delete(layerId);
+    // Update audio first so the change is audible immediately; the React
+    // rerender from set() lags by a frame and the latency is felt.
+    updateMuteState(layerId, willMute);
+    set({ localMutedLayerIds: next });
   },
 
   ensureCoopUnionSounds: async (ids) => {
