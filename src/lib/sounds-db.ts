@@ -13,7 +13,7 @@
  */
 
 import { supabase } from "./supabase";
-import type { LayerKind } from "../data/types";
+import type { LayerKind, SoundOption } from "../data/types";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                       */
@@ -403,6 +403,30 @@ export async function publishSoundRpc(args: {
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                      */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Convert an InventorySound (or any catalog row) into the SoundOption shape
+ * the audio engine + picker speak natively. Used by the store after each
+ * inventory load to feed registerDynamicSounds() — producer-published rows
+ * route through getSound(id).fileUrl → engine.makeFileLoop.
+ *
+ * BPM fallback: producers can publish without a BPM (one-shots don't care),
+ * but the engine's fileUrl path requires nativeBpm. Default to 140 — most
+ * common BPM, and time-stretch error on a one-shot is inaudible.
+ */
+export function catalogRowToSoundOption(row: CatalogSound): SoundOption {
+  return {
+    id:        row.id,
+    kind:      row.kind,
+    name:      row.displayName,
+    glyph:     row.glyph,
+    variant:   row.variant ?? "default",
+    tags:      [],
+    vibe:      row.keyRoot ? `producer drop · ${row.keyRoot}` : "producer drop",
+    fileUrl:   row.audioUrl ?? undefined,
+    nativeBpm: row.bpm ?? 140,
+  };
+}
 
 /** Group an inventory list by `kind` for category-headered grids. */
 export function groupByKind<T extends { kind: LayerKind }>(

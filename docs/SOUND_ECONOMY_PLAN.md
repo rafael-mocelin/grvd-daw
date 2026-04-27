@@ -514,3 +514,14 @@ already supports live edits) without touching code.
   view, producer XP cap (3 XP per claim, 60 XP/day per producer), 🔥 trending
   badge when a sound has ≥5 claims this week. Inventories now diverge in
   earnest — claimers see new tiles in MINE the next time it loads.
+- **2026-04-27**: shipped step 6 (DAW picker reads inventory). New dynamic
+  sound registry in `data/sounds.ts` so producer drops resolve through the
+  same `getSound(id)` path as starter sounds. Store gains an `ownedSoundIds`
+  set + `loadInventory` action that runs on user change and re-runs after
+  publish/claim. StackingView's `suggestions` filters to owned ids and
+  backfills the kind section with the rest of the user's inventory; guests
+  fall back to the full static catalog. The audio engine needed no change —
+  registered producer drops carry `fileUrl + nativeBpm`, which the existing
+  `buildVoice → makeFileLoop` branch already handles. Acquisition finally
+  pays off creatively: claimed sounds appear in the DAW the next time the
+  picker mounts.

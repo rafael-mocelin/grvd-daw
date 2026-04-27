@@ -29,9 +29,12 @@ import {
   publishSoundRpc,
   uploadProducerSound,
   claimSoundRpc,
+  fetchMyInventory,
+  catalogRowToSoundOption,
   type PublishSoundResult,
   type ClaimSoundResult,
 } from "../lib/sounds-db";
+import { registerDynamicSounds } from "../data/sounds";
 import { renderSongToWav } from "../audio/engine";
 import { patchCoopState, fetchCoopSession } from "../lib/coop-db";
 import { TEMPLATES } from "../data/templates";
@@ -377,6 +380,23 @@ interface State {
   /** sound_id currently being claimed — for per-tile spinner gating. */
   claimingSoundId: string | null;
   /**
+   * Phase 5.B step 6 — the live inventory of soundIds the current user
+   * owns. Drives the DAW sound picker (StackingView) so it filters to
+   * what the player has, not the entire static catalog.
+   *
+   * `null` = inventory not yet loaded (guests, or first paint before
+   * loadInventory resolves). Picker falls back to ALL_SOUNDS in that
+   * state so the experience still works.
+   *
+   * Producer-published rows in this set also get pushed into
+   * data/sounds.ts's dynamic registry on every load, so the audio engine
+   * can resolve their fileUrl via getSound(id).
+   */
+  ownedSoundIds: Set<string> | null;
+  /** Re-fetch the user's inventory + register producer drops. Safe to call
+   *  repeatedly; idempotent. */
+  loadInventory: () => Promise<void>;
+  /**
    * Client-side optimistic energy spend — matches the server RPC's effect
    * locally so the meter animates immediately. Server authority still wins on
    * next loadPlayerEnergy() refresh. Guests (no userId) mutate locally only.
@@ -463,6 +483,7 @@ export const useStore = create<State>((set, get) => ({
   publishingSongId: null,
   publishingSound:  false,
   claimingSoundId:  null,
+  ownedSoundIds:    null,
 
   // Auth
   userId: null,
@@ -1319,7 +1340,11 @@ export const useStore = create<State>((set, get) => ({
         level:           result.newLevel || s.level,
       }));
 
-      // 4. Companion reaction.
+      // 4. Refresh inventory so the auto-granted producer row appears in
+      //    the DAW picker + Studio MINE without a stale-cache window.
+      get().loadInventory();
+
+      // 5. Companion reaction.
       const atCapEdge = result.publicationsToday >= result.dailyCap;
       get().sayLine(
         atCapEdge
@@ -1364,6 +1389,9 @@ export const useStore = create<State>((set, get) => ({
       if (result.alreadyOwned) {
         get().sayLine("already in your bag", 2200);
       } else {
+        // Refresh inventory so the new sound shows up in the DAW picker
+        // + MINE inventory grid immediately.
+        get().loadInventory();
         get().sayLine("claimed 💿 it's yours now", 2400);
       }
       return result;
@@ -1374,6 +1402,26 @@ export const useStore = create<State>((set, get) => ({
     } finally {
       set({ claimingSoundId: null });
     }
+  },
+
+  loadInventory: async () => {
+    const uid = get().userId;
+    if (!uid) {
+      // Guests have no inventory in the DB; clear and let the picker
+      // fall back to ALL_SOUNDS (the original starter-everywhere mode).
+      set({ ownedSoundIds: null });
+      return;
+    }
+    const rows = await fetchMyInventory(uid);
+    // Register every owned producer-published row so the audio engine
+    // can resolve their fileUrl in getSound(id). Starter rows already
+    // exist in ALL_SOUNDS so we skip registering them — keeps the
+    // synth-rendered starter behavior intact.
+    const dynamic = rows
+      .filter((r) => r.category === "producer_published")
+      .map(catalogRowToSoundOption);
+    if (dynamic.length > 0) registerDynamicSounds(dynamic);
+    set({ ownedSoundIds: new Set(rows.map((r) => r.id)) });
   },
 
   spendEnergyOptimistic: async (cost, eventType, targetId, xp = 0) => {

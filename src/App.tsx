@@ -37,6 +37,7 @@ function AppCore() {
     stage, showLogbook,
     applyDailyDecay, setUserId, setSkin,
     activeCoopSessionId, applyCoopSharedState, setActiveCoopRow,
+    loadInventory,
   } = useStore();
   const { user } = useAuth();
   const [samplesReady, setSamplesReady] = useState(false);
@@ -62,6 +63,13 @@ function AppCore() {
   useEffect(() => {
     setUserId(user?.id ?? null);
   }, [user, setUserId]);
+
+  // Phase 5.B step 6 — load + register the user's sound inventory once we
+  // know who they are. Drives the DAW picker filter and registers any
+  // producer drops with the audio engine.
+  useEffect(() => {
+    loadInventory();
+  }, [user, loadInventory]);
 
   // Hydrate the saved skin choice from localStorage on mount. Pure cosmetic
   // pref, so browser-local persistence is enough — see note on setSkin.

@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store/useStore";
 import { NeedsMeters } from "./NeedsMeters";
-import { SOUNDS, getSound } from "../data/sounds";
+import { SOUNDS, ALL_SOUNDS, getDynamicSounds, getSound } from "../data/sounds";
 import type { LayerKind } from "../data/types";
 import { KIND_LABEL } from "../data/types";
 import { ensureAudio, playSong, previewLayer, stopPreview, stopSong, updateMuteState } from "../audio/engine";
@@ -40,6 +40,7 @@ export function StackingView() {
     setIsPlaying,
     addXP,
     sayLine,
+    ownedSoundIds,
   } = useStore();
 
   const [playing,     setPlaying]     = useState(false);
@@ -51,17 +52,55 @@ export function StackingView() {
     return activeTemplate.recipe[recipeIndex] ?? null;
   }, [activeTemplate, recipeIndex]);
 
+  /* Phase 5.B step 6 — picker filters to the player's inventory.
+   *
+   * Logic:
+   *   1. Pull template-suggested ids; resolve via getSound (covers static
+   *      starter sounds AND producer drops registered at inventory load).
+   *   2. If we have an owned-set, drop suggestions the player doesn't own
+   *      AND backfill the kind section with the rest of THEIR inventory
+   *      (starter + producer drops they've claimed).
+   *   3. If the owned-set is null (guest mode, or pre-load), preserve the
+   *      original behavior: full ALL_SOUNDS catalog, suggested-first.
+   *
+   * Producer drops register in the dynamic registry on inventory load, so
+   * getSound + getDynamicSounds resolve them transparently here. */
   const suggestions = useMemo(() => {
     if (!activeTemplate || !currentKind) return [];
     const suggestedIds = activeTemplate.suggested[currentKind] ?? [];
-    const suggested    = suggestedIds.map((id) => getSound(id)).filter(Boolean);
-    const hasReal      = suggested.some((s) => s?.fileUrl);
-    if (hasReal) return suggested.filter(Boolean) as ReturnType<typeof getSound>[];
-    const others = SOUNDS.filter(
-      (s) => s.kind === currentKind && !suggestedIds.includes(s.id)
+
+    // Resolve suggested ids first.
+    const suggested = suggestedIds
+      .map((id) => getSound(id))
+      .filter(Boolean) as ReturnType<typeof getSound>[];
+
+    // Guest / pre-load: keep the original "everything in catalog" behavior.
+    if (!ownedSoundIds) {
+      const hasReal = suggested.some((s) => s?.fileUrl);
+      if (hasReal) return suggested;
+      const others = SOUNDS.filter(
+        (s) => s.kind === currentKind && !suggestedIds.includes(s.id),
+      );
+      return [...suggested, ...others];
+    }
+
+    // Owned-set known: filter suggestions to owned + backfill with owned
+    // sounds of this kind (static starters + producer drops).
+    const ownedSuggested = suggested.filter((s) => s && ownedSoundIds.has(s.id));
+
+    // Pool of every sound the player owns of this kind, minus the ones
+    // already in ownedSuggested. Pulls from ALL_SOUNDS (starters/REAL_SOUNDS)
+    // AND from the dynamic registry (producer drops they've claimed or
+    // self-published).
+    const seen = new Set(ownedSuggested.map((s) => s!.id));
+    const ownedRest = [...ALL_SOUNDS, ...getDynamicSounds()].filter(
+      (s) => s.kind === currentKind
+          && ownedSoundIds.has(s.id)
+          && !seen.has(s.id),
     );
-    return [...suggested, ...others].filter(Boolean) as ReturnType<typeof getSound>[];
-  }, [activeTemplate, currentKind]);
+
+    return [...ownedSuggested, ...ownedRest];
+  }, [activeTemplate, currentKind, ownedSoundIds]);
 
   // Sync to store so CanvasBoard wires know when audio is live
   useEffect(() => { setIsPlaying(playing); }, [playing, setIsPlaying]);
