@@ -28,7 +28,9 @@ import {
 import {
   publishSoundRpc,
   uploadProducerSound,
+  claimSoundRpc,
   type PublishSoundResult,
+  type ClaimSoundResult,
 } from "../lib/sounds-db";
 import { renderSongToWav } from "../audio/engine";
 import { patchCoopState, fetchCoopSession } from "../lib/coop-db";
@@ -366,6 +368,15 @@ interface State {
   /** Whether a publish-sound is currently in flight (UI disable + spinner). */
   publishingSound: boolean;
   /**
+   * Producer claim flow (Phase 5.B step 5). Idempotent — if the player
+   * already owns the sound, returns success with alreadyOwned=true and
+   * no XP change. Producers self-claiming their own drop is a no-op.
+   * Returns the RPC result so the caller can update local state.
+   */
+  claimSound: (soundId: string) => Promise<ClaimSoundResult | null>;
+  /** sound_id currently being claimed — for per-tile spinner gating. */
+  claimingSoundId: string | null;
+  /**
    * Client-side optimistic energy spend — matches the server RPC's effect
    * locally so the meter animates immediately. Server authority still wins on
    * next loadPlayerEnergy() refresh. Guests (no userId) mutate locally only.
@@ -451,6 +462,7 @@ export const useStore = create<State>((set, get) => ({
   catalogLoading: false,
   publishingSongId: null,
   publishingSound:  false,
+  claimingSoundId:  null,
 
   // Auth
   userId: null,
@@ -1323,6 +1335,44 @@ export const useStore = create<State>((set, get) => ({
       return null;
     } finally {
       set({ publishingSound: false });
+    }
+  },
+
+  claimSound: async (soundId) => {
+    const uid = get().userId;
+    if (!uid) {
+      get().sayLine("sign in to claim", 2400);
+      return null;
+    }
+    if (get().claimingSoundId) {
+      // Already mid-claim somewhere — avoid pile-ups while waiting on RPC.
+      return null;
+    }
+    set({ claimingSoundId: soundId });
+    try {
+      const result = await claimSoundRpc(soundId);
+      if (!result) {
+        get().sayLine("claim failed", 2400);
+        return null;
+      }
+      if (!result.success) {
+        get().sayLine(result.message ?? "claim failed", 2800);
+        return result;
+      }
+      // Server-authoritative messaging. The claimer doesn't get XP from
+      // claiming today — producer XP is awarded on the server side.
+      if (result.alreadyOwned) {
+        get().sayLine("already in your bag", 2200);
+      } else {
+        get().sayLine("claimed 💿 it's yours now", 2400);
+      }
+      return result;
+    } catch (err) {
+      console.error("[store] claimSound:", err);
+      get().sayLine("claim failed — check the console", 2800);
+      return null;
+    } finally {
+      set({ claimingSoundId: null });
     }
   },
 

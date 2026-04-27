@@ -430,8 +430,15 @@ function SoundTile({ sound }: { sound: InventorySound }) {
 /* DISCOVER tab — producer-published sounds, newest first                       */
 /* -------------------------------------------------------------------------- */
 
+/** Claims-this-week threshold for the 🔥 trending badge. Mirror server-side
+ *  game_config.claim_sound.trending_min_claims_per_week (the badge is purely
+ *  decorative, so a small drift is fine). */
+const TRENDING_MIN_CLAIMS_PER_WEEK = 5;
+
 function DiscoverTab() {
-  const userId = useStore((s) => s.userId);
+  const userId         = useStore((s) => s.userId);
+  const claimSound     = useStore((s) => s.claimSound);
+  const claimingSoundId = useStore((s) => s.claimingSoundId);
   const [items, setItems] = useState<DiscoverSound[] | null>(null);
 
   useEffect(() => {
@@ -442,6 +449,23 @@ function DiscoverTab() {
     })();
     return () => { cancelled = true; };
   }, [userId]);
+
+  // Optimistic local patch — bumps claimCount and flips ownedByMe right
+  // after a successful claim so the tile re-renders without a refetch.
+  const handleClaim = useCallback(async (soundId: string) => {
+    const result = await claimSound(soundId);
+    if (!result || !result.success) return;
+    setItems((prev) => prev?.map((s) =>
+      s.id === soundId
+        ? {
+            ...s,
+            ownedByMe:      true,
+            claimCount:     result.claimsTotal,
+            claimsThisWeek: result.claimsThisWeek,
+          }
+        : s,
+    ) ?? prev);
+  }, [claimSound]);
 
   if (items === null) {
     return <div style={emptyState}>loading…</div>;
@@ -470,31 +494,45 @@ function DiscoverTab() {
         gap:                 10,
       }}>
         {items.map((s) => (
-          <DiscoverTile key={s.id} sound={s} />
+          <DiscoverTile
+            key={s.id}
+            sound={s}
+            claiming={claimingSoundId === s.id}
+            onClaim={() => handleClaim(s.id)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function DiscoverTile({ sound }: { sound: DiscoverSound }) {
-  // Step 5 wires real claim. For now show the producer attribution + an
-  // owned-state badge so producers see their own drops greyed out.
+interface DiscoverTileProps {
+  sound:    DiscoverSound;
+  claiming: boolean;
+  onClaim:  () => void;
+}
+
+function DiscoverTile({ sound, claiming, onClaim }: DiscoverTileProps) {
+  const isTrending = sound.claimsThisWeek >= TRENDING_MIN_CLAIMS_PER_WEEK;
+  const canClaim   = !sound.ownedByMe && !claiming;
+
   return (
     <div
       title={`${sound.displayName}${sound.variant ? ` · ${sound.variant}` : ""}${sound.bpm ? ` · ${sound.bpm} BPM` : ""}`}
       style={{
         position:       "relative",
         background:     "linear-gradient(135deg, rgba(167,139,250,0.10) 0%, rgba(0,0,0,0.45) 100%)",
-        border:         `1px solid ${sound.ownedByMe ? "rgba(74,222,128,0.4)" : "rgba(167,139,250,0.35)"}`,
+        border:         `1px solid ${sound.ownedByMe ? "rgba(74,222,128,0.4)" : isTrending ? "rgba(249,115,22,0.55)" : "rgba(167,139,250,0.35)"}`,
         borderRadius:   12,
-        padding:        "12px 10px",
+        padding:        "12px 10px 10px",
         display:        "flex",
         flexDirection:  "column",
         alignItems:     "center",
         gap:            8,
         opacity:        sound.ownedByMe ? 0.7 : 1,
-        boxShadow:      "0 4px 14px rgba(0,0,0,0.35), 0 0 12px rgba(167,139,250,0.12)",
+        boxShadow:      isTrending
+          ? "0 4px 14px rgba(0,0,0,0.4), 0 0 14px rgba(249,115,22,0.25)"
+          : "0 4px 14px rgba(0,0,0,0.35), 0 0 12px rgba(167,139,250,0.12)",
       }}
     >
       {/* Glyph */}
@@ -519,16 +557,49 @@ function DiscoverTile({ sound }: { sound: DiscoverSound }) {
         <span>{sound.producerAvatar ?? "🎧"}</span>
         <span>{sound.producerName ?? "anon"}</span>
       </div>
-      {/* Status pill — claim flow lands in step 5 */}
+      {/* Claim count line */}
       <div style={{
-        fontFamily: "monospace", fontSize: 9, fontWeight: 700,
-        padding: "3px 8px", borderRadius: 10,
-        background: sound.ownedByMe ? "rgba(74,222,128,0.18)" : "rgba(124,58,237,0.18)",
-        border:     `1px solid ${sound.ownedByMe ? "rgba(74,222,128,0.4)" : "rgba(167,139,250,0.4)"}`,
-        color:      sound.ownedByMe ? "#4ade80" : "#a78bfa",
+        fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.45)",
+        display: "flex", alignItems: "center", gap: 4,
+        fontVariantNumeric: "tabular-nums",
       }}>
-        {sound.ownedByMe ? "✓ owned" : "claim · soon"}
+        <span>💿</span>
+        <span>{sound.claimCount} claim{sound.claimCount === 1 ? "" : "s"}</span>
+        {isTrending && <span style={{ color: "#fb923c" }}>· 🔥 trending</span>}
       </div>
+      {/* Action */}
+      <button
+        onClick={canClaim ? onClaim : undefined}
+        disabled={!canClaim}
+        style={{
+          fontFamily:    "monospace",
+          fontSize:      10,
+          fontWeight:    800,
+          padding:       "5px 12px",
+          borderRadius:  14,
+          background:    sound.ownedByMe
+            ? "rgba(74,222,128,0.18)"
+            : claiming
+              ? "rgba(124,58,237,0.18)"
+              : "rgba(124,58,237,0.85)",
+          border:        `1px solid ${sound.ownedByMe ? "rgba(74,222,128,0.4)" : "rgba(167,139,250,0.5)"}`,
+          color:         sound.ownedByMe
+            ? "#4ade80"
+            : claiming
+              ? "#a78bfa"
+              : "#fff",
+          cursor:        canClaim ? "pointer" : "default",
+          letterSpacing: "0.05em",
+          minWidth:      72,
+          boxShadow:     canClaim ? "0 0 10px rgba(124,58,237,0.3)" : "none",
+        }}
+      >
+        {sound.ownedByMe
+          ? "✓ owned"
+          : claiming
+            ? "claiming…"
+            : "claim 💿"}
+      </button>
       {/* Kind tag in corner */}
       <span style={{
         position: "absolute", top: 5, left: 6,
@@ -536,6 +607,15 @@ function DiscoverTile({ sound }: { sound: DiscoverSound }) {
       }}>
         {KIND_ICON[sound.kind]}
       </span>
+      {isTrending && (
+        <span style={{
+          position: "absolute", top: 5, right: 6,
+          fontSize: 13,
+          filter: "drop-shadow(0 0 6px rgba(249,115,22,0.6))",
+        }}>
+          🔥
+        </span>
+      )}
     </div>
   );
 }

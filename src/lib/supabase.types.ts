@@ -457,6 +457,13 @@ export type Database = {
             referencedRelation: "sound_catalog"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "sound_acquisitions_sound_id_fkey"
+            columns: ["sound_id"]
+            isOneToOne: false
+            referencedRelation: "sound_claim_counts"
+            referencedColumns: ["sound_id"]
+          },
         ]
       }
       sound_catalog: {
@@ -585,6 +592,13 @@ export type Database = {
             referencedRelation: "sound_catalog"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "user_sounds_sound_id_fkey"
+            columns: ["sound_id"]
+            isOneToOne: false
+            referencedRelation: "sound_claim_counts"
+            referencedColumns: ["sound_id"]
+          },
         ]
       }
       user_stats: {
@@ -652,6 +666,14 @@ export type Database = {
           requested_at?: string | null
           requested_by?: string | null
           status?: string | null
+        }
+        Relationships: []
+      }
+      sound_claim_counts: {
+        Row: {
+          claim_count: number | null
+          claims_this_week: number | null
+          sound_id: string | null
         }
         Relationships: []
       }
@@ -749,6 +771,17 @@ export type Database = {
       award_early_ear_bonus_if_needed: {
         Args: { p_current_user: string; p_song_id: string }
         Returns: undefined
+      }
+      claim_sound: {
+        Args: { p_sound_id: string }
+        Returns: {
+          already_owned: boolean
+          claims_this_week: number
+          claims_total: number
+          message: string
+          sound_id: string
+          success: boolean
+        }[]
       }
       create_coop_session: {
         Args: { p_invite_user_id?: string }

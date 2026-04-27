@@ -508,3 +508,9 @@ already supports live edits) without touching code.
   audit table + Studio MINE publisher CTA + Studio DISCOVER feed reading
   newest producer-published sounds. Claim button is a "claim · soon" stub
   until step 5 lands the claim RPC + per-claim XP.
+- **2026-04-27**: shipped step 5 (claim flow + per-claim producer XP +
+  trending counts). `claim_sound` RPC (idempotent, producer self-claim
+  is a no-op success, double-claim is a no-op success), `sound_claim_counts`
+  view, producer XP cap (3 XP per claim, 60 XP/day per producer), 🔥 trending
+  badge when a sound has ≥5 claims this week. Inventories now diverge in
+  earnest — claimers see new tiles in MINE the next time it loads.

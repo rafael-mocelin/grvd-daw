@@ -156,6 +156,8 @@ export interface DiscoverSound extends CatalogSound {
   producerName:   string | null;
   producerAvatar: string | null;
   ownedByMe:      boolean;
+  claimCount:     number;
+  claimsThisWeek: number;
 }
 
 /**
@@ -225,15 +227,69 @@ export async function fetchDiscoverSounds(opts?: {
     }
   }
 
+  // Claim counts (Phase 5.B step 5). Public read view; safe for guests too.
+  const claimCounts = new Map<string, { total: number; week: number }>();
+  if (rows.length > 0) {
+    const { data: countRows, error: countErr } = await supabase
+      .from("sound_claim_counts")
+      .select("sound_id, claim_count, claims_this_week")
+      .in("sound_id", rows.map((r) => r.id));
+    if (countErr) {
+      console.warn("[sounds-db] fetchDiscoverSounds count lookup:", countErr.message);
+    } else {
+      for (const c of countRows ?? []) {
+        if (!c.sound_id) continue;
+        claimCounts.set(c.sound_id, {
+          total: Number(c.claim_count ?? 0),
+          week:  Number(c.claims_this_week ?? 0),
+        });
+      }
+    }
+  }
+
   return rows.map((row) => {
-    const prof = row.producer_id ? profileById.get(row.producer_id) : undefined;
+    const prof  = row.producer_id ? profileById.get(row.producer_id) : undefined;
+    const cnt   = claimCounts.get(row.id);
     return {
       ...rowToCatalogSound(row),
       producerName:   prof?.username ?? null,
       producerAvatar: prof?.avatar   ?? null,
       ownedByMe:      ownedSet.has(row.id),
+      claimCount:     cnt?.total ?? 0,
+      claimsThisWeek: cnt?.week  ?? 0,
     } satisfies DiscoverSound;
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Claim flow                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export interface ClaimSoundResult {
+  success:        boolean;
+  message:        string;
+  soundId:        string | null;
+  alreadyOwned:   boolean;
+  claimsTotal:    number;
+  claimsThisWeek: number;
+}
+
+export async function claimSoundRpc(soundId: string): Promise<ClaimSoundResult | null> {
+  const { data, error } = await supabase.rpc("claim_sound", { p_sound_id: soundId });
+  if (error) {
+    console.error("[sounds-db] claimSoundRpc:", error.message);
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return {
+    success:        !!row.success,
+    message:        row.message ?? "",
+    soundId:        row.sound_id ?? null,
+    alreadyOwned:   !!row.already_owned,
+    claimsTotal:    row.claims_total ?? 0,
+    claimsThisWeek: row.claims_this_week ?? 0,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
