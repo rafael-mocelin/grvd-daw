@@ -82,6 +82,7 @@ export const ENERGY_REGEN_MS = 5 * 60 * 1000;
 export const ENERGY_COSTS = {
   endorse:         15,
   publishSong:     40,
+  publishSound:    15,
   publishTemplate: 40,
   visitCrib:       3,
   inviteToCrib:    5,

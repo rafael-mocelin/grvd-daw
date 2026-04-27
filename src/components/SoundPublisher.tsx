@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { useStore } from "../store/useStore";
+import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
 import { recordVocal } from "../audio/engine";
 import type { LayerKind } from "../data/types";
 import { KIND_LABEL } from "../data/types";
@@ -46,10 +46,12 @@ export function SoundPublisher({ onClose }: Props) {
   const publishSound      = useStore((s) => s.publishSound);
   const publishingSound   = useStore((s) => s.publishingSound);
   const energy            = useStore((s) => s.energy);
-  // We hardcode the energy cost label to match the migration default; if the
-  // admin tweaks game_config the server still authoritatively rejects.
-  const ENERGY_COST = 15;
-  const liveEnergy  = energy; // close enough for the disable check; server checks live_energy
+  const energyUpdatedAt   = useStore((s) => s.energyUpdatedAt);
+  // The display value reads through the same regen-aware helper as
+  // EnergyMeter / Done / Logbook. Server authoritatively re-checks at RPC
+  // time, so an off-by-one here only matters for UX.
+  const ENERGY_COST = ENERGY_COSTS.publishSound;
+  const liveEnergy  = computeLiveEnergy(energy, energyUpdatedAt);
 
   const [phase,     setPhase]     = useState<"ready" | "recording" | "preview" | "submitting" | "done">("ready");
   const [elapsed,   setElapsed]   = useState(0);
@@ -64,14 +66,21 @@ export function SoundPublisher({ onClose }: Props) {
   const [glyph,       setGlyph]       = useState<string>(GLYPH_SUGGESTIONS.kick[0]);
   const [bpm,         setBpm]         = useState<string>(""); // string in input, parsed on submit
 
-  const tickerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Latest preview URL, mirrored in a ref so the unmount cleanup sees the
+  // current value (the cleanup useEffect can't depend on previewUrl without
+  // re-firing on every record cycle, which is the wrong shape).
+  const previewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    previewUrlRef.current = previewUrl;
+  }, [previewUrl]);
 
   useEffect(() => {
     return () => {
       if (tickerRef.current) clearInterval(tickerRef.current);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // When kind changes, snap glyph to the first suggestion for that kind
