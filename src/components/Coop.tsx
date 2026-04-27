@@ -28,7 +28,6 @@ import {
   declineCoopInvite,
   joinCoopByCode,
   leaveCoopSession,
-  useCoopSession,
   useIncomingCoopInvites,
   type CoopSession,
 } from "../lib/coop-db";
@@ -42,7 +41,10 @@ export function Coop() {
   const setActiveCoopSession = useStore((s) => s.setActiveCoopSession);
   const sayLine             = useStore((s) => s.sayLine);
 
-  const session = useCoopSession(activeCoopSessionId);
+  // Single subscription lives at AppCore (see useCoopSession call there);
+  // we read the cached row from the store. Avoids opening a duplicate
+  // Realtime channel just because this screen is mounted.
+  const session = useStore((s) => s.activeCoopRow);
   const invites = useIncomingCoopInvites(userId);
 
   // If the active session transitions to "abandoned" (partner leaves), bail.
