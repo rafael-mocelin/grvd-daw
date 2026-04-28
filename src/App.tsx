@@ -11,7 +11,8 @@ import { Profile } from "./components/Profile";
 import { Friends } from "./components/Friends";
 import { Studio } from "./components/Studio";
 import { Coop } from "./components/Coop";
-import { DeviceShell } from "./components/DeviceShell";
+import { Pet } from "./components/Pet";
+import { PageShell } from "./ui/PageShell";
 import { CanvasBoard } from "./components/CanvasBoard";
 import { XPFlash } from "./components/XPFlash";
 import { AchievementToast } from "./components/AchievementToast";
@@ -101,7 +102,7 @@ function AppCore() {
 
   return (
     <>
-      <DeviceShell>
+      <PageShell>
         {/* Tiny sample-loading banner */}
         {!samplesReady && (
           <div
@@ -125,9 +126,10 @@ function AppCore() {
         {stage === "friends"     && <Friends />}
         {stage === "studio"      && <Studio />}
         {stage === "coop"        && <Coop />}
+        {stage === "pet"         && <Pet />}
 
         {showLogbook && <Logbook />}
-      </DeviceShell>
+      </PageShell>
 
       {/* Global overlays — rendered via portals to document.body */}
       <XPFlash />

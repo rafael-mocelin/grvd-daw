@@ -57,7 +57,8 @@ export type Stage =
   | "profile"  // Phase 3: TastemakerProfile (self) or ArtistProfile (other) — switched via profileUserId
   | "friends"  // Phase 3: Friends list + search + pending requests
   | "studio"   // Phase 5.B: sound inventory + producer publish + discover
-  | "coop";    // Phase 4: co-production
+  | "coop"     // Phase 4: co-production
+  | "pet";     // UI v1: full-screen pet portal (the C in B+C from the AvatarPuck redesign)
 
 /**
  * Stages that belong to the song-creation pipeline. Used by setStage's
