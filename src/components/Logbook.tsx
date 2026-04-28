@@ -3,6 +3,8 @@ import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
 import { playSong, stopSong, renderSongToWav, downloadWavBlob } from "../audio/engine";
 import { checkSongEditLock, type SongEditLockResult } from "../lib/game-db";
 import type { Song } from "../data/types";
+import { Modal } from "../ui/Modal";
+import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 
 /**
  * Inventory viewer. Can replay any past song. Shows tags, collaborators,
@@ -51,22 +53,27 @@ export function Logbook() {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 flex items-start justify-center p-6 overflow-auto">
-      <div className="card w-full max-w-3xl p-6">
-        <div className="flex items-center justify-between mb-4">
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) toggleLogbook(); }}
+      className="fixed inset-0 z-40 bg-black/75 backdrop-blur-sm flex items-start justify-center px-3 py-7 overflow-auto"
+    >
+      <div className="w-full max-w-[480px] flex flex-col gap-4 rounded-3xl bg-gradient-to-b from-[#1a1632]/98 to-[#0a0814]/98 border border-white/10 shadow-chunky px-4 py-5">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="chip bg-raised border border-line text-white/70">
-              inventory · {inventory.length} CD{inventory.length === 1 ? "" : "s"}
+            <div className="font-mono text-[9px] font-bold tracking-[0.22em] uppercase text-grvd-cyan">
+              💿 inventory · {inventory.length} CD{inventory.length === 1 ? "" : "s"}
             </div>
-            <h2 className="font-display text-2xl font-bold">logbook</h2>
+            <h2 className="font-display text-3xl text-white leading-tight mt-1">
+              logbook
+            </h2>
           </div>
-          <button className="btn-ghost text-xs" onClick={toggleLogbook}>
-            ✕ close
-          </button>
+          <ChunkyPill variant="ghost" size="sm" onClick={toggleLogbook} aria-label="close">
+            ✕
+          </ChunkyPill>
         </div>
 
         {inventory.length === 0 && (
-          <div className="text-center text-muted text-sm font-mono py-8">
+          <div className="rounded-2xl border border-dashed border-white/12 px-4 py-8 text-center font-mono text-[11px] text-white/45">
             nothing here yet. cook your first hook.
           </div>
         )}
@@ -79,96 +86,106 @@ export function Logbook() {
           />
         )}
 
-        <div className="flex flex-col gap-2">
-          {inventory.map((s) => (
-            <div key={s.id} className="raised p-3 flex items-center gap-3">
-              <button
-                className="btn-ghost text-xs"
-                onClick={() => togglePlay(s)}
+        <div className="flex flex-col gap-2.5">
+          {inventory.map((s) => {
+            const isPublished  = !!s.publishedPublicationId;
+            const isPublishing = publishingSongId === s.id;
+            const canAfford    = liveEnergy >= ENERGY_COSTS.publishSong;
+            const isPlaying    = playingId === s.id;
+            const isExporting  = exportingId === s.id;
+            return (
+              <div
+                key={s.id}
+                className="rounded-2xl border-2 border-white/8 bg-white/3 px-3 py-3 flex flex-col gap-2 shadow-chunky-press"
               >
-                {playingId === s.id ? "⏸" : "▶"}
-              </button>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold truncate">{s.name}</div>
-                <div className="text-[11px] font-mono text-white/50">
-                  {s.bpm} bpm · {s.bars} bars ·{" "}
-                  {s.layers.map((l) => l.kind).join(", ")}
+                {/* Top row: play + name + meta */}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => togglePlay(s)}
+                    className={[
+                      "w-11 h-11 rounded-full grid place-items-center text-lg shrink-0",
+                      "border-2 transition-all shadow-chunky-press",
+                      "active:scale-95",
+                      isPlaying
+                        ? "bg-grvd-purple/30 border-grvd-purple text-white shadow-glow-purple"
+                        : "bg-white/6 border-white/12 text-white/70",
+                    ].join(" ")}
+                    title={isPlaying ? "pause" : "play"}
+                  >
+                    {isPlaying ? "❚❚" : "▶"}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-display text-lg text-white truncate leading-tight">
+                      {s.name}
+                    </div>
+                    <div className="font-mono text-[10px] text-white/50 mt-0.5 truncate">
+                      {s.bpm} bpm · {s.bars} bars · {s.layers.map((l) => l.kind).join(", ")}
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-1 flex flex-wrap gap-1">
+
+                {/* Tag stickers */}
+                <div className="flex flex-wrap gap-1.5">
                   {s.tags.map((t) => (
-                    <span
-                      key={t}
-                      className="chip bg-raised border border-line text-white/60"
-                    >
-                      #{t}
-                    </span>
+                    <ChunkyBadge key={t} variant="ghost" size="sm">#{t}</ChunkyBadge>
                   ))}
                   {s.collaborators.length > 1 && (
-                    <span className="chip bg-accent/10 border border-accent/30 text-accent">
-                      collab · {s.collaborators.join(" × ")}
-                    </span>
+                    <ChunkyBadge variant="cyan" size="sm" icon="🤝">
+                      {s.collaborators.join(" × ")}
+                    </ChunkyBadge>
                   )}
-                  {/* Phase 5.B step 8 — group-song lock badge. Only published
-                      group songs have meaningful collaborator_ids on the
-                      publication; un-published group songs show a quieter
-                      "publish first" hint. */}
                   {s.collaborators.length > 1 && (
                     <button
                       onClick={() => setLockSongId(s.id)}
                       title={s.publishedPublicationId
                         ? "check edit-lock status for this group song"
                         : "publish first to set up the group lock"}
-                      className="chip bg-purple-500/10 border border-purple-400/30 text-purple-300 cursor-pointer hover:bg-purple-500/20"
-                      style={{ cursor: "pointer" }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-display text-[11px] text-grvd-purple bg-grvd-purple/15 border border-grvd-purple/35 shadow-chunky-press hover:bg-grvd-purple/25 transition-colors"
                     >
                       🔒 group song
                     </button>
                   )}
                   {s.pitchScore !== undefined && (
-                    <span className="chip bg-gold/10 border border-gold/30 text-gold">
-                      🎤 {s.pitchScore}/100
-                    </span>
+                    <ChunkyBadge variant="gold" size="sm" icon="🎤">
+                      {s.pitchScore}/100
+                    </ChunkyBadge>
                   )}
                 </div>
-              </div>
-              <button
-                className="btn-ghost text-[11px]"
-                onClick={() => downloadWav(s)}
-                disabled={exportingId !== null}
-                title="Download as 48 kHz / 24-bit WAV"
-                style={exportingId === s.id ? { opacity: 0.6, cursor: "wait" } : undefined}
-              >
-                {exportingId === s.id ? "⏳ rendering…" : "⬇ .wav"}
-              </button>
-              {(() => {
-                const isPublished  = !!s.publishedPublicationId;
-                const isPublishing = publishingSongId === s.id;
-                const canAfford    = liveEnergy >= ENERGY_COSTS.publishSong;
-                const disabled     = isPublished || isPublishing || !canAfford;
-                const label        = isPublished  ? "✓ published"
-                                   : isPublishing ? "⏳ publishing…"
-                                   : !canAfford   ? `${ENERGY_COSTS.publishSong}⚡ short`
-                                   :                `publish · ${ENERGY_COSTS.publishSong}⚡`;
-                return (
-                  <button
-                    className="btn-ghost text-[11px]"
-                    disabled={disabled}
-                    style={disabled ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+
+                {/* Action row */}
+                <div className="flex items-center gap-2 mt-1">
+                  <ChunkyPill
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => downloadWav(s)}
+                    disabled={exportingId !== null}
+                  >
+                    {isExporting ? "⏳ rendering…" : "⬇ .wav"}
+                  </ChunkyPill>
+                  <ChunkyButton
+                    variant={isPublished ? "ghost" : "hero"}
+                    size="sm"
                     onClick={() => publishSong(s.id)}
+                    disabled={isPublished || isPublishing || !canAfford}
+                    className="ml-auto"
                     title={
-                      isPublished
-                        ? "already live in the booth"
-                        : !canAfford
-                          ? `need ${ENERGY_COSTS.publishSong - liveEnergy} more ⚡`
-                          : `publish to the listening booth (-${ENERGY_COSTS.publishSong} ⚡)`
+                      isPublished ? "already live in the booth" :
+                      !canAfford ? `need ${ENERGY_COSTS.publishSong - liveEnergy} more ⚡` :
+                      `publish (-${ENERGY_COSTS.publishSong} ⚡)`
                     }
                   >
-                    {label}
-                  </button>
-                );
-              })()}
-            </div>
-          ))}
+                    {isPublished
+                      ? "✓ published"
+                      : isPublishing
+                        ? "⏳ publishing…"
+                        : !canAfford
+                          ? `${ENERGY_COSTS.publishSong}⚡ short`
+                          : `publish · ${ENERGY_COSTS.publishSong}⚡`}
+                  </ChunkyButton>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -217,52 +234,14 @@ function EditLockModal({ song, coopSessionId, onClose }: EditLockModalProps) {
   }, [song.id, song.publishedPublicationId, coopSessionId]);
 
   return (
-    <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      style={{
-        position:       "absolute",
-        inset:          0,
-        background:     "rgba(0,0,0,0.78)",
-        backdropFilter: "blur(4px)",
-        display:        "flex",
-        alignItems:     "flex-start",
-        justifyContent: "center",
-        padding:        "30px 14px",
-        zIndex:         50,
-      }}
+    <Modal
+      open
+      onClose={onClose}
+      kicker="🔒 group song"
+      title={song.name}
+      subtitle="who needs to be in the room to edit"
     >
-      <div
-        style={{
-          width:          "100%",
-          maxWidth:       420,
-          background:     "linear-gradient(180deg, rgba(20,18,40,0.98), rgba(10,10,18,0.98))",
-          border:         "1px solid rgba(167,139,250,0.35)",
-          borderRadius:   16,
-          padding:        "16px 16px 18px",
-          display:        "flex",
-          flexDirection:  "column",
-          gap:            12,
-          boxShadow:      "0 12px 40px rgba(0,0,0,0.5), 0 0 30px rgba(167,139,250,0.15)",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <div style={{
-              fontFamily: "monospace", fontSize: 9, fontWeight: 800,
-              letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa",
-            }}>
-              🔒 group song
-            </div>
-            <div style={{
-              fontFamily: "'Space Grotesk', system-ui, sans-serif",
-              fontSize: 17, fontWeight: 800, color: "#fff", marginTop: 2,
-            }}>
-              {song.name}
-            </div>
-          </div>
-          <button onClick={onClose} className="btn-ghost text-xs">✕</button>
-        </div>
-
+      <div className="flex flex-col gap-3 pb-2">
         {!song.publishedPublicationId && (
           <Note kind="info">
             this song hasn't been published yet — the lock turns on once it goes
@@ -277,7 +256,7 @@ function EditLockModal({ song, coopSessionId, onClose }: EditLockModalProps) {
           <Note kind="success">
             ✓ ready to edit — the crew is together and every sound is still
             in someone's bag.
-            <div style={{ opacity: 0.55, fontSize: 10, marginTop: 4 }}>
+            <div className="opacity-55 text-[10px] mt-1">
               the actual edit flow ships in a later update; this is just the
               door, not the room.
             </div>
@@ -286,14 +265,12 @@ function EditLockModal({ song, coopSessionId, onClose }: EditLockModalProps) {
 
         {result && !result.canEdit && (
           <>
-            <Note kind="lock">
-              {lockHeadline(result.reason)}
-            </Note>
+            <Note kind="lock">{lockHeadline(result.reason)}</Note>
 
             {result.missingCollaborators.length > 0 && (
               <Section title="needs back in the room">
                 {result.missingCollaborators.map((id) => (
-                  <code key={id} style={chipMono}>{shortId(id)}</code>
+                  <code key={id} className={chipMonoCx}>{shortId(id)}</code>
                 ))}
               </Section>
             )}
@@ -301,10 +278,10 @@ function EditLockModal({ song, coopSessionId, onClose }: EditLockModalProps) {
             {result.missingSounds.length > 0 && (
               <Section title="missing materials">
                 {result.missingSounds.map((m, i) => (
-                  <div key={i} style={chipRow}>
-                    <code style={chipMono}>{m.soundId}</code>
-                    <span style={{ opacity: 0.5, fontSize: 9 }}>owned by</span>
-                    <code style={chipMono}>{shortId(m.sourceOwnerId)}</code>
+                  <div key={i} className="inline-flex items-center gap-1.5">
+                    <code className={chipMonoCx}>{m.soundId}</code>
+                    <span className="opacity-50 text-[9px]">owned by</span>
+                    <code className={chipMonoCx}>{shortId(m.sourceOwnerId)}</code>
                   </div>
                 ))}
               </Section>
@@ -312,7 +289,7 @@ function EditLockModal({ song, coopSessionId, onClose }: EditLockModalProps) {
           </>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -334,18 +311,19 @@ function shortId(uuid: string): string {
 }
 
 function Note({ kind, children }: { kind: "info" | "success" | "error" | "lock"; children: React.ReactNode }) {
-  const palette = {
-    info:    { bg: "rgba(124,58,237,0.10)",  border: "rgba(167,139,250,0.30)", text: "rgba(255,255,255,0.75)" },
-    success: { bg: "rgba(74,222,128,0.10)",  border: "rgba(74,222,128,0.30)",  text: "#86efac" },
-    error:   { bg: "rgba(239,68,68,0.10)",   border: "rgba(239,68,68,0.30)",   text: "#fca5a5" },
-    lock:    { bg: "rgba(251,191,36,0.10)",  border: "rgba(251,191,36,0.30)",  text: "#fcd34d" },
+  const cx = {
+    info:    "bg-grvd-purple/10 border-grvd-purple/30 text-white/75",
+    success: "bg-grvd-lime/10 border-grvd-lime/30 text-grvd-lime",
+    error:   "bg-red-400/10 border-red-400/30 text-red-300",
+    lock:    "bg-grvd-gold/10 border-grvd-gold/30 text-grvd-gold",
   }[kind];
   return (
-    <div style={{
-      background: palette.bg, border: `1px solid ${palette.border}`,
-      borderRadius: 10, padding: "10px 12px",
-      fontFamily: "monospace", fontSize: 11, lineHeight: 1.5, color: palette.text,
-    }}>
+    <div className={[
+      "rounded-2xl border px-3 py-2.5",
+      "font-mono text-[11px] leading-relaxed",
+      "shadow-chunky-press",
+      cx,
+    ].join(" ")}>
       {children}
     </div>
   );
@@ -353,33 +331,19 @@ function Note({ kind, children }: { kind: "info" | "success" | "error" | "lock";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{
-        fontFamily: "monospace", fontSize: 9, fontWeight: 800,
-        letterSpacing: "0.16em", textTransform: "uppercase",
-        color: "rgba(255,255,255,0.5)",
-      }}>
+    <div className="flex flex-col gap-1.5">
+      <div className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase text-white/55">
         {title}
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div className="flex flex-wrap gap-1.5">
         {children}
       </div>
     </div>
   );
 }
 
-const chipMono: React.CSSProperties = {
-  fontFamily:   "monospace",
-  fontSize:     10,
-  background:   "rgba(255,255,255,0.06)",
-  border:       "1px solid rgba(255,255,255,0.10)",
-  borderRadius: 6,
-  padding:      "2px 6px",
-  color:        "rgba(255,255,255,0.85)",
-};
-
-const chipRow: React.CSSProperties = {
-  display:    "inline-flex",
-  alignItems: "center",
-  gap:        6,
-};
+const chipMonoCx = [
+  "font-mono text-[10px]",
+  "bg-white/6 border border-white/10 rounded-md",
+  "px-1.5 py-0.5 text-white/85",
+].join(" ");

@@ -3,6 +3,7 @@ import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
 import { playSong, stopSong } from "../audio/engine";
 import { publishTemplateRpc } from "../lib/sounds-db";
 import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
+import { Modal } from "../ui/Modal";
 import type { LayerKind } from "../data/types";
 
 /**
@@ -438,151 +439,84 @@ function TemplatePublisherModal({
   }
 
   return (
-    <div
-      onClick={(e) => { if (e.target === e.currentTarget && phase !== "submitting") onClose(); }}
-      style={{
-        position: "absolute", inset: 0, background: "rgba(0,0,0,0.78)",
-        backdropFilter: "blur(4px)",
-        display: "flex", alignItems: "flex-start", justifyContent: "center",
-        padding: "30px 14px", zIndex: 60,
-      }}
+    <Modal
+      open
+      onClose={onClose}
+      dismissable={phase !== "submitting"}
+      kicker="🎛️ publish a template"
+      title="recipe other producers can use"
     >
-      <div style={{
-        width: "100%", maxWidth: 420,
-        background: "linear-gradient(180deg, rgba(20,18,40,0.98), rgba(10,10,18,0.98))",
-        border: "1px solid rgba(167,139,250,0.35)",
-        borderRadius: 16, padding: "16px 16px 18px",
-        display: "flex", flexDirection: "column", gap: 12,
-        boxShadow: "0 12px 40px rgba(0,0,0,0.5), 0 0 30px rgba(167,139,250,0.15)",
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <div style={{
-              fontFamily: "monospace", fontSize: 9, fontWeight: 800,
-              letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa",
-            }}>
-              🎛️ publish a template
-            </div>
-            <div style={{
-              fontFamily: "'Space Grotesk', system-ui, sans-serif",
-              fontSize: 17, fontWeight: 800, color: "#fff", marginTop: 2,
-            }}>
-              recipe other producers can use
-            </div>
-          </div>
-          <button onClick={onClose} className="btn-ghost text-xs"
-            disabled={phase === "submitting"} style={phase === "submitting" ? { opacity: 0.5 } : undefined}>
-            ✕
-          </button>
-        </div>
-
-        {/* Form */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <Field label="template name">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value.slice(0, 50))}
-              disabled={phase !== "editing"}
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="subtitle (optional)">
-            <input
-              value={subtitle}
-              onChange={(e) => setSubtitle(e.target.value.slice(0, 80))}
-              placeholder="e.g. trap-style hook · fast"
-              disabled={phase !== "editing"}
-              style={inputStyle}
-            />
-          </Field>
-          <div style={summaryStyle}>
-            <div>{bpm} bpm · {bars} bars · key {keyRoot}</div>
-            <div>recipe: {recipe.join(" + ")}</div>
-            <div>{soundIds.length} sound{soundIds.length === 1 ? "" : "s"} · {tags.length} tag{tags.length === 1 ? "" : "s"}</div>
-          </div>
+      <div className="flex flex-col gap-3 pb-2">
+        <Field label="template name">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value.slice(0, 50))}
+            disabled={phase !== "editing"}
+            className={tplFieldClass}
+          />
+        </Field>
+        <Field label="subtitle (optional)">
+          <input
+            value={subtitle}
+            onChange={(e) => setSubtitle(e.target.value.slice(0, 80))}
+            placeholder="e.g. trap-style hook · fast"
+            disabled={phase !== "editing"}
+            className={tplFieldClass}
+          />
+        </Field>
+        <div className="rounded-2xl border border-white/8 bg-black/30 px-3 py-2.5 flex flex-col gap-1 font-mono text-[11px] text-white/65 shadow-chunky-press">
+          <div>{bpm} bpm · {bars} bars · key {keyRoot}</div>
+          <div>recipe: {recipe.join(" + ")}</div>
+          <div>{soundIds.length} sound{soundIds.length === 1 ? "" : "s"} · {tags.length} tag{tags.length === 1 ? "" : "s"}</div>
         </div>
 
         {error && (
-          <div style={errBox}>{error}</div>
+          <div className="rounded-xl border border-red-400/25 bg-red-400/10 px-3 py-2 font-mono text-[10px] text-red-400 text-center">
+            {error}
+          </div>
         )}
         {phase === "done" && (
-          <div style={successBox}>✓ published · other producers can pick this now</div>
+          <div className="rounded-xl border border-grvd-lime/30 bg-grvd-lime/10 px-3 py-2 font-mono text-[11px] font-bold text-grvd-lime text-center">
+            ✓ published · other producers can pick this now
+          </div>
         )}
 
         {phase !== "done" && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.5)" }}>
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <span className="font-mono text-[10px] text-white/50">
               cost · {COST}⚡ · {liveEnergy < COST ? "low energy" : "ready"}
             </span>
-            <button
+            <ChunkyButton
+              variant="hero"
+              size="md"
+              icon="🎛️"
               onClick={submit}
               disabled={phase === "submitting" || liveEnergy < COST}
-              style={{
-                ...primaryBtn,
-                opacity:  phase === "submitting" || liveEnergy < COST ? 0.5 : 1,
-                cursor:   phase === "submitting" || liveEnergy < COST ? "default" : "pointer",
-              }}
             >
-              {phase === "submitting" ? "publishing…" : `🎛️ publish · ${COST}⚡`}
-            </button>
+              {phase === "submitting" ? "publishing…" : `publish · ${COST}⚡`}
+            </ChunkyButton>
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{
-        fontFamily: "monospace", fontSize: 9, fontWeight: 700,
-        letterSpacing: "0.14em", textTransform: "uppercase",
-        color: "rgba(255,255,255,0.5)",
-      }}>{label}</div>
-      <div style={{ marginTop: 4 }}>{children}</div>
+      <div className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase text-white/55">
+        {label}
+      </div>
+      <div className="mt-1.5">{children}</div>
     </div>
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  width:        "100%", boxSizing: "border-box",
-  background:   "rgba(255,255,255,0.05)",
-  border:       "1px solid rgba(255,255,255,0.10)",
-  borderRadius: 8,
-  padding:      "7px 10px",
-  fontFamily:   "monospace", fontSize: 12, color: "#fff", outline: "none",
-};
-
-const summaryStyle: React.CSSProperties = {
-  background: "rgba(0,0,0,0.3)",
-  border: "1px solid rgba(255,255,255,0.07)",
-  borderRadius: 8, padding: "8px 10px",
-  fontFamily: "monospace", fontSize: 11, color: "rgba(255,255,255,0.7)",
-  display: "flex", flexDirection: "column", gap: 3,
-};
-
-const errBox: React.CSSProperties = {
-  fontFamily: "monospace", fontSize: 10, color: "#f87171",
-  background: "rgba(239,68,68,0.1)",
-  border: "1px solid rgba(239,68,68,0.2)",
-  borderRadius: 8, padding: "6px 10px", textAlign: "center",
-};
-
-const successBox: React.CSSProperties = {
-  fontFamily: "monospace", fontSize: 11, fontWeight: 800, color: "#4ade80",
-  background: "rgba(74,222,128,0.1)",
-  border: "1px solid rgba(74,222,128,0.25)",
-  borderRadius: 8, padding: "8px 10px", textAlign: "center",
-};
-
-const primaryBtn: React.CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center",
-  padding: "8px 18px", borderRadius: 18,
-  background: "rgba(124,58,237,0.85)",
-  border: "1px solid rgba(167,139,250,0.4)",
-  color: "#fff",
-  fontFamily: "monospace", fontSize: 12, fontWeight: 900,
-  boxShadow: "0 0 16px rgba(124,58,237,0.35)",
-  transition: "all 0.12s",
-};
+const tplFieldClass = [
+  "w-full px-3 py-2 rounded-xl",
+  "bg-white/5 border border-white/10",
+  "font-mono text-[12px] text-white",
+  "outline-none focus:border-grvd-purple/60 focus:bg-white/8",
+  "transition-colors disabled:opacity-60",
+].join(" ");

@@ -19,6 +19,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
 import { stopSong } from "../audio/engine";
+import { ChunkyButton, ChunkyPill } from "../ui/Chunky";
+import { Modal } from "../ui/Modal";
 import type { PublishedSong } from "../lib/game-db";
 
 /** Milliseconds of active listening before the artist is revealed. */
@@ -162,12 +164,16 @@ export function ListeningBooth() {
 
   /* ── empty / loading states ─────────────────────────────────── */
   if (catalogLoading && publishedCatalog.length === 0) {
-    return <Wrapper onBack={() => setStage("home")}><div style={emptyState}>loading drops…</div></Wrapper>;
+    return (
+      <Wrapper onBack={() => setStage("home")}>
+        <div className={emptyStateCx}>loading drops…</div>
+      </Wrapper>
+    );
   }
   if (!song) {
     return (
       <Wrapper onBack={() => setStage("home")}>
-        <div style={emptyState}>no drops yet. check back soon — artists are cooking.</div>
+        <div className={emptyStateCx}>no drops yet. check back soon — artists are cooking.</div>
       </Wrapper>
     );
   }
@@ -210,19 +216,13 @@ export function ListeningBooth() {
       )}
 
       <div
+        className="rounded-3xl border-2 p-5 flex flex-col items-center gap-4 transition-all duration-500"
         style={{
-          background: "linear-gradient(135deg, rgba(34,211,238,0.05) 0%, rgba(0,0,0,0.4) 100%)",
-          border: `1px solid ${revealed ? accentColor + "55" : "rgba(255,255,255,0.08)"}`,
-          borderRadius: 14,
-          padding: 18,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 14,
+          background: "linear-gradient(155deg, rgba(34,211,238,0.06) 0%, rgba(167,139,250,0.04) 60%, rgba(0,0,0,0.5) 100%)",
+          borderColor: revealed ? `${accentColor}66` : "rgba(255,255,255,0.10)",
           boxShadow: revealed
-            ? `0 0 22px ${accentColor}33, 0 6px 20px rgba(0,0,0,0.5)`
-            : "0 4px 18px rgba(0,0,0,0.45)",
-          transition: "border-color 350ms ease, box-shadow 350ms ease",
+            ? `0 12px 32px rgba(0,0,0,0.5), 0 4px 0 rgba(0,0,0,0.4), 0 0 36px ${accentColor}44`
+            : "0 12px 32px rgba(0,0,0,0.5), 0 4px 0 rgba(0,0,0,0.4)",
         }}
       >
         {/* ── Progress bar ──────────────────────────────────
@@ -256,100 +256,83 @@ export function ListeningBooth() {
          * player has no visual cue about who made the track — the whole
          * point is to judge the audio first, not the artist.
          */}
-        <div style={{ position: "relative", width: 104, height: 104 }}>
+        {/* Vinyl-disc avatar — concentric grooves, label center, spins
+         * while playing. Pre-reveal: blurred + masked behind a 🎧 sticker
+         * so the audio gets attention first. */}
+        <div className="relative w-[140px] h-[140px]">
           <div
+            className="w-full h-full rounded-full select-none transition-[filter] duration-500"
             style={{
-              width: 104,
-              height: 104,
-              borderRadius: "50%",
-              background: `linear-gradient(135deg, ${accentColor} 0%, ${accentColor}77 100%)`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 52,
-              lineHeight: 1,
-              boxShadow: `0 8px 22px ${accentColor}55, inset 0 2px 0 rgba(255,255,255,0.22)`,
-              filter: revealed ? "none" : "blur(18px) saturate(1.3)",
-              transition: "filter 500ms ease",
-              userSelect: "none",
+              background: `
+                radial-gradient(circle at 50% 50%, ${accentColor} 0%, ${accentColor}aa 22%, transparent 24%),
+                repeating-radial-gradient(circle at center, rgba(255,255,255,0.04) 0 1.5px, transparent 1.5px 5px),
+                radial-gradient(circle at 30% 30%, rgba(255,255,255,0.18) 0%, transparent 35%),
+                #0a0814
+              `,
+              boxShadow: `0 12px 28px ${accentColor}55, 0 4px 0 rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,255,255,0.18)`,
+              filter: revealed ? "none" : "blur(16px) saturate(1.2)",
+              animation: isPlaying && revealed ? "vinylSpin 5.5s linear infinite" : undefined,
             }}
           >
-            <span style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))" }}>
-              {song.artistAvatar || "🎧"}
-            </span>
+            {/* Center label — gradient disc with the artist's emoji */}
+            <div
+              className="absolute inset-0 m-auto rounded-full flex items-center justify-center"
+              style={{
+                width: 70,
+                height: 70,
+                top: 0, bottom: 0, left: 0, right: 0,
+                background: `linear-gradient(135deg, ${accentColor} 0%, ${accentColor}aa 100%)`,
+                fontSize: 34,
+                lineHeight: 1,
+                boxShadow: "inset 0 2px 0 rgba(255,255,255,0.2), 0 0 8px rgba(0,0,0,0.4)",
+              }}
+            >
+              <span style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }}>
+                {song.artistAvatar || "🎧"}
+              </span>
+            </div>
+            {/* Spindle hole */}
+            <div
+              className="absolute rounded-full bg-grvd-base"
+              style={{
+                width: 8, height: 8, top: "50%", left: "50%",
+                transform: "translate(-50%,-50%)",
+                boxShadow: "inset 0 1px 2px rgba(0,0,0,0.6)",
+              }}
+            />
           </div>
           {!revealed && (
             <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 38,
-                opacity: 0.85,
-                pointerEvents: "none",
-                filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.6))",
-              }}
+              className="absolute inset-0 flex items-center justify-center text-5xl pointer-events-none"
+              style={{ filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.7))" }}
             >
               🎧
             </div>
           )}
+          <style>{`@keyframes vinylSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
         </div>
 
         {/* ── Title + artist OR anonymous placeholder ────── */}
-        <div style={{ textAlign: "center", minHeight: 48 }}>
+        <div className="text-center min-h-[60px] flex flex-col items-center gap-1">
           {revealed ? (
             <>
-              <div
-                style={{
-                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
-                  fontSize: 18,
-                  fontWeight: 800,
-                  color: "#fff",
-                  letterSpacing: "-0.01em",
-                }}
-              >
+              <div className="font-display text-2xl text-white leading-tight animate-bubble-in">
                 {song.title}
               </div>
               <button
                 onClick={() => song.artistId && useStore.getState().openProfile(song.artistId)}
                 title={`open ${song.artistName}'s profile`}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  fontFamily: "monospace",
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.75)",
-                  marginTop: 2,
-                  textDecoration: "underline",
-                  textDecorationColor: "rgba(255,255,255,0.15)",
-                  textUnderlineOffset: 3,
-                }}
+                className="font-mono text-[11px] text-white/75 hover:text-white underline decoration-white/20 underline-offset-2 transition-colors"
               >
                 {song.artistName}
-                {/* Phase 5.A — group attribution. Tap the primary artist
-                 * to open their profile; collaborators are listed inline
-                 * but non-tappable for now (future iteration: make each
-                 * name its own tappable link). */}
                 {song.collaboratorNames.length > 0 && (
-                  <span style={{ opacity: 0.7 }}>
+                  <span className="opacity-70">
                     {" × "}
                     {song.collaboratorNames.join(" × ")}
                   </span>
                 )}
               </button>
-              <div
-                style={{
-                  fontFamily: "monospace",
-                  fontSize: 9,
-                  color: "rgba(255,255,255,0.35)",
-                  marginTop: 4,
-                  letterSpacing: "0.05em",
-                }}
-              >
+              <div className="font-mono text-[9px] tracking-widest uppercase text-white/40 mt-0.5">
                 {song.bpm ? `${song.bpm} BPM` : ""}
                 {song.bpm && song.keyRoot ? " · " : ""}
                 {song.keyRoot ? song.keyRoot : ""}
@@ -359,27 +342,10 @@ export function ListeningBooth() {
             </>
           ) : (
             <>
-              <div
-                style={{
-                  fontFamily: "'Space Grotesk', system-ui, sans-serif",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "rgba(255,255,255,0.5)",
-                  fontStyle: "italic",
-                  letterSpacing: "0.02em",
-                }}
-              >
+              <div className="font-display text-xl text-white/55 italic">
                 focus on the audio
               </div>
-              <div
-                style={{
-                  fontFamily: "monospace",
-                  fontSize: 10,
-                  color: "rgba(255,255,255,0.4)",
-                  marginTop: 3,
-                  letterSpacing: "0.05em",
-                }}
-              >
+              <div className="font-mono text-[10px] tracking-wide text-white/40">
                 artist reveals after {REVEAL_MS / 1000}s · let the beat speak first
               </div>
             </>
@@ -387,7 +353,7 @@ export function ListeningBooth() {
         </div>
 
         {/* ── Play + skip controls ───────────────────────── */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14 }}>
+        <div className="flex items-center justify-center gap-4">
           <NavBtn label="←" title="previous" onClick={prev} disabled={index === 0} />
           <button
             onClick={togglePlay}
@@ -396,22 +362,15 @@ export function ListeningBooth() {
                 ? "no audio — tap to reveal"
                 : isPlaying ? "pause (space)" : "play (space)"
             }
-            style={{
-              width: 54,
-              height: 54,
-              borderRadius: 27,
-              border: "none",
-              background: isPlaying
-                ? "linear-gradient(135deg, #22d3ee 0%, #3b82f6 100%)"
-                : "rgba(255,255,255,0.12)",
-              color: "#fff",
-              fontSize: 20,
-              cursor: "pointer",
-              boxShadow: isPlaying ? "0 0 18px rgba(34,211,238,0.55)" : "0 4px 10px rgba(0,0,0,0.45)",
-              transition: "background 150ms ease, box-shadow 150ms ease",
-              // Use a glyph with strong font support so it never renders as tofu.
-              fontFamily: "system-ui, -apple-system, sans-serif",
-            }}
+            className={[
+              "w-16 h-16 rounded-full grid place-items-center text-2xl text-white",
+              "shadow-chunky active:shadow-chunky-press active:translate-y-[2px] active:scale-[0.96]",
+              "transition-all duration-150",
+              isPlaying
+                ? "bg-gradient-to-br from-grvd-cyan to-grvd-purple shadow-glow-cyan"
+                : "bg-grvd-panel border border-grvd-line",
+            ].join(" ")}
+            style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}
           >
             {isPlaying ? "❚❚" : "▶"}
           </button>
@@ -425,90 +384,52 @@ export function ListeningBooth() {
 
         {/* ── Rate + push row (only when revealed) ───────── */}
         {revealed && (
-          <div
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
-              paddingTop: 12,
-              borderTop: "1px solid rgba(255,255,255,0.06)",
-              flexWrap: "wrap",
-            }}
-          >
-            <StarRater userStars={userStars} onRate={(s) => rateSong(song.songId, s)} />
-
-            <div
-              style={{
-                fontFamily: "monospace",
-                fontSize: 10,
-                color: "rgba(255,255,255,0.5)",
-                display: "flex",
-                gap: 10,
-              }}
-            >
-              <span title={`${song.ratingCount} ${song.ratingCount === 1 ? "rating" : "ratings"}`}>
+          <div className="w-full flex flex-col gap-3 pt-3 border-t border-white/8 animate-bubble-in">
+            {/* Stat readout — mini chunky pills */}
+            <div className="flex items-center justify-center gap-2 font-mono text-[10px]">
+              <span
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-grvd-gold/10 border border-grvd-gold/25 text-grvd-gold tabular-nums"
+                title={`${song.ratingCount} ${song.ratingCount === 1 ? "rating" : "ratings"}`}
+              >
                 ⭐ {song.ratingCount > 0 ? song.avgStars.toFixed(1) : "–"}
-                <span style={{ opacity: 0.55 }}> ({song.ratingCount})</span>
+                <span className="opacity-55">({song.ratingCount})</span>
               </span>
-              <span title={`${song.endorsementCount} endorsements`}>
+              <span
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-grvd-magenta/10 border border-grvd-magenta/25 text-grvd-magenta tabular-nums"
+                title={`${song.endorsementCount} endorsements`}
+              >
                 🔥 {song.endorsementCount}
               </span>
             </div>
 
-            <button
-              onClick={() => {
-                if (!canEndorse) return;
-                // Open the EndorseSheet instead of spending immediately.
-                // The actual endorseSong call happens inside the modal's
-                // confirm handler below. See also TASTEMAKER_PLAN.md § 6.
-                setEndorsePromptOpen(true);
-              }}
-              disabled={!canEndorse}
-              title={
-                endorsed
-                  ? "already pushed"
-                  : liveEnergy < ENERGY_COSTS.endorse
-                    ? `need ${ENERGY_COSTS.endorse - liveEnergy} more energy`
-                    : `push this drop (-${ENERGY_COSTS.endorse} ⚡)`
-              }
-              style={{
-                background: endorsed
-                  ? "rgba(255,77,109,0.18)"
-                  : canEndorse
-                    ? "linear-gradient(135deg, #ff4d6d 0%, #facc15 100%)"
-                    : "rgba(255,255,255,0.04)",
-                border: endorsed
-                  ? "1px solid rgba(255,77,109,0.5)"
-                  : canEndorse
-                    ? "1px solid rgba(255,77,109,0.6)"
-                    : "1px solid rgba(255,255,255,0.08)",
-                color: endorsed
-                  ? "#ff4d6d"
-                  : canEndorse
-                    ? "#fff"
-                    : "rgba(255,255,255,0.3)",
-                fontFamily: "monospace",
-                fontSize: 11,
-                fontWeight: 800,
-                padding: "6px 12px",
-                borderRadius: 8,
-                cursor: endorsed ? "default" : canEndorse ? "pointer" : "not-allowed",
-                flexShrink: 0,
-                boxShadow: canEndorse && !endorsed ? "0 0 10px rgba(255,77,109,0.3)" : "none",
-                transition: "all 120ms ease",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              {endorsed ? (
-                <>🔥 pushed</>
-              ) : (
-                <>push <span style={{ opacity: 0.8 }}>·</span> {ENERGY_COSTS.endorse}⚡</>
-              )}
-            </button>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <StarRater userStars={userStars} onRate={(s) => rateSong(song.songId, s)} />
+
+              <button
+                onClick={() => { if (canEndorse) setEndorsePromptOpen(true); }}
+                disabled={!canEndorse}
+                title={
+                  endorsed
+                    ? "already pushed"
+                    : liveEnergy < ENERGY_COSTS.endorse
+                      ? `need ${ENERGY_COSTS.endorse - liveEnergy} more energy`
+                      : `push this drop (-${ENERGY_COSTS.endorse} ⚡)`
+                }
+                className={[
+                  "inline-flex items-center gap-1.5",
+                  "px-5 py-2.5 rounded-full font-display tracking-wider text-sm",
+                  "shadow-chunky active:shadow-chunky-press active:translate-y-[2px] active:scale-[0.97]",
+                  "transition-all duration-150 select-none shrink-0",
+                  endorsed
+                    ? "bg-grvd-magenta/20 border-2 border-grvd-magenta/55 text-grvd-magenta"
+                    : canEndorse
+                      ? "bg-gradient-to-r from-grvd-magenta to-grvd-orange text-white shadow-glow-magenta"
+                      : "bg-grvd-panel border border-grvd-line text-white/30 cursor-not-allowed",
+                ].join(" ")}
+              >
+                {endorsed ? "🔥 PUSHED" : `🔥 PUSH · ${ENERGY_COSTS.endorse}⚡`}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -556,186 +477,60 @@ function EndorseSheet({
   onConfirm: () => void;
 }) {
   return (
-    <div
-      onClick={onCancel}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Confirm push"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 200,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(6px)",
-        padding: 20,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          maxWidth: 380,
-          width: "100%",
-          background: "linear-gradient(135deg, rgba(255,77,109,0.12) 0%, rgba(0,0,0,0.6) 100%)",
-          border: "1px solid rgba(255,77,109,0.4)",
-          borderRadius: 16,
-          padding: 20,
-          boxShadow: "0 12px 40px rgba(0,0,0,0.55), 0 0 24px rgba(255,77,109,0.2)",
-          color: "#fff",
-          fontFamily: "'Space Grotesk', system-ui, sans-serif",
-          display: "flex",
-          flexDirection: "column",
-          gap: 14,
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 10,
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-            color: "#ff4d6d",
-          }}
-        >
-          🔥 push this drop
-        </div>
-        <div
-          style={{
-            fontSize: 20,
-            fontWeight: 800,
-            letterSpacing: "-0.01em",
-            lineHeight: 1.1,
-          }}
-        >
-          {song.title}
-        </div>
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 11,
-            color: "rgba(255,255,255,0.65)",
-            marginTop: -6,
-          }}
-        >
-          {song.artistAvatar || "🎧"}  {song.artistName}
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 10,
-            marginTop: 6,
-          }}
-        >
-          <SheetStat
-            label="cost"
-            value={`-${cost} ⚡`}
-            accent="#ff4d6d"
-          />
-          <SheetStat
-            label="you'll have"
-            value={`${Math.max(0, liveEnergy - cost)} / 100 ⚡`}
-            accent="rgba(255,255,255,0.9)"
-          />
-        </div>
-
-        <p
-          style={{
-            fontSize: 11,
-            lineHeight: 1.5,
-            color: "rgba(255,255,255,0.65)",
-            margin: "4px 0 0",
-          }}
-        >
-          pushing bumps this drop's visibility and signals your taste. early pushes earn bonus XP if it trends.
-        </p>
-
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <button
-            onClick={onCancel}
-            style={{
-              flex: 1,
-              padding: "10px 14px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              color: "rgba(255,255,255,0.8)",
-              fontFamily: "monospace",
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-              cursor: "pointer",
-            }}
-          >
+    <Modal
+      open
+      onClose={onCancel}
+      kicker="🔥 push this drop"
+      title={song.title}
+      subtitle={`${song.artistAvatar || "🎧"}  ${song.artistName}`}
+      accentText="text-grvd-magenta"
+      accentShadow="shadow-[0_0_36px_rgba(255,77,156,0.22)]"
+      footer={
+        <div className="flex gap-2">
+          <ChunkyPill variant="ghost" size="md" onClick={onCancel} className="flex-1">
             not yet
-          </button>
-          <button
+          </ChunkyPill>
+          <ChunkyButton
+            variant="magenta"
+            size="md"
+            icon="🔥"
             onClick={onConfirm}
             autoFocus
-            style={{
-              flex: 1,
-              padding: "10px 14px",
-              borderRadius: 10,
-              background: "linear-gradient(135deg, #ff4d6d 0%, #facc15 100%)",
-              border: "1px solid rgba(255,77,109,0.7)",
-              color: "#fff",
-              fontFamily: "monospace",
-              fontSize: 12,
-              fontWeight: 800,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              cursor: "pointer",
-              boxShadow: "0 0 14px rgba(255,77,109,0.35)",
-            }}
+            className="flex-1"
           >
             push · {cost}⚡
-          </button>
+          </ChunkyButton>
         </div>
+      }
+    >
+      <div className="flex flex-col gap-3 pb-2">
+        <div className="grid grid-cols-2 gap-2.5">
+          <SheetStat label="cost"        value={`-${cost} ⚡`}                                  tint="magenta" />
+          <SheetStat label="you'll have" value={`${Math.max(0, liveEnergy - cost)} / 100 ⚡`}   tint="white" />
+        </div>
+        <p className="font-mono text-[11px] leading-relaxed text-white/55">
+          pushing bumps this drop's visibility and signals your taste.
+          early pushes earn bonus XP if it trends.
+        </p>
       </div>
-    </div>
+    </Modal>
   );
 }
 
 function SheetStat({
-  label, value, accent,
+  label, value, tint = "white",
 }: {
   label: string;
   value: string;
-  accent: string;
+  tint?: "magenta" | "white";
 }) {
+  const valueClass = tint === "magenta" ? "text-grvd-magenta" : "text-white/90";
   return (
-    <div
-      style={{
-        padding: "8px 10px",
-        background: "rgba(0,0,0,0.35)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 8,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: 9,
-          letterSpacing: "0.15em",
-          textTransform: "uppercase",
-          color: "rgba(255,255,255,0.45)",
-        }}
-      >
+    <div className="rounded-2xl border border-white/8 bg-black/30 px-3 py-2 shadow-chunky-press">
+      <div className="font-mono text-[9px] tracking-[0.18em] uppercase text-white/45">
         {label}
       </div>
-      <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: 14,
-          fontWeight: 800,
-          color: accent,
-          marginTop: 2,
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
+      <div className={`font-display text-lg leading-none mt-1 tabular-nums ${valueClass}`}>
         {value}
       </div>
     </div>
@@ -755,69 +550,25 @@ function Wrapper({
   total?: number;
 }) {
   return (
-    <div
-      style={{
-        padding: "34px 14px 80px", // top pad clears the ScreenTopBar
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        maxWidth: 520,
-        margin: "0 auto",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-        <div>
-          <div
-            style={{
-              fontFamily: "monospace",
-              fontSize: 9,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              color: "#22d3ee",
-            }}
-          >
-            🎧 listening booth
-          </div>
-          <div
-            style={{
-              fontFamily: "'Space Grotesk', system-ui, sans-serif",
-              fontSize: 18,
-              fontWeight: 800,
-              color: "#fff",
-              marginTop: 2,
-            }}
-          >
-            fresh drops
-          </div>
-          <div
-            style={{
-              fontFamily: "monospace",
-              fontSize: 10,
-              color: "rgba(255,255,255,0.4)",
-              marginTop: 2,
-            }}
-          >
-            {typeof idx === "number" && typeof total === "number" && total > 0
-              ? `track ${idx + 1} of ${total}`
-              : "rate freely · push with energy"}
-          </div>
+    <div className="pt-3 pb-8 flex flex-col gap-3">
+      <div className="flex items-center justify-between px-1">
+        <ChunkyPill onClick={onBack} icon="←" size="sm">
+          back
+        </ChunkyPill>
+        <span className="font-display text-grvd-cyan text-[11px] tracking-widest uppercase">
+          🎧 BOOTH
+        </span>
+        <span className="w-12" />
+      </div>
+      <div className="text-center px-2">
+        <h2 className="font-display text-3xl text-white tracking-wide">
+          FRESH DROPS
+        </h2>
+        <div className="mt-1 font-sans text-grvd-purple/70 text-[11px] tracking-widest uppercase">
+          {typeof idx === "number" && typeof total === "number" && total > 0
+            ? `track ${idx + 1} of ${total}`
+            : "rate freely · push with energy"}
         </div>
-        <button
-          onClick={onBack}
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "rgba(255,255,255,0.7)",
-            fontFamily: "monospace",
-            fontSize: 11,
-            padding: "6px 10px",
-            borderRadius: 8,
-            cursor: "pointer",
-            flexShrink: 0,
-          }}
-        >
-          ← back
-        </button>
       </div>
       {children}
     </div>
@@ -838,19 +589,14 @@ function NavBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        border: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(255,255,255,0.04)",
-        color: disabled ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.7)",
-        fontSize: 16,
-        fontFamily: "monospace",
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.45 : 1,
-        transition: "background 120ms ease, color 120ms ease",
-      }}
+      className={[
+        "w-11 h-11 rounded-full grid place-items-center",
+        "text-base text-white/70",
+        "bg-grvd-panel border border-grvd-line",
+        "shadow-chunky-press active:translate-y-[1px]",
+        "transition-all duration-150",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
+      ].join(" ")}
     >
       {label}
     </button>
@@ -869,31 +615,31 @@ function StarRater({
 
   return (
     <div
-      style={{ display: "flex", alignItems: "center", gap: 2 }}
+      className="inline-flex items-center gap-0.5"
       onMouseLeave={() => setHover(0)}
       title={userStars ? `your rating: ${userStars}★` : "rate this drop"}
     >
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          onMouseEnter={() => setHover(n)}
-          onClick={() => onRate(n)}
-          title={`rate ${n} star${n === 1 ? "" : "s"}`}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            fontSize: 20,
-            lineHeight: 1,
-            padding: "2px 1px",
-            color: n <= active ? "#facc15" : "rgba(255,255,255,0.2)",
-            filter: n <= active ? "drop-shadow(0 0 5px #facc15aa)" : "none",
-            transition: "color 80ms ease, filter 80ms ease",
-          }}
-        >
-          ★
-        </button>
-      ))}
+      {[1, 2, 3, 4, 5].map((n) => {
+        const lit = n <= active;
+        return (
+          <button
+            key={n}
+            onMouseEnter={() => setHover(n)}
+            onClick={() => onRate(n)}
+            title={`rate ${n} star${n === 1 ? "" : "s"}`}
+            className={[
+              "w-9 h-9 rounded-full inline-flex items-center justify-center",
+              "text-2xl leading-none select-none transition-all duration-100",
+              "active:scale-90",
+              lit
+                ? "text-grvd-gold drop-shadow-[0_0_8px_rgba(251,191,36,0.7)]"
+                : "text-white/20 hover:text-grvd-gold/70",
+            ].join(" ")}
+          >
+            ★
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1019,15 +765,11 @@ function artistHue(name: string): string {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
-const emptyState: React.CSSProperties = {
-  padding: "40px 20px",
-  textAlign: "center",
-  fontFamily: "monospace",
-  fontSize: 11,
-  color: "rgba(255,255,255,0.4)",
-  border: "1px dashed rgba(255,255,255,0.1)",
-  borderRadius: 12,
-};
+const emptyStateCx = [
+  "rounded-2xl border border-dashed border-white/12",
+  "px-5 py-10 text-center",
+  "font-mono text-[11px] text-white/45",
+].join(" ");
 
 // Keep the PublishedSong type reachable for downstream tooling / future splits.
 export type { PublishedSong };
