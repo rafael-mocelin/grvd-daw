@@ -34,6 +34,7 @@ import {
   type PublicProfile,
 } from "../lib/social-db";
 import { createCoopSession } from "../lib/coop-db";
+import { ChunkyButton, ChunkyPill } from "../ui/Chunky";
 
 /* -------------------------------------------------------------------------- */
 /* Root                                                                        */
@@ -168,7 +169,7 @@ export function Friends() {
 
       {/* Incoming pending */}
       {incoming.length > 0 && (
-        <Section title={`incoming · ${incoming.length}`} accent="#facc15">
+        <Section title={`incoming · ${incoming.length}`} accent="text-grvd-gold">
           {incoming.map((r) => {
             const p = profiles[r.friendUserId];
             return (
@@ -177,19 +178,23 @@ export function Friends() {
                 profile={p ?? anonFallback(r.friendUserId)}
                 onOpen={() => openProfile(r.friendUserId)}
                 action={
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <InlineBtn
-                      label="accept"
-                      accent="#4ade80"
-                      disabled={busy === r.friendUserId}
+                  <div className="flex gap-1.5">
+                    <ChunkyPill
+                      variant="claim"
+                      size="sm"
                       onClick={() => onRespond(r.friendUserId, true, p?.username ?? "them")}
-                    />
-                    <InlineBtn
-                      label="skip"
-                      accent="rgba(255,255,255,0.35)"
                       disabled={busy === r.friendUserId}
+                    >
+                      accept
+                    </ChunkyPill>
+                    <ChunkyPill
+                      variant="ghost"
+                      size="sm"
                       onClick={() => onRespond(r.friendUserId, false, p?.username ?? "them")}
-                    />
+                      disabled={busy === r.friendUserId}
+                    >
+                      skip
+                    </ChunkyPill>
                   </div>
                 }
               />
@@ -199,9 +204,11 @@ export function Friends() {
       )}
 
       {/* Accepted */}
-      <Section title={`friends · ${accepted.length}`} accent="#22d3ee">
+      <Section title={`friends · ${accepted.length}`} accent="text-grvd-cyan">
         {accepted.length === 0 ? (
-          <div style={emptyState}>no friends yet — search below or visit an artist's profile to follow them.</div>
+          <div className={emptyStateCx}>
+            no friends yet — search below or visit an artist's profile to follow them.
+          </div>
         ) : (
           accepted.map((r) => {
             const p = profiles[r.friendUserId];
@@ -211,19 +218,24 @@ export function Friends() {
                 profile={p ?? anonFallback(r.friendUserId)}
                 onOpen={() => openProfile(r.friendUserId)}
                 action={
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <InlineBtn
-                      label="🎛️ coop"
-                      accent="#22d3ee"
-                      disabled={busy === r.friendUserId}
+                  <div className="flex gap-1.5">
+                    <ChunkyPill
+                      variant="cyan"
+                      size="sm"
+                      icon="🎛️"
                       onClick={() => onInviteToCoop(r.friendUserId, p?.username ?? "them")}
-                    />
-                    <InlineBtn
-                      label="remove"
-                      accent="rgba(255,77,109,0.6)"
                       disabled={busy === r.friendUserId}
+                    >
+                      coop
+                    </ChunkyPill>
+                    <ChunkyPill
+                      variant="ghost"
+                      size="sm"
                       onClick={() => onRemove(r.friendUserId, p?.username ?? "them")}
-                    />
+                      disabled={busy === r.friendUserId}
+                    >
+                      remove
+                    </ChunkyPill>
                   </div>
                 }
               />
@@ -234,7 +246,7 @@ export function Friends() {
 
       {/* Outgoing pending */}
       {outgoing.length > 0 && (
-        <Section title={`awaiting · ${outgoing.length}`} accent="rgba(255,255,255,0.5)">
+        <Section title={`awaiting · ${outgoing.length}`} accent="text-white/55">
           {outgoing.map((r) => {
             const p = profiles[r.friendUserId];
             return (
@@ -243,12 +255,14 @@ export function Friends() {
                 profile={p ?? anonFallback(r.friendUserId)}
                 onOpen={() => openProfile(r.friendUserId)}
                 action={
-                  <InlineBtn
-                    label="cancel"
-                    accent="rgba(255,255,255,0.35)"
-                    disabled={busy === r.friendUserId}
+                  <ChunkyPill
+                    variant="ghost"
+                    size="sm"
                     onClick={() => onRemove(r.friendUserId, p?.username ?? "them")}
-                  />
+                    disabled={busy === r.friendUserId}
+                  >
+                    cancel
+                  </ChunkyPill>
                 }
               />
             );
@@ -257,29 +271,19 @@ export function Friends() {
       )}
 
       {/* Search */}
-      <Section title="find someone" accent="#a78bfa">
+      <Section title="find someone" accent="text-grvd-purple">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="username prefix…"
-          style={{
-            width: "100%",
-            padding: "10px 12px",
-            background: "rgba(0,0,0,0.4)",
-            border: "1px solid rgba(167,139,250,0.3)",
-            borderRadius: 10,
-            color: "#fff",
-            fontFamily: "monospace",
-            fontSize: 12,
-            outline: "none",
-          }}
+          className="w-full px-4 py-2.5 rounded-2xl bg-grvd-base/60 border-2 border-grvd-purple/30 text-white font-mono text-sm outline-none focus:border-grvd-purple/70 focus:bg-grvd-base/80 transition-colors shadow-chunky-press"
         />
         {searchResults !== null && searchResults.length === 0 && (
-          <div style={{ ...emptyState, marginTop: 8 }}>no matches.</div>
+          <div className={`${emptyStateCx} mt-2`}>no matches.</div>
         )}
         {searchResults !== null && searchResults.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+          <div className="flex flex-col gap-2 mt-2">
             {searchResults.map((p) => {
               const already = knownIds.has(p.id);
               return (
@@ -289,23 +293,19 @@ export function Friends() {
                   onOpen={() => openProfile(p.id)}
                   action={
                     already ? (
-                      <span
-                        style={{
-                          fontFamily: "monospace",
-                          fontSize: 10,
-                          color: "rgba(255,255,255,0.4)",
-                          padding: "4px 8px",
-                        }}
-                      >
+                      <span className="font-mono text-[10px] text-white/40 px-2 py-1">
                         already in your list
                       </span>
                     ) : (
-                      <InlineBtn
-                        label="add"
-                        accent="#22d3ee"
-                        disabled={busy === p.id}
+                      <ChunkyButton
+                        variant="cyan"
+                        size="sm"
+                        icon="+"
                         onClick={() => onSend(p.id, p.username)}
-                      />
+                        disabled={busy === p.id}
+                      >
+                        add
+                      </ChunkyButton>
                     )
                   }
                 />
@@ -328,57 +328,19 @@ function Wrapper({
   children: React.ReactNode; onBack: () => void;
 }) {
   return (
-    <div
-      style={{
-        padding: "34px 14px 80px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 14,
-        maxWidth: 520,
-        width: "100%",
-        margin: "0 auto",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+    <div className="pt-3 pb-20 flex flex-col gap-4">
+      <div className="flex justify-between items-start gap-3">
         <div>
-          <div
-            style={{
-              fontFamily: "monospace",
-              fontSize: 9,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              color: "#22d3ee",
-            }}
-          >
+          <div className="font-mono text-[9px] font-bold tracking-[0.22em] uppercase text-grvd-cyan">
             🤝 friends
           </div>
-          <div
-            style={{
-              fontFamily: "'Space Grotesk', system-ui, sans-serif",
-              fontSize: 18,
-              fontWeight: 800,
-              color: "#fff",
-              marginTop: 2,
-            }}
-          >
+          <div className="font-display text-3xl text-white leading-tight mt-1">
             your people
           </div>
         </div>
-        <button
-          onClick={onBack}
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "rgba(255,255,255,0.7)",
-            fontFamily: "monospace",
-            fontSize: 11,
-            padding: "6px 10px",
-            borderRadius: 8,
-            cursor: "pointer",
-          }}
-        >
-          ← back
-        </button>
+        <ChunkyPill variant="ghost" size="sm" icon="←" onClick={onBack}>
+          back
+        </ChunkyPill>
       </div>
       {children}
     </div>
@@ -393,23 +355,16 @@ function Section({
   title, accent, children,
 }: {
   title: string;
+  /** Tailwind text-* accent class for the section eyebrow. */
   accent: string;
   children: React.ReactNode;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: 9,
-          letterSpacing: "0.2em",
-          textTransform: "uppercase",
-          color: accent,
-        }}
-      >
+    <div className="flex flex-col gap-2">
+      <div className={`font-mono text-[9px] font-bold tracking-[0.22em] uppercase ${accent}`}>
         {title}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className="flex flex-col gap-2">
         {children}
       </div>
     </div>
@@ -424,99 +379,21 @@ function FriendRowView({
   action: React.ReactNode;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "8px 10px",
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 10,
-      }}
-    >
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-2xl bg-white/3 border border-white/8 shadow-chunky-press hover:border-grvd-purple/30 transition-colors">
       <button
         onClick={onOpen}
         title={`open ${profile.username}'s profile`}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          flex: 1,
-          minWidth: 0,
-          background: "none",
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          textAlign: "left",
-        }}
+        className="flex items-center gap-3 flex-1 min-w-0 text-left bg-transparent border-0 p-0 cursor-pointer"
       >
-        <span
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 17,
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 18,
-            flexShrink: 0,
-          }}
-        >
+        <span className="w-10 h-10 rounded-full bg-grvd-purple/15 border-2 border-grvd-purple/30 flex items-center justify-center text-xl shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]">
           {profile.avatar}
         </span>
-        <span
-          style={{
-            fontFamily: "'Space Grotesk', system-ui, sans-serif",
-            fontSize: 13,
-            fontWeight: 700,
-            color: "#fff",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            flex: 1,
-            minWidth: 0,
-          }}
-        >
+        <span className="font-display text-base text-white truncate flex-1 min-w-0">
           {profile.username}
         </span>
       </button>
-      <div style={{ flexShrink: 0 }}>{action}</div>
+      <div className="shrink-0">{action}</div>
     </div>
-  );
-}
-
-function InlineBtn({
-  label, accent, disabled, onClick,
-}: {
-  label: string;
-  accent: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        padding: "5px 10px",
-        background: `${accent}22`,
-        border: `1px solid ${accent}66`,
-        color: accent,
-        fontFamily: "monospace",
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: "0.08em",
-        textTransform: "uppercase",
-        borderRadius: 6,
-        cursor: disabled ? "wait" : "pointer",
-        opacity: disabled ? 0.55 : 1,
-      }}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -529,12 +406,8 @@ function anonFallback(id: string): PublicProfile {
   };
 }
 
-const emptyState: React.CSSProperties = {
-  padding: "16px 14px",
-  textAlign: "center",
-  fontFamily: "monospace",
-  fontSize: 11,
-  color: "rgba(255,255,255,0.4)",
-  border: "1px dashed rgba(255,255,255,0.1)",
-  borderRadius: 10,
-};
+const emptyStateCx = [
+  "rounded-2xl border border-dashed border-white/12",
+  "px-4 py-4 text-center",
+  "font-mono text-[11px] text-white/45",
+].join(" ");

@@ -1,13 +1,15 @@
 /**
- * Profile — the Phase 3 identity screen.
+ * Profile — the Phase 3 identity screen, UI-v1 game-feel rebuild.
  *
  * One stage, two modes. Dispatches on `profileUserId` from the store:
  *   null OR equal to current user → TastemakerProfile (your listener stats)
  *   any other uuid                → ArtistProfile (their drops + stats)
  *
- * Own TastemakerProfile is accessed via the Home "👤 profile" footer link.
- * ArtistProfile is reached by tapping an artist's name in the booth
- * (post-reveal) or from a Leaderboard row.
+ * Self profile centers the live CharacterFace at hero scale (manifesto
+ * rule #2: avatar-forward). Other-user profile shows a fat gradient avatar
+ * disc with their selected emoji. Stats live in chunky candy tiles. Fan
+ * toggle is a ChunkyButton. Drop rows pick up the per-vibe gradient
+ * language used elsewhere.
  */
 
 import { useEffect, useState } from "react";
@@ -28,6 +30,8 @@ import {
   fetchPublishedCatalog,
   type PublishedSong,
 } from "../lib/game-db";
+import { CharacterFace } from "../ui/CharacterFace";
+import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 
 /* -------------------------------------------------------------------------- */
 /* Root dispatcher                                                             */
@@ -45,7 +49,7 @@ export function Profile() {
   if (!targetId) {
     return (
       <Wrapper onBack={() => setStage("home")}>
-        <div style={emptyState}>sign in to see your profile.</div>
+        <EmptyState>sign in to see your profile.</EmptyState>
       </Wrapper>
     );
   }
@@ -60,8 +64,8 @@ export function Profile() {
 /* -------------------------------------------------------------------------- */
 
 function TastemakerProfile({ userId, onBack }: { userId: string; onBack: () => void }) {
-  const totalXP    = useStore((s) => s.totalXP);
-  const level      = useStore((s) => s.level);
+  const totalXP = useStore((s) => s.totalXP);
+  const level   = useStore((s) => s.level);
 
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [stats, setStats]     = useState<TastemakerStats | null>(null);
@@ -80,22 +84,42 @@ function TastemakerProfile({ userId, onBack }: { userId: string; onBack: () => v
 
   return (
     <Wrapper onBack={onBack}>
-      <Header
-        kicker="🎧 tastemaker"
-        title={profile?.username ?? "you"}
-        subtitle={profile ? "your listener stats" : "loading…"}
-      />
-      <AvatarPanel emoji={profile?.avatar ?? "👤"} accent="#22d3ee" />
-      <div style={cardGrid}>
-        <StatCard label="level"         value={`L${level}`} />
-        <StatCard label="total xp"      value={totalXP.toString()} />
-        <StatCard label="ratings given" value={(stats?.ratingsGiven ?? 0).toString()} />
-        <StatCard label="pushes given"  value={(stats?.endorsementsGiven ?? 0).toString()} />
-        <StatCard label="early-ear hits" value={(stats?.earlyEarHits ?? 0).toString()} accent="#facc15" />
-        <StatCard label="following"     value={(stats?.fansFollowing ?? 0).toString()} />
+      {/* Hero: live character face — the user IS the pet. */}
+      <div className="flex flex-col items-center gap-3 pt-2">
+        <div className="relative">
+          <CharacterFace size={180} />
+          {/* Level badge orbiting the face */}
+          <div className="absolute -bottom-1 -right-1">
+            <ChunkyBadge variant="gold" size="md" icon="⭐">
+              L{level}
+            </ChunkyBadge>
+          </div>
+        </div>
+
+        <div className="text-center">
+          <div className="font-display text-3xl text-white leading-none drop-shadow">
+            {profile?.username ?? "you"}
+          </div>
+          <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/45 mt-1">
+            🎧 tastemaker · {profile ? "your listener stats" : "loading…"}
+          </div>
+        </div>
+
+        <ChunkyBadge variant="gold" size="md" icon="✨">
+          {totalXP.toLocaleString()} XP
+        </ChunkyBadge>
       </div>
+
+      <StatGrid>
+        <StatTile label="ratings"     value={(stats?.ratingsGiven ?? 0).toString()}      tint="cyan" />
+        <StatTile label="pushes"      value={(stats?.endorsementsGiven ?? 0).toString()} tint="magenta" />
+        <StatTile label="early-ear"   value={(stats?.earlyEarHits ?? 0).toString()}      tint="gold" />
+        <StatTile label="following"   value={(stats?.fansFollowing ?? 0).toString()}     tint="purple" />
+      </StatGrid>
+
       <Hint>
-        early-ear hits = drops you rated 4★+ or pushed before they crossed the popularity threshold.
+        early-ear hits = drops you rated 4★+ or pushed before they crossed
+        the popularity threshold.
       </Hint>
     </Wrapper>
   );
@@ -106,7 +130,7 @@ function TastemakerProfile({ userId, onBack }: { userId: string; onBack: () => v
 /* -------------------------------------------------------------------------- */
 
 function ArtistProfile({ artistId, onBack }: { artistId: string; onBack: () => void }) {
-  const userId = useStore((s) => s.userId);
+  const userId  = useStore((s) => s.userId);
   const sayLine = useStore((s) => s.sayLine);
 
   const [profile, setProfile] = useState<PublicProfile | null>(null);
@@ -165,58 +189,52 @@ function ArtistProfile({ artistId, onBack }: { artistId: string; onBack: () => v
 
   return (
     <Wrapper onBack={onBack}>
-      <Header
-        kicker="🎤 artist"
-        title={profile?.username ?? "…"}
-        subtitle={profile ? "their drops + signal this week" : "loading…"}
-      />
-      <AvatarPanel emoji={profile?.avatar ?? "🎧"} accent="#ff4d6d" />
+      {/* Hero: gradient avatar disc with their emoji. */}
+      <div className="flex flex-col items-center gap-3 pt-2">
+        <ArtistAvatarDisc emoji={profile?.avatar ?? "🎧"} size={180} />
 
-      {/* Fan toggle */}
-      <button
-        onClick={toggleFan}
-        disabled={fanBusy}
-        style={{
-          background: isFan
-            ? "rgba(255,77,109,0.2)"
-            : "linear-gradient(135deg, #ff4d6d 0%, #facc15 100%)",
-          border: `1px solid ${isFan ? "rgba(255,77,109,0.5)" : "rgba(255,77,109,0.6)"}`,
-          color: isFan ? "#ff4d6d" : "#fff",
-          fontFamily: "monospace",
-          fontSize: 11,
-          fontWeight: 800,
-          padding: "10px 14px",
-          borderRadius: 10,
-          cursor: fanBusy ? "wait" : "pointer",
-          boxShadow: isFan ? "none" : "0 0 12px rgba(255,77,109,0.3)",
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-        }}
-      >
-        {fanBusy ? "…" : isFan ? "✓ fan" : "become a fan"}
-      </button>
+        <div className="text-center">
+          <div className="font-display text-3xl text-white leading-none drop-shadow">
+            {profile?.username ?? "…"}
+          </div>
+          <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/45 mt-1">
+            🎤 artist · {profile ? "their drops + signal" : "loading…"}
+          </div>
+        </div>
 
-      <div style={cardGrid}>
-        <StatCard label="drops"        value={(stats?.totalDrops ?? 0).toString()} />
-        <StatCard label="fans"         value={(stats?.totalFans ?? 0).toString()} />
-        <StatCard label="ratings"      value={(stats?.totalRatings ?? 0).toString()} />
-        <StatCard
-          label="avg ★"
-          value={stats?.totalRatings ? stats.avgStars.toFixed(1) : "–"}
-        />
-        <StatCard label="pushes 🔥"     value={(stats?.totalEndorsements ?? 0).toString()} accent="#facc15" />
+        <ChunkyButton
+          variant={isFan ? "ghost" : "magenta"}
+          size="md"
+          icon={isFan ? "✓" : "+"}
+          onClick={toggleFan}
+          disabled={fanBusy}
+        >
+          {fanBusy ? "…" : isFan ? "fan" : "become a fan"}
+        </ChunkyButton>
       </div>
 
+      <StatGrid>
+        <StatTile label="drops"   value={(stats?.totalDrops ?? 0).toString()}   tint="purple" />
+        <StatTile label="fans"    value={(stats?.totalFans ?? 0).toString()}    tint="magenta" />
+        <StatTile label="ratings" value={(stats?.totalRatings ?? 0).toString()} tint="cyan" />
+        <StatTile
+          label="avg ★"
+          value={stats?.totalRatings ? stats.avgStars.toFixed(1) : "–"}
+          tint="gold"
+        />
+        <StatTile label="pushes 🔥" value={(stats?.totalEndorsements ?? 0).toString()} tint="orange" />
+      </StatGrid>
+
       {/* Drops list */}
-      <div style={{ marginTop: 6 }}>
-        <div style={sectionTitle}>drops</div>
-        {drops === null && <div style={emptyState}>loading catalog…</div>}
-        {drops && drops.length === 0 && <div style={emptyState}>no drops yet.</div>}
+      <div className="mt-4">
+        <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/45 mb-2">
+          drops
+        </div>
+        {drops === null && <EmptyState>loading catalog…</EmptyState>}
+        {drops && drops.length === 0 && <EmptyState>no drops yet.</EmptyState>}
         {drops && drops.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {drops.map((d) => (
-              <DropRow key={d.songId} song={d} />
-            ))}
+          <div className="flex flex-col gap-2">
+            {drops.map((d) => <DropRow key={d.songId} song={d} />)}
           </div>
         )}
       </div>
@@ -235,143 +253,95 @@ function Wrapper({
   onBack: () => void;
 }) {
   return (
-    <div
-      style={{
-        padding: "34px 14px 80px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        maxWidth: 520,
-        width: "100%",
-        margin: "0 auto",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button
-          onClick={onBack}
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "rgba(255,255,255,0.7)",
-            fontFamily: "monospace",
-            fontSize: 11,
-            padding: "6px 10px",
-            borderRadius: 8,
-            cursor: "pointer",
-          }}
-        >
-          ← back
-        </button>
+    <div className="flex flex-col gap-4 pt-3 pb-20">
+      <div className="flex justify-start">
+        <ChunkyPill variant="ghost" size="sm" onClick={onBack} icon="←">
+          back
+        </ChunkyPill>
       </div>
       {children}
     </div>
   );
 }
 
-function Header({
-  kicker, title, subtitle,
-}: {
-  kicker: string; title: string; subtitle: string;
-}) {
+/** The big static gradient avatar disc used for other-user profiles. */
+function ArtistAvatarDisc({ emoji, size }: { emoji: string; size: number }) {
   return (
-    <div>
-      <div
+    <div
+      className={[
+        "relative shrink-0 select-none rounded-full",
+        "bg-gradient-to-br from-grvd-magenta to-grvd-orange",
+        "shadow-chunky animate-puck-bob",
+        "flex items-center justify-center",
+      ].join(" ")}
+      style={{ width: size, height: size }}
+      aria-hidden
+    >
+      <span
+        className="leading-none"
         style={{
-          fontFamily: "monospace",
-          fontSize: 9,
-          letterSpacing: "0.2em",
-          textTransform: "uppercase",
-          color: "#22d3ee",
+          fontSize: size * 0.55,
+          filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.4))",
         }}
       >
-        {kicker}
-      </div>
+        {emoji}
+      </span>
+      {/* Glossy highlight */}
       <div
-        style={{
-          fontFamily: "'Space Grotesk', system-ui, sans-serif",
-          fontSize: 22,
-          fontWeight: 800,
-          color: "#fff",
-          marginTop: 2,
-          letterSpacing: "-0.01em",
-        }}
-      >
-        {title}
-      </div>
-      <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: 10,
-          color: "rgba(255,255,255,0.45)",
-          marginTop: 2,
-        }}
-      >
-        {subtitle}
-      </div>
+        aria-hidden
+        className="absolute inset-x-3 top-3 h-[40%] rounded-full bg-white/15 blur-md pointer-events-none"
+      />
     </div>
   );
 }
 
-function AvatarPanel({ emoji, accent }: { emoji: string; accent: string }) {
+function StatGrid({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", justifyContent: "center" }}>
-      <div
-        style={{
-          width: 108,
-          height: 108,
-          borderRadius: "50%",
-          background: `linear-gradient(135deg, ${accent} 0%, ${accent}55 100%)`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 56,
-          lineHeight: 1,
-          boxShadow: `0 10px 30px ${accent}55, inset 0 2px 0 rgba(255,255,255,0.2)`,
-          userSelect: "none",
-        }}
-      >
-        <span style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))" }}>
-          {emoji}
-        </span>
-      </div>
+    <div className="grid grid-cols-2 gap-3 mt-2">
+      {children}
     </div>
   );
 }
 
-function StatCard({
-  label, value, accent = "#fff",
+const TINT_BG: Record<string, string> = {
+  purple:  "bg-grvd-purple/15 border-grvd-purple/30",
+  magenta: "bg-grvd-magenta/15 border-grvd-magenta/30",
+  cyan:    "bg-grvd-cyan/15 border-grvd-cyan/30",
+  gold:    "bg-grvd-gold/15 border-grvd-gold/30",
+  orange:  "bg-grvd-orange/15 border-grvd-orange/30",
+};
+
+const TINT_VALUE: Record<string, string> = {
+  purple:  "text-grvd-purple",
+  magenta: "text-grvd-magenta",
+  cyan:    "text-grvd-cyan",
+  gold:    "text-grvd-gold",
+  orange:  "text-grvd-orange",
+};
+
+function StatTile({
+  label, value, tint = "purple",
 }: {
-  label: string; value: string; accent?: string;
+  label: string;
+  value: string;
+  tint?: "purple" | "magenta" | "cyan" | "gold" | "orange";
 }) {
   return (
     <div
-      style={{
-        padding: "10px 12px",
-        background: "rgba(0,0,0,0.3)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 10,
-      }}
+      className={[
+        "rounded-2xl border px-4 py-3",
+        "shadow-chunky-press",
+        TINT_BG[tint],
+      ].join(" ")}
     >
-      <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: 9,
-          letterSpacing: "0.15em",
-          textTransform: "uppercase",
-          color: "rgba(255,255,255,0.45)",
-        }}
-      >
+      <div className="font-mono text-[9px] tracking-[0.18em] uppercase text-white/55">
         {label}
       </div>
       <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: 18,
-          fontWeight: 800,
-          color: accent,
-          marginTop: 2,
-          fontVariantNumeric: "tabular-nums",
-        }}
+        className={[
+          "font-display text-2xl leading-none mt-1.5 tabular-nums",
+          TINT_VALUE[tint],
+        ].join(" ")}
       >
         {value}
       </div>
@@ -383,66 +353,34 @@ function DropRow({ song }: { song: PublishedSong }) {
   const isGroup = song.collaboratorNames.length > 0;
   return (
     <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "8px 10px",
-        borderRadius: 10,
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.05)",
-      }}
+      className={[
+        "flex items-center gap-3 px-3 py-2.5",
+        "rounded-2xl border border-white/8 bg-white/[0.03]",
+        "shadow-chunky-press",
+      ].join(" ")}
     >
-      <span style={{ fontSize: 22, flexShrink: 0 }}>{song.artistAvatar}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontFamily: "'Space Grotesk', system-ui, sans-serif",
-            fontSize: 13,
-            fontWeight: 700,
-            color: "#fff",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {song.title}
+      <span className="text-2xl shrink-0 leading-none">{song.artistAvatar}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <div className="font-display text-base text-white truncate">
+            {song.title}
+          </div>
           {isGroup && (
-            <span
-              style={{
-                marginLeft: 6,
-                fontFamily: "monospace",
-                fontSize: 9,
-                fontWeight: 800,
-                letterSpacing: "0.12em",
-                color: "#facc15",
-                padding: "1px 5px",
-                borderRadius: 4,
-                border: "1px solid rgba(250,204,21,0.4)",
-                verticalAlign: "middle",
-              }}
-            >
-              GROUP
-            </span>
+            <ChunkyBadge variant="gold" size="sm">GROUP</ChunkyBadge>
           )}
         </div>
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 10,
-            color: "rgba(255,255,255,0.5)",
-          }}
-        >
+        <div className="font-mono text-[10px] text-white/45 mt-0.5 truncate">
           {isGroup
             ? `with ${song.collaboratorNames.join(" × ")}`
             : `${song.bpm ? `${song.bpm} BPM` : ""}${song.bpm && song.keyRoot ? " · " : ""}${song.keyRoot ?? ""}`}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-        <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.55)", fontVariantNumeric: "tabular-nums" }}>
-          ★ {song.ratingCount > 0 ? song.avgStars.toFixed(1) : "–"} <span style={{ opacity: 0.55 }}>({song.ratingCount})</span>
+      <div className="flex flex-col items-end gap-0.5 shrink-0">
+        <span className="font-mono text-[10px] text-white/65 tabular-nums">
+          ★ {song.ratingCount > 0 ? song.avgStars.toFixed(1) : "–"}
+          <span className="opacity-50"> ({song.ratingCount})</span>
         </span>
-        <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.55)", fontVariantNumeric: "tabular-nums" }}>
+        <span className="font-mono text-[10px] text-grvd-magenta tabular-nums">
           🔥 {song.endorsementCount}
         </span>
       </div>
@@ -453,44 +391,27 @@ function DropRow({ song }: { song: PublishedSong }) {
 function Hint({ children }: { children: React.ReactNode }) {
   return (
     <div
-      style={{
-        fontFamily: "monospace",
-        fontSize: 10,
-        color: "rgba(255,255,255,0.4)",
-        lineHeight: 1.5,
-        padding: "8px 10px",
-        borderLeft: "2px solid rgba(250,204,21,0.4)",
-        borderRadius: 4,
-        background: "rgba(250,204,21,0.05)",
-      }}
+      className={[
+        "rounded-xl border-l-2 border-grvd-gold/50",
+        "bg-grvd-gold/5 px-3 py-2",
+        "font-mono text-[10px] leading-relaxed text-white/55",
+      ].join(" ")}
     >
       {children}
     </div>
   );
 }
 
-const cardGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
-  gap: 8,
-};
-
-const sectionTitle: React.CSSProperties = {
-  fontFamily: "monospace",
-  fontSize: 9,
-  letterSpacing: "0.2em",
-  textTransform: "uppercase",
-  color: "rgba(255,255,255,0.5)",
-  marginBottom: 6,
-  marginTop: 8,
-};
-
-const emptyState: React.CSSProperties = {
-  padding: "20px 16px",
-  textAlign: "center",
-  fontFamily: "monospace",
-  fontSize: 11,
-  color: "rgba(255,255,255,0.4)",
-  border: "1px dashed rgba(255,255,255,0.1)",
-  borderRadius: 10,
-};
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className={[
+        "rounded-2xl border border-dashed border-white/12",
+        "px-4 py-6 text-center",
+        "font-mono text-[11px] text-white/45",
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
