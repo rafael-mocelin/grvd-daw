@@ -33,6 +33,7 @@ import {
   type LeaderboardTastemaker,
   type LeaderboardProducer,
 } from "../lib/game-db";
+import { ChunkyPill } from "../ui/Chunky";
 
 type TabId = "songs" | "artists" | "tastemakers" | "producers";
 
@@ -97,17 +98,7 @@ export function Leaderboard() {
   }, [active, songs, artists, tastemakers, producers]);
 
   return (
-    <div
-      style={{
-        padding: "34px 14px 80px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 14,
-        maxWidth: 520,
-        width: "100%",
-        margin: "0 auto",
-      }}
-    >
+    <div className="pt-3 pb-8 flex flex-col gap-4">
       <Header onBack={() => setStage("home")} />
 
       <TabBar
@@ -139,58 +130,25 @@ export function Leaderboard() {
 
 function Header({ onBack }: { onBack: () => void }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-      <div>
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 9,
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-            color: "#facc15",
-          }}
-        >
-          🏆 leaderboard
-        </div>
-        <div
-          style={{
-            fontFamily: "'Space Grotesk', system-ui, sans-serif",
-            fontSize: 18,
-            fontWeight: 800,
-            color: "#fff",
-            marginTop: 2,
-          }}
-        >
-          this week's signal
-        </div>
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 10,
-            color: "rgba(255,255,255,0.4)",
-            marginTop: 2,
-          }}
-        >
+    <>
+      <div className="flex items-center justify-between px-1">
+        <ChunkyPill onClick={onBack} icon="←" size="sm">
+          back
+        </ChunkyPill>
+        <span className="font-display text-grvd-gold text-[11px] tracking-widest uppercase">
+          🏆 LEADERBOARD
+        </span>
+        <span className="w-12" />
+      </div>
+      <div className="text-center px-2">
+        <h2 className="font-display text-3xl text-white tracking-wide">
+          THIS WEEK
+        </h2>
+        <div className="mt-1 font-sans text-grvd-gold/70 text-[11px] tracking-widest uppercase">
           last 7 days · refreshes on open
         </div>
       </div>
-      <button
-        onClick={onBack}
-        style={{
-          background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          color: "rgba(255,255,255,0.7)",
-          fontFamily: "monospace",
-          fontSize: 11,
-          padding: "6px 10px",
-          borderRadius: 8,
-          cursor: "pointer",
-          flexShrink: 0,
-        }}
-      >
-        ← back
-      </button>
-    </div>
+    </>
   );
 }
 
@@ -206,47 +164,25 @@ function TabBar({
   onChange: (id: TabId) => void;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        background: "rgba(0,0,0,0.35)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 10,
-        padding: 3,
-        gap: 2,
-      }}
-    >
+    <div className="flex gap-1.5 px-1">
       {TABS.map((t) => {
         const isActive = active === t.id;
         return (
           <button
             key={t.id}
             onClick={() => onChange(t.id)}
-            style={{
-              flex: 1,
-              padding: "7px 4px",
-              borderRadius: 7,
-              border: "none",
-              background: isActive
-                ? "linear-gradient(135deg, rgba(250,204,21,0.22) 0%, rgba(255,77,109,0.18) 100%)"
-                : "transparent",
-              boxShadow: isActive ? "0 0 10px rgba(250,204,21,0.18)" : "none",
-              color: isActive ? "#fff" : "rgba(255,255,255,0.55)",
-              fontFamily: "monospace",
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
-              transition: "background 150ms ease, color 150ms ease",
-            }}
+            className={[
+              "flex-1 px-2 py-2 rounded-2xl",
+              "font-display tracking-widest text-[11px]",
+              "shadow-chunky-press transition-all duration-150",
+              "active:translate-y-[1px] flex items-center justify-center gap-1",
+              isActive
+                ? "bg-gradient-to-r from-grvd-gold to-grvd-orange text-grvd-base shadow-glow-gold"
+                : "bg-grvd-panel text-white/55 border border-grvd-line",
+            ].join(" ")}
           >
-            <span style={{ fontSize: 12 }}>{t.icon}</span>
-            <span>{t.label}</span>
+            <span className="text-sm">{t.icon}</span>
+            <span>{t.label.toUpperCase()}</span>
           </button>
         );
       })}
@@ -414,125 +350,83 @@ function Row({
   onClick?: () => void;
 }) {
   const isPodium = rank <= 3;
-  const rankGlow =
-    rank === 1 ? "#facc15" :
-    rank === 2 ? "#d1d5db" :
-    rank === 3 ? "#f59e0b" :
-    "rgba(255,255,255,0.35)";
+
+  // Podium colors — gold / silver / bronze. Below podium, the row inherits
+  // its accent from the tab.
+  const rankBg =
+    rank === 1 ? "from-grvd-gold to-grvd-orange" :
+    rank === 2 ? "from-white/40 to-white/10" :
+    rank === 3 ? "from-grvd-orange to-grvd-magenta" :
+    "from-grvd-purple/40 to-grvd-purple/15";
 
   return (
     <div
       onClick={onClick}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
+      className={[
+        "flex items-center gap-3 px-3 py-2.5 rounded-2xl",
+        "shadow-chunky-press",
+        "transition-all duration-150",
+        onClick ? "active:translate-y-[1px] active:shadow-chunky-press cursor-pointer" : "cursor-default",
+        isPodium ? "border-2" : "border",
+      ].join(" ")}
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "10px 12px",
-        borderRadius: 10,
-        cursor: onClick ? "pointer" : "default",
         background: isPodium
-          ? `linear-gradient(135deg, ${accent}10 0%, rgba(0,0,0,0.35) 100%)`
-          : "rgba(255,255,255,0.03)",
-        border: `1px solid ${isPodium ? accent + "33" : "rgba(255,255,255,0.05)"}`,
-        boxShadow: isPodium ? `0 0 10px ${accent}22` : "none",
+          ? `linear-gradient(135deg, ${accent}26 0%, rgba(0,0,0,0.30) 100%)`
+          : "rgba(255,255,255,0.04)",
+        borderColor: isPodium ? accent + "66" : "rgba(255,255,255,0.06)",
+        boxShadow: isPodium ? `0 0 16px ${accent}33, 0 4px 0 0 rgba(0,0,0,0.30)` : undefined,
       }}
     >
+      {/* Rank pip — gold/silver/bronze gradient circle for podium */}
       <div
-        style={{
-          width: 24,
-          fontFamily: "monospace",
-          fontSize: 14,
-          fontWeight: 900,
-          color: rankGlow,
-          textAlign: "center",
-          textShadow: isPodium ? `0 0 6px ${rankGlow}88` : "none",
-          flexShrink: 0,
-        }}
+        className={[
+          "w-9 h-9 rounded-full grid place-items-center shrink-0",
+          "bg-gradient-to-br",
+          rankBg,
+          "shadow-chunky-press",
+          "font-display text-base text-grvd-base",
+        ].join(" ")}
       >
         {rank}
       </div>
+
+      {/* Avatar puck */}
       <div
+        className="w-10 h-10 rounded-full grid place-items-center text-xl shrink-0 shadow-chunky-press"
         style={{
-          width: 38,
-          height: 38,
-          borderRadius: 19,
-          background: `linear-gradient(135deg, ${accent}33 0%, ${accent}11 100%)`,
-          border: `1px solid ${accent}33`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 20,
-          flexShrink: 0,
+          background: `linear-gradient(135deg, ${accent}55 0%, ${accent}22 100%)`,
+          border: `1px solid ${accent}66`,
         }}
       >
         {avatar}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
-        <div
-          style={{
-            fontFamily: "'Space Grotesk', system-ui, sans-serif",
-            fontSize: 13,
-            fontWeight: 700,
-            color: "#fff",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
+
+      <div className="flex flex-col min-w-0 flex-1">
+        <div className="font-display text-white text-sm tracking-wide truncate">
           {title}
         </div>
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 10,
-            color: "rgba(255,255,255,0.5)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
+        <div className="font-sans text-white/55 text-[11px] truncate">
           {sub}
         </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
+
+      <div className="flex flex-col items-end shrink-0">
         <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 11,
-            fontWeight: 800,
-            color: accent,
-            letterSpacing: "0.03em",
-            fontVariantNumeric: "tabular-nums",
-          }}
+          className="font-display text-sm tabular-nums"
+          style={{ color: accent }}
         >
           {primary}
         </div>
         {secondary && (
-          <div
-            style={{
-              fontFamily: "monospace",
-              fontSize: 9,
-              color: "rgba(255,255,255,0.4)",
-              marginTop: 2,
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
+          <div className="font-sans text-[10px] text-white/45 tabular-nums mt-0.5">
             {secondary}
           </div>
         )}
       </div>
       <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: 9,
-          color: "rgba(255,255,255,0.25)",
-          width: 42,
-          textAlign: "right",
-          fontVariantNumeric: "tabular-nums",
-          flexShrink: 0,
-        }}
+        className="font-display text-grvd-gold/80 text-base tabular-nums w-12 text-right shrink-0"
         title="score"
       >
         {Math.round(score)}
@@ -554,9 +448,10 @@ const listContainer: React.CSSProperties = {
 const emptyState: React.CSSProperties = {
   padding: "40px 20px",
   textAlign: "center",
-  fontFamily: "monospace",
-  fontSize: 11,
-  color: "rgba(255,255,255,0.4)",
-  border: "1px dashed rgba(255,255,255,0.1)",
-  borderRadius: 12,
+  fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif',
+  fontSize: 13,
+  color: "rgba(167,139,250,0.75)",
+  border: "1px dashed rgba(167,139,250,0.25)",
+  borderRadius: 16,
+  background: "rgba(21,16,42,0.5)",
 };

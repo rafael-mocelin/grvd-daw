@@ -2,21 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import { TEMPLATES } from "../data/templates";
 import { useStore } from "../store/useStore";
 import { fetchProducerTemplates, type ProducerTemplate } from "../lib/sounds-db";
+import { ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 import type { Template, LayerKind } from "../data/types";
 
 /**
- * Template picker — the first step of the 60-second loop. Each template
- * is a hook-first skeleton: a short 2–4 bar loop modeled on the structure
- * of a modern hit. The player picks one and immediately moves to stacking.
+ * TemplatePicker — slice 2.4 redesign.
  *
- * Phase 5.B step 10 — producer-published templates show up alongside the
- * static ones, filtered to recipes the current player can fulfil (owns
- * every referenced sound). Locked producer templates are surfaced too
- * with a hint about which sounds they're missing — drives sound claims.
+ * Step 1 of the 60-second loop. Each template is a hook-first recipe.
+ * Visual upgrade: per-vibe gradient cards (card-trap / card-drill /
+ * card-boom-bap / card-pop-rap from the tailwind tokens), chunky candy
+ * depth, BPM badge in a gold pill, glossy top highlight. Three groups:
+ * static seeds → playable producer drops → locked producer drops with
+ * "claim N more to unlock" hint that drives the player back to Studio.
  */
 export function TemplatePicker() {
-  const { pickTemplate, ownedSoundIds } = useStore();
-  const [hover, setHover] = useState<string | null>(null);
+  const { pickTemplate, ownedSoundIds, setStage } = useStore();
   const [producerRows, setProducerRows] = useState<ProducerTemplate[] | null>(null);
 
   useEffect(() => {
@@ -28,12 +28,11 @@ export function TemplatePicker() {
     return () => { cancelled = true; };
   }, []);
 
-  // Convert producer rows → Template shape so pickTemplate works uniformly.
-  const producerTemplates = useMemo(() => {
-    return (producerRows ?? []).map((p) => producerRowToTemplate(p));
-  }, [producerRows]);
+  const producerTemplates = useMemo(
+    () => (producerRows ?? []).map((p) => producerRowToTemplate(p)),
+    [producerRows],
+  );
 
-  // Partition producer templates into "playable" (own all sounds) vs locked.
   const partitioned = useMemo(() => {
     const playable: { tpl: Template; row: ProducerTemplate }[] = [];
     const locked:   { tpl: Template; row: ProducerTemplate; missingCount: number }[] = [];
@@ -41,7 +40,6 @@ export function TemplatePicker() {
       const tpl = producerTemplates[i];
       const row = producerRows![i];
       if (!ownedSoundIds) {
-        // Guest / pre-load — render as playable; server still rejects on save if needed.
         playable.push({ tpl, row });
         continue;
       }
@@ -53,133 +51,210 @@ export function TemplatePicker() {
   }, [producerTemplates, producerRows, ownedSoundIds]);
 
   return (
-    <div
-      style={{
-        padding: "34px 14px 80px",
-        maxWidth: 520,
-        width: "100%",
-        margin: "0 auto",
-      }}
-    >
-      <div className="mb-3">
-        <div className="chip bg-raised border border-line text-white/60 text-[10px]">step 1 · pick a vibe</div>
-        <h2 className="font-display text-xl font-bold mt-0.5">vibes</h2>
+    <div className="pt-3 pb-8 flex flex-col gap-4">
+      {/* Header — back pill + step badge + display title */}
+      <div className="flex items-center justify-between px-1">
+        <ChunkyPill onClick={() => setStage("home")} icon="←" size="sm">
+          back
+        </ChunkyPill>
+        <ChunkyBadge variant="gold" size="sm">
+          STEP 1
+        </ChunkyBadge>
+        <span className="w-12" />
       </div>
 
-      <div className="flex flex-col gap-2">
-        {/* Static seed templates */}
+      <div className="text-center px-2">
+        <h2 className="font-display text-3xl text-white tracking-wide">
+          🔥 PICK A VIBE
+        </h2>
+      </div>
+
+      {/* Static seed templates — each gets a per-tag gradient tint */}
+      <div className="flex flex-col gap-3 px-1">
         {TEMPLATES.map((t) => (
-          <TemplateCard
+          <VibeCard
             key={t.id}
             template={t}
-            highlight={t.id === "tpl-grvd-real"}
-            badge={t.id === "tpl-grvd-real" ? "real sounds" : null}
-            hovered={hover === t.id}
-            onHover={(v) => setHover(v ? t.id : null)}
+            badge={t.id === "tpl-grvd-real" ? { label: "REAL SOUNDS", variant: "cyan" as const } : null}
             onPick={() => pickTemplate(t)}
           />
         ))}
-
-        {/* Producer-published, playable */}
-        {partitioned.playable.map(({ tpl, row }) => (
-          <TemplateCard
-            key={tpl.id}
-            template={tpl}
-            highlight={false}
-            badge={`🎛️ producer · ${row.usageCount} uses`}
-            hovered={hover === tpl.id}
-            onHover={(v) => setHover(v ? tpl.id : null)}
-            onPick={() => pickTemplate(tpl)}
-          />
-        ))}
-
-        {/* Locked producer templates — visible but un-pickable */}
-        {partitioned.locked.length > 0 && (
-          <>
-            <div className="mt-3 text-[10px] font-mono text-white/40 uppercase tracking-widest">
-              🔒 producer drops · need sounds
-            </div>
-            {partitioned.locked.map(({ tpl, missingCount }) => (
-              <div
-                key={tpl.id}
-                className="card p-3 opacity-60 cursor-not-allowed"
-                title={`claim ${missingCount} more sound${missingCount === 1 ? "" : "s"} to unlock this`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="font-display text-base font-bold">{tpl.name}</h3>
-                  <div className="font-mono text-[10px] text-white/40">{tpl.bpm} bpm</div>
-                </div>
-                <p className="text-[10px] text-white/50 font-mono mb-2">{tpl.subtitle}</p>
-                <div className="flex flex-wrap gap-1">
-                  <span className="chip bg-purple-500/10 border border-purple-400/30 text-purple-300 text-[9px]">
-                    🔒 missing {missingCount}
-                  </span>
-                  {tpl.tags.map((tag) => (
-                    <span key={tag} className="chip bg-raised border border-line text-white/60 text-[9px]">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </>
-        )}
       </div>
+
+      {/* Playable producer drops */}
+      {partitioned.playable.length > 0 && (
+        <>
+          <SectionDivider icon="🎛️" label="PRODUCER DROPS" />
+          <div className="flex flex-col gap-3 px-1">
+            {partitioned.playable.map(({ tpl, row }) => (
+              <VibeCard
+                key={tpl.id}
+                template={tpl}
+                badge={{ label: `🎛️ ${row.usageCount} uses`, variant: "magenta" as const }}
+                onPick={() => pickTemplate(tpl)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Locked producer drops */}
+      {partitioned.locked.length > 0 && (
+        <>
+          <SectionDivider icon="🔒" label="NEED SOUNDS" />
+          <div className="flex flex-col gap-3 px-1">
+            {partitioned.locked.map(({ tpl, missingCount }) => (
+              <LockedVibeCard
+                key={tpl.id}
+                template={tpl}
+                missingCount={missingCount}
+                onClickToStudio={() => setStage("studio")}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-/** Inline reusable card for the picker. */
-function TemplateCard({
-  template, highlight, badge, hovered, onHover, onPick,
+/* -------------------------------------------------------------------------- */
+/* VibeCard — the chunky gradient card                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Map a template's tag set to one of the named gradient tokens. */
+function gradientForTags(tags: string[]): string {
+  if (tags.includes("trap"))     return "bg-card-trap";
+  if (tags.includes("drill"))    return "bg-card-drill";
+  if (tags.includes("boom-bap")) return "bg-card-boom-bap";
+  if (tags.includes("pop-rap"))  return "bg-card-pop-rap";
+  return "bg-card-trap";
+}
+
+function VibeCard({
+  template,
+  badge,
+  onPick,
 }: {
-  template:  Template;
-  highlight: boolean;
-  badge:     string | null;
-  hovered:   boolean;
-  onHover:   (v: boolean) => void;
-  onPick:    () => void;
+  template: Template;
+  badge:    { label: string; variant: "cyan" | "magenta" | "gold" } | null;
+  onPick:   () => void;
 }) {
+  const grad = gradientForTags(template.tags);
   return (
     <button
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
       onClick={onPick}
-      className={`card p-3 text-left transition-all hover:border-accent hover:shadow-glow ${
-        hovered ? "ring-1 ring-accent/50" : ""
-      } ${highlight ? "border-accent/60" : ""}`}
+      className={[
+        grad,
+        "relative w-full text-left rounded-2xl px-4 py-3.5",
+        "shadow-chunky active:shadow-chunky-press active:translate-y-[2px]",
+        "transition-all duration-150 select-none",
+      ].join(" ")}
     >
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="font-display text-base font-bold">{template.name}</h3>
-        <div className="font-mono text-[10px] text-white/40">{template.bpm} bpm</div>
-      </div>
-      <p className="text-[10px] text-white/50 font-mono mb-2">{template.subtitle}</p>
-      <div className="flex flex-wrap gap-1">
+      {/* BPM pill top-right */}
+      <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-grvd-gold text-grvd-base font-display text-xs shadow-chunky-press">
+        {template.bpm} BPM
+      </span>
+
+      {/* Title */}
+      <h3 className="font-display text-xl text-white tracking-wide pr-20 leading-tight">
+        {template.name.toUpperCase()}
+      </h3>
+
+      {/* Subtitle */}
+      <p className="font-sans text-white/85 text-xs mt-1 pr-16 leading-snug">
+        {template.subtitle}
+      </p>
+
+      {/* Tags + optional badge */}
+      <div className="flex flex-wrap gap-1.5 mt-2.5">
         {template.tags.map((tag) => (
-          <span key={tag} className="chip bg-raised border border-line text-white/60 text-[9px]">
-            {tag}
+          <span
+            key={tag}
+            className="font-display text-[9px] tracking-widest text-white/90 px-2 py-0.5 rounded-full bg-black/25"
+          >
+            #{tag}
           </span>
         ))}
         {badge && (
-          <span className="chip bg-accent/10 border border-accent/30 text-accent text-[9px]">{badge}</span>
+          <ChunkyBadge variant={badge.variant} size="sm">
+            {badge.label}
+          </ChunkyBadge>
         )}
       </div>
     </button>
   );
 }
 
-/**
- * Shape-shift a server ProducerTemplate into the local Template type the
- * pickTemplate flow expects. Producer templates don't carry a hookLine /
- * verse / suggested map; we synthesize sensible defaults so the karaoke
- * step doesn't crash and the picker's suggestion logic still works
- * (StackingView's `suggestions` already has a fallback path for templates
- * without per-kind suggested ids).
- */
+/* -------------------------------------------------------------------------- */
+/* LockedVibeCard — desaturated + "missing N" + nudge to studio                */
+/* -------------------------------------------------------------------------- */
+
+function LockedVibeCard({
+  template,
+  missingCount,
+  onClickToStudio,
+}: {
+  template:        Template;
+  missingCount:    number;
+  onClickToStudio: () => void;
+}) {
+  return (
+    <button
+      onClick={onClickToStudio}
+      title={`claim ${missingCount} more sound${missingCount === 1 ? "" : "s"} to unlock`}
+      className={[
+        "relative w-full text-left rounded-2xl px-4 py-3.5",
+        "bg-grvd-panel border border-grvd-line",
+        "shadow-chunky-press opacity-65",
+        "active:translate-y-[1px] transition-all duration-150",
+      ].join(" ")}
+    >
+      <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-grvd-magenta text-white font-display text-[10px] shadow-chunky-press">
+        🔒 missing {missingCount}
+      </span>
+
+      <h3 className="font-display text-lg text-white/65 tracking-wide pr-24 leading-tight">
+        {template.name.toUpperCase()}
+      </h3>
+      <p className="font-sans text-white/45 text-xs mt-1 pr-16 leading-snug">
+        claim {missingCount} more sound{missingCount === 1 ? "" : "s"} to unlock this template
+      </p>
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        {template.tags.map((tag) => (
+          <span
+            key={tag}
+            className="font-display text-[9px] tracking-widest text-white/40 px-2 py-0.5 rounded-full bg-black/25"
+          >
+            #{tag}
+          </span>
+        ))}
+      </div>
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* SectionDivider                                                               */
+/* -------------------------------------------------------------------------- */
+
+function SectionDivider({ icon, label }: { icon: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-2 mt-2">
+      <span className="text-base">{icon}</span>
+      <span className="font-display text-white text-sm tracking-widest">
+        {label}
+      </span>
+      <span className="flex-1 h-px bg-grvd-line ml-1" />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* producerRowToTemplate (unchanged)                                            */
+/* -------------------------------------------------------------------------- */
+
 function producerRowToTemplate(p: ProducerTemplate): Template {
-  // Build a per-kind suggested map by intersecting recipe positions with sound_ids.
-  // Producer templates are recipe[i] paired with soundIds[i] — so for the kind
-  // at recipe[i], the suggested sound is soundIds[i].
   const suggested: Partial<Record<LayerKind, string[]>> = {};
   for (let i = 0; i < p.recipe.length; i++) {
     const kind  = p.recipe[i];
@@ -196,7 +271,7 @@ function producerRowToTemplate(p: ProducerTemplate): Template {
     keyRoot:   p.keyRoot,
     tags:      p.tags,
     recipe:    p.recipe,
-    hookLine:  "",       // producer templates don't carry lyrics
+    hookLine:  "",
     suggested,
   };
 }

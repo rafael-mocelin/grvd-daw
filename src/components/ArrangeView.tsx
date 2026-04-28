@@ -296,14 +296,15 @@ export function ArrangeView() {
     <div className="pt-2 pb-8 flex flex-col gap-3">
       <Header onBack={() => setStage("done")} />
 
-      {/* ── Sticky transport bar ── */}
+      {/* ── Sticky transport bar ──
+       * Sits just below the HUD (height comes from --hud-h on PageShell). */}
       <div
         className={[
           "sticky z-20 mx-auto",
           "rounded-2xl bg-grvd-panel border border-grvd-line shadow-chunky-press",
           "px-3 py-2.5 flex items-center gap-3 w-full max-w-[420px]",
         ].join(" ")}
-        style={{ top: 64 }}
+        style={{ top: "var(--hud-h, 64px)" }}
       >
         <button
           onClick={handleTogglePlay}
