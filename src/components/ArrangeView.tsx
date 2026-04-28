@@ -1,20 +1,24 @@
 /**
- * ArrangeView — song arrangement with moving playhead.
+ * ArrangeView — song arrangement with playhead. Slice 1 redesign.
  *
- * Sections follow DJ/hip-hop phrase logic (8-bar phrases):
- *   INTRO(4) → VERSE(8) → HOOK(4) → CHORUS(4) → BRIDGE(4) → OUTRO(4)
- *   HOOK + CHORUS are unlocked from the start (= the playable 8-bar loop).
- *   Others unlock progressively via XP thresholds.
+ * Lives as its own dedicated post-Done page now (no more canvas window).
+ * Every feature from the original preserved:
  *
- * - Click a colored section block to mute/unmute that layer in that section.
- *   The RAF loop detects which section the playhead is in each frame and
- *   applies mute state live to the audio engine — so the same instrument
- *   plays in some sections but not others within the same loop.
+ *   - ▶/■ play / stop with loading state
+ *   - Live transport time (MM:SS · BAR n) + BPM
+ *   - Section ruler with XP-gated unlock state (🔒 + required XP)
+ *   - Per-layer per-section mute toggles (click a block to drop the layer
+ *     in that section only; engine applies mute state on the fly via RAF)
+ *   - Waveform-bar visualization inside unmuted blocks
+ *   - Draggable playhead (pointer capture on ruler OR head)
+ *   - Layer labels with kind + sound name + colored accent stripe
+ *   - XP-progressive section unlocking
+ *   - Stop restores all layers to unmuted
  *
- * - Play ▶ / ■ actually calls playSong / stopSong on the engine.
- *
- * - Playhead sweeps only within unlocked sections and maps its X position
- *   to the correct section column in the ruler.
+ * Visuals (new): chunky primitives + GRVD palette tokens, glossy depth,
+ * gradient section ribbons, mobile-first sticky transport bar at top.
+ * The arrangement grid still scrolls horizontally — expected at this
+ * level of musical detail; the chrome around it is the upgrade.
  */
 
 import { useRef, useEffect, useCallback, useState } from "react";
@@ -28,58 +32,46 @@ import {
   getTransportSeconds,
   seekTransport,
 } from "../audio/engine";
+import { ChunkyPill } from "../ui/Chunky";
 
 /* -------------------------------------------------------------------------- */
-/* Section definitions                                                          */
+/* Section definitions (unchanged from original)                                */
 /* -------------------------------------------------------------------------- */
 
-/*
- * Music-theory rationale:
- * Hip-hop / trap works in 4-bar and 8-bar phrases (the "8-bar rule").
- * DJs mix on phrase boundaries — always in multiples of 8 bars.
- * An 8-bar phrase = 1 "unit" of musical thought.
- *
- * Structure: INTRO(4) | VERSE(8) | HOOK(4) | CHORUS(4) | BRIDGE(4) | OUTRO(4)
- *   - HOOK + CHORUS together = 8 bars = 1 complete 8-bar phrase → unlocked
- *   - VERSE = 8 bars (second full phrase) → locked behind 150 XP
- *   - Intro / Bridge / Outro are 4-bar transition phrases → locked behind more
- *
- * The transport loop covers the HOOK+CHORUS = 8 bars.
- * Per-section muting lets you drop layers on the HOOK only, or CHORUS only.
- */
 interface SectionDef {
   id: string;
   label: string;
   bars: number;
+  /** Brand-palette color the section block + ribbon use. */
   color: string;
-  baseUnlocked: boolean;  // true = free from start
-  xpRequired: number;     // 0 if baseUnlocked
+  baseUnlocked: boolean;
+  xpRequired: number;
 }
 
 const SECTIONS: SectionDef[] = [
-  { id: "intro",  label: "INTRO",  bars: 4, color: "#4f46e5", baseUnlocked: false, xpRequired: 600  },
-  { id: "verse",  label: "VERSE",  bars: 8, color: "#7c3aed", baseUnlocked: false, xpRequired: 800  },
-  { id: "hook",   label: "HOOK",   bars: 4, color: "#db2777", baseUnlocked: true,  xpRequired: 0    },
-  { id: "chorus", label: "CHORUS", bars: 4, color: "#9333ea", baseUnlocked: true,  xpRequired: 0    },
-  { id: "bridge", label: "BRIDGE", bars: 4, color: "#0891b2", baseUnlocked: false, xpRequired: 1200 },
-  { id: "outro",  label: "OUTRO",  bars: 4, color: "#4f46e5", baseUnlocked: false, xpRequired: 2000 },
+  { id: "intro",  label: "INTRO",  bars: 4, color: "#22d3ee", baseUnlocked: false, xpRequired: 600  },
+  { id: "verse",  label: "VERSE",  bars: 8, color: "#a78bfa", baseUnlocked: false, xpRequired: 800  },
+  { id: "hook",   label: "HOOK",   bars: 4, color: "#ff4d9c", baseUnlocked: true,  xpRequired: 0    },
+  { id: "chorus", label: "CHORUS", bars: 4, color: "#fb923c", baseUnlocked: true,  xpRequired: 0    },
+  { id: "bridge", label: "BRIDGE", bars: 4, color: "#4ade80", baseUnlocked: false, xpRequired: 1200 },
+  { id: "outro",  label: "OUTRO",  bars: 4, color: "#fbbf24", baseUnlocked: false, xpRequired: 2000 },
 ];
 
 const LAYER_COLORS: Record<string, string> = {
-  drums:  "#4f46e5",
-  kick:   "#4f46e5",
-  snare:  "#7c3aed",
-  hat:    "#6d28d9",
-  "808":  "#db2777",
-  sample: "#0891b2",
-  melody: "#059669",
-  vocal:  "#d97706",
+  drums:  "#a78bfa",
+  kick:   "#a78bfa",
+  snare:  "#ff4d9c",
+  hat:    "#22d3ee",
+  "808":  "#fb923c",
+  sample: "#4ade80",
+  melody: "#fbbf24",
+  vocal:  "#ff4d9c",
 };
 
-const BAR_PX  = 18;
-const TRACK_H = 44;
-const HEADER_H = 26;
-const LABEL_W  = 80;
+const BAR_PX  = 22;   // bumped from 18 → 22 for better tap targets on mobile
+const TRACK_H = 52;   // bumped from 44
+const HEADER_H = 32;
+const LABEL_W  = 92;
 
 /* -------------------------------------------------------------------------- */
 /* Component                                                                    */
@@ -95,28 +87,19 @@ export function ArrangeView() {
     totalXP,
     arrangeMutes,
     setArrangeMutes,
+    setStage,
   } = useStore();
 
-  /*
-   * arrangeMutes lives in the Zustand store so it survives re-renders,
-   * is included when the song is saved, and stays consistent across tabs.
-   * Keyed by "kind:sectionId" — kind is stable across sound swaps.
-   */
   const muted = arrangeMutes;
-
-  /* playhead visual position in bars (within the unlocked timeline) */
   const [headBars, setHeadBars] = useState(0);
+  const [loading, setLoading]   = useState(false);
 
-  /* loading guard while playSong async resolves */
-  const [loading, setLoading] = useState(false);
+  const rafRef       = useRef<number | null>(null);
+  const rulerRef     = useRef<HTMLDivElement>(null);
+  const mutedRef     = useRef(muted);
+  const isSeekingRef = useRef(false);
+  mutedRef.current   = muted;
 
-  const rafRef      = useRef<number | null>(null);
-  const rulerRef    = useRef<HTMLDivElement>(null);
-  const mutedRef    = useRef(muted);
-  const isSeekingRef = useRef(false);   // true while pointer is held on ruler/head
-  mutedRef.current  = muted;            // keep RAF loop in sync without re-subscribing
-
-  /* resolved sections (locked state may flip as XP increases) */
   const resolvedSections = SECTIONS.map((s) => ({
     ...s,
     locked: !s.baseUnlocked && totalXP < s.xpRequired,
@@ -126,10 +109,9 @@ export function ArrangeView() {
   const unlockedBars     = unlockedSections.reduce((n, s) => n + s.bars, 0);
 
   const bpm = activeTemplate?.bpm ?? 140;
-  const BARS_PER_SECOND = bpm / 60 / 4;  // 4/4 time
+  const BARS_PER_SECOND = bpm / 60 / 4;
   const loopDurationSecs = unlockedBars / BARS_PER_SECOND;
 
-  /* pre-compute each section's cumulative left offset in canvas px */
   const sectionOffsets = (() => {
     const map: Record<string, number> = {};
     let x = 0;
@@ -140,7 +122,6 @@ export function ArrangeView() {
     return map;
   })();
 
-  /* map transport bar position → screen X (relative to ruler left edge) */
   function barToScreenX(transportBar: number): number {
     let runningBar = 0;
     for (const s of unlockedSections) {
@@ -149,12 +130,10 @@ export function ArrangeView() {
       }
       runningBar += s.bars;
     }
-    // Clamp to last unlocked section's right edge
     const last = unlockedSections[unlockedSections.length - 1];
     return last ? sectionOffsets[last.id] + last.bars * BAR_PX : 0;
   }
 
-  /* which unlocked section does this transport bar fall in? */
   function sectionAtBar(transportBar: number): SectionDef | null {
     let runningBar = 0;
     for (const s of unlockedSections) {
@@ -166,7 +145,6 @@ export function ArrangeView() {
     return null;
   }
 
-  /* RAF loop ── move playhead + apply per-section mutes */
   const tick = useCallback(() => {
     const secs = getTransportSeconds();
     const loopedSecs = loopDurationSecs > 0 ? secs % loopDurationSecs : 0;
@@ -174,7 +152,6 @@ export function ArrangeView() {
 
     setHeadBars(bar);
 
-    // Apply per-section mute state to engine (keyed by kind, stable across swaps)
     const sec = sectionAtBar(bar);
     if (sec) {
       for (const layer of layers) {
@@ -195,7 +172,6 @@ export function ArrangeView() {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-      // Restore all layers to unmuted when stopped
       for (const layer of layers) {
         updateMuteState(layer.id, false);
       }
@@ -208,27 +184,15 @@ export function ArrangeView() {
     };
   }, [isPlaying, tick, layers]);
 
-  /*
-   * Convert a clientX value into a transport seek position.
-   *
-   * The ruler div has paddingLeft=LABEL_W, so the section columns start
-   * LABEL_W px from the ruler's left edge. sectionOffsets is relative to
-   * the first section's left edge (i.e. 0-based from after the label column).
-   * We must subtract both rect.left AND LABEL_W before comparing offsets.
-   *
-   * If the pointer is outside all unlocked sections we clamp to the
-   * nearest unlocked boundary so dragging past the edge stays valid.
-   */
   function seekFromClientX(clientX: number) {
     if (!rulerRef.current) return;
     const rect = rulerRef.current.getBoundingClientRect();
-    const relX  = clientX - rect.left - LABEL_W;   // px from section 0 left edge
+    const relX  = clientX - rect.left - LABEL_W;
 
     let runningBar = 0;
     for (const s of unlockedSections) {
       const x0 = sectionOffsets[s.id];
       const x1 = x0 + s.bars * BAR_PX;
-
       if (relX >= x0 && relX <= x1) {
         const barWithin = (relX - x0) / BAR_PX;
         const totalBar  = runningBar + barWithin;
@@ -238,15 +202,12 @@ export function ArrangeView() {
       }
       runningBar += s.bars;
     }
-
-    // Clamp: before first unlocked section
     const first = unlockedSections[0];
     if (first && relX < sectionOffsets[first.id]) {
       seekTransport(0);
       setHeadBars(0);
       return;
     }
-    // Clamp: after last unlocked section
     const last = unlockedSections[unlockedSections.length - 1];
     if (last && relX > sectionOffsets[last.id] + last.bars * BAR_PX) {
       const endBar = unlockedBars - 0.01;
@@ -268,13 +229,11 @@ export function ArrangeView() {
     isSeekingRef.current = false;
   }
 
-  /* toggle mute for a layer in a specific section (keyed by kind) */
   function toggleSectionMute(layerKind: string, sectionId: string) {
     const key = `${layerKind}:${sectionId}`;
     setArrangeMutes({ ...arrangeMutes, [key]: !arrangeMutes[key] });
   }
 
-  /* play / stop */
   async function handleTogglePlay() {
     if (isPlaying) {
       stopSong();
@@ -291,15 +250,15 @@ export function ArrangeView() {
           id: "arrange-preview",
           name: "preview",
           bpm,
-          bars: unlockedBars,          // span HOOK+CHORUS = 8 bars
+          bars: unlockedBars,
           keyRoot: activeTemplate?.keyRoot ?? "C",
           templateId: activeTemplate?.id ?? "",
-          layers: [...layers],         // include vocal layer — engine handles null buffer gracefully
+          layers: [...layers],
           tags: [],
           collaborators: [],
           createdAt: Date.now(),
         },
-        vocalBuffer ?? null
+        vocalBuffer ?? null,
       );
       setIsPlaying(true);
     } catch (err) {
@@ -309,293 +268,346 @@ export function ArrangeView() {
     }
   }
 
-  /* ── Playhead screen X ── */
   const headScreenX = barToScreenX(headBars);
-
-  /* ── elapsed time display ── */
   const elapsedSecs = headBars / BARS_PER_SECOND;
   const mm = String(Math.floor(elapsedSecs / 60)).padStart(2, "0");
   const ss = String(Math.floor(elapsedSecs % 60)).padStart(2, "0");
 
+  /* -------------------------------------------------------------------------- */
+  /* Empty state                                                                  */
+  /* -------------------------------------------------------------------------- */
+
   if (!layers.length) {
     return (
-      <div
-        style={{
-          padding: 32,
-          color: "rgba(255,255,255,0.18)",
-          fontFamily: "monospace",
-          fontSize: 10,
-          textAlign: "center",
-          lineHeight: 1.8,
-        }}
-      >
-        pick your first sound<br />
-        <span style={{ opacity: 0.5 }}>and watch it appear here</span>
+      <div className="pt-4 pb-8 flex flex-col items-center gap-6">
+        <Header onBack={() => setStage("done")} />
+        <div className="mt-8 px-6 py-10 rounded-2xl bg-grvd-panel/60 border border-grvd-line text-center">
+          <div className="text-4xl mb-2">🎚️</div>
+          <div className="font-display text-lg text-white">no layers yet</div>
+          <div className="font-sans text-grvd-purple/70 text-sm mt-1">
+            cook a track first — its sections will arrange here.
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: "12px 16px 20px", overflowX: "auto", position: "relative", userSelect: "none" }}>
+    <div className="pt-2 pb-8 flex flex-col gap-3">
+      <Header onBack={() => setStage("done")} />
 
-      {/* ── Transport header ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingLeft: LABEL_W }}>
+      {/* ── Sticky transport bar ── */}
+      <div
+        className={[
+          "sticky z-20 mx-auto",
+          "rounded-2xl bg-grvd-panel border border-grvd-line shadow-chunky-press",
+          "px-3 py-2.5 flex items-center gap-3 w-full max-w-[420px]",
+        ].join(" ")}
+        style={{ top: 64 }}
+      >
         <button
           onClick={handleTogglePlay}
           disabled={loading}
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: "50%",
-            border: "1px solid rgba(255,255,255,0.15)",
-            background: isPlaying
-              ? "rgba(220,38,38,0.25)"
-              : loading
-              ? "rgba(255,255,255,0.05)"
-              : "rgba(255,255,255,0.07)",
-            color: isPlaying ? "#f87171" : "rgba(255,255,255,0.7)",
-            fontSize: isPlaying ? 10 : 11,
-            cursor: loading ? "wait" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-            transition: "all 0.15s",
-            boxShadow: isPlaying ? "0 0 10px rgba(220,38,38,0.4)" : "none",
-          }}
+          className={[
+            "shrink-0 w-11 h-11 rounded-full grid place-items-center",
+            isPlaying
+              ? "bg-grvd-magenta shadow-glow-magenta"
+              : "bg-grvd-purple shadow-glow-purple",
+            "text-white font-display text-base",
+            "shadow-chunky active:shadow-chunky-press active:translate-y-[1px]",
+            "disabled:opacity-50",
+          ].join(" ")}
         >
           {loading ? "…" : isPlaying ? "■" : "▶"}
         </button>
-        <span style={{ fontSize: 8, fontFamily: "monospace", color: "rgba(255,255,255,0.25)", letterSpacing: "0.08em" }}>
-          {mm}:{ss} · BAR {Math.floor(headBars) + 1}
-        </span>
-        <span style={{ fontSize: 7, fontFamily: "monospace", color: "rgba(255,255,255,0.12)", marginLeft: "auto" }}>
-          {bpm} BPM
-        </span>
-      </div>
 
-      {/* ── Grid (ruler + tracks + playhead) ── */}
-      <div style={{ position: "relative", display: "inline-block", minWidth: "100%" }}>
-
-        {/* Section ruler — pointer down+drag to scrub */}
-        <div
-          ref={rulerRef}
-          onPointerDown={onRulerPointerDown}
-          onPointerMove={onRulerPointerMove}
-          onPointerUp={onRulerPointerUp}
-          onPointerCancel={onRulerPointerUp}
-          style={{ display: "flex", paddingLeft: LABEL_W, marginBottom: 3, cursor: "col-resize" }}
-        >
-          {resolvedSections.map((s) => (
-            <div
-              key={s.id}
-              style={{
-                width: s.bars * BAR_PX,
-                height: HEADER_H,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexDirection: "column",
-                gap: 1,
-                fontSize: 7,
-                fontFamily: "monospace",
-                fontWeight: 800,
-                letterSpacing: "0.1em",
-                color: s.locked ? "rgba(255,255,255,0.15)" : s.color,
-                borderLeft: "1px solid rgba(255,255,255,0.06)",
-                borderBottom: "1px solid rgba(255,255,255,0.05)",
-                background: s.locked ? "rgba(255,255,255,0.012)" : "transparent",
-                flexShrink: 0,
-                position: "relative",
-                cursor: s.locked ? "default" : "col-resize",
-              }}
-            >
-              {s.locked ? (
-                <>
-                  <span style={{ opacity: 0.4, fontSize: 8 }}>🔒</span>
-                  <span>{s.label}</span>
-                  <span style={{ fontSize: 6, opacity: 0.4, marginTop: 1 }}>{s.xpRequired} XP</span>
-                </>
-              ) : (
-                <span style={{ textShadow: `0 0 8px ${s.color}88` }}>{s.label}</span>
-              )}
-            </div>
-          ))}
+        <div className="flex flex-col leading-tight">
+          <span className="font-display text-white text-base tabular-nums">
+            {mm}:{ss}
+          </span>
+          <span className="font-sans text-grvd-purple/75 text-[10px] tracking-widest uppercase">
+            BAR {Math.floor(headBars) + 1}
+          </span>
         </div>
 
-        {/* Track rows */}
-        {layers.map((layer) => {
-          const sound = getSound(layer.soundId);
-          const trackColor = LAYER_COLORS[layer.kind] ?? "#7c3aed";
+        <div className="ml-auto flex flex-col items-end leading-tight">
+          <span className="font-display text-grvd-gold text-sm tabular-nums">
+            {bpm}
+          </span>
+          <span className="font-sans text-grvd-purple/75 text-[10px] tracking-widest uppercase">
+            bpm
+          </span>
+        </div>
+      </div>
 
-          return (
-            <div
-              key={layer.id}
-              style={{ display: "flex", height: TRACK_H, alignItems: "center", marginBottom: 2 }}
-            >
-              {/* Label */}
-              <div
-                style={{
-                  width: LABEL_W,
-                  flexShrink: 0,
-                  paddingRight: 8,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
+      {/* ── Arrangement grid ──
+       * Full-width horizontal scroll (escapes PageShell's 480px column
+       * via negative margin). Section ruler + per-layer rows + playhead. */}
+      <div className="-mx-3 overflow-x-auto pl-3 pr-3 pb-2" style={{ userSelect: "none" }}>
+        <div style={{ position: "relative", display: "inline-block", minWidth: "100%" }}>
+          {/* Section ruler */}
+          <div
+            ref={rulerRef}
+            onPointerDown={onRulerPointerDown}
+            onPointerMove={onRulerPointerMove}
+            onPointerUp={onRulerPointerUp}
+            onPointerCancel={onRulerPointerUp}
+            style={{ display: "flex", paddingLeft: LABEL_W, marginBottom: 6, cursor: "col-resize" }}
+          >
+            {resolvedSections.map((s) => (
+              <SectionRibbon key={s.id} section={s} width={s.bars * BAR_PX} headerH={HEADER_H} />
+            ))}
+          </div>
+
+          {/* Track rows */}
+          {layers.map((layer) => {
+            const sound = getSound(layer.soundId);
+            const trackColor = LAYER_COLORS[layer.kind] ?? "#a78bfa";
+            return (
+              <div key={layer.id} style={{ display: "flex", height: TRACK_H, alignItems: "center", marginBottom: 4 }}>
+                {/* Layer label */}
                 <div
                   style={{
-                    width: 3,
-                    height: 26,
-                    borderRadius: 2,
-                    background: trackColor,
+                    width: LABEL_W,
                     flexShrink: 0,
-                    boxShadow: `0 0 6px ${trackColor}66`,
+                    paddingRight: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
                   }}
-                />
-                <div>
-                  <div style={{ fontSize: 8, fontFamily: "monospace", fontWeight: 700, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                    {KIND_LABEL[layer.kind]}
-                  </div>
-                  <div style={{ fontSize: 7, color: "rgba(255,255,255,0.2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 56 }}>
-                    {sound?.name ?? "—"}
+                >
+                  <div
+                    style={{
+                      width: 4, height: 32, borderRadius: 2,
+                      background: trackColor,
+                      flexShrink: 0,
+                      boxShadow: `0 0 8px ${trackColor}88`,
+                    }}
+                  />
+                  <div className="min-w-0">
+                    <div className="font-display text-white text-[11px] uppercase tracking-wider leading-none">
+                      {KIND_LABEL[layer.kind]}
+                    </div>
+                    <div className="font-sans text-white/55 text-[10px] truncate" style={{ maxWidth: 64 }}>
+                      {sound?.name ?? "—"}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Section blocks */}
-              {resolvedSections.map((s) => {
-                const blockW = s.bars * BAR_PX - 2;
-                const isMutedHere = !!muted[`${layer.kind}:${s.id}`];
+                {/* Section blocks */}
+                {resolvedSections.map((s) => {
+                  const blockW = s.bars * BAR_PX - 2;
+                  const isMutedHere = !!muted[`${layer.kind}:${s.id}`];
 
-                if (s.locked) {
+                  if (s.locked) {
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          width: blockW,
+                          height: TRACK_H - 12,
+                          marginLeft: 1,
+                          marginRight: 1,
+                          borderRadius: 8,
+                          background: "rgba(255,255,255,0.02)",
+                          border: "1px dashed rgba(255,255,255,0.06)",
+                          flexShrink: 0,
+                        }}
+                      />
+                    );
+                  }
+
                   return (
-                    <div
+                    <button
                       key={s.id}
+                      onClick={() => toggleSectionMute(layer.kind, s.id)}
                       style={{
                         width: blockW,
-                        height: TRACK_H - 10,
+                        height: TRACK_H - 12,
                         marginLeft: 1,
                         marginRight: 1,
-                        borderRadius: 5,
-                        background: "rgba(255,255,255,0.012)",
-                        border: "1px solid rgba(255,255,255,0.03)",
+                        borderRadius: 8,
+                        background: isMutedHere
+                          ? "rgba(255,255,255,0.04)"
+                          : `linear-gradient(135deg, ${trackColor}dd 0%, ${trackColor}88 100%)`,
+                        border: `1px solid ${isMutedHere ? "rgba(255,255,255,0.08)" : trackColor + "88"}`,
+                        cursor: "pointer",
+                        position: "relative",
+                        overflow: "hidden",
                         flexShrink: 0,
+                        boxShadow: isMutedHere
+                          ? "none"
+                          : `0 4px 0 0 rgba(0,0,0,0.25), 0 0 12px ${trackColor}44, inset 0 1px 0 rgba(255,255,255,0.25)`,
+                        transition: "all 0.12s",
                       }}
-                    />
+                      className="active:translate-y-[1px] active:shadow-chunky-press"
+                    >
+                      {!isMutedHere &&
+                        Array.from({ length: Math.max(1, s.bars * 2) }).map((_, i) => {
+                          const total = s.bars * 2;
+                          const h = 28 + 42 * Math.sin((i / total) * Math.PI);
+                          return (
+                            <div
+                              key={i}
+                              style={{
+                                position: "absolute",
+                                left: `${(i / total) * 100}%`,
+                                width: 2,
+                                height: `${h}%`,
+                                background: "rgba(255,255,255,0.32)",
+                                borderRadius: 1.5,
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                              }}
+                            />
+                          );
+                        })}
+                      {isMutedHere && (
+                        <span className="absolute inset-0 grid place-items-center font-display text-[10px] text-white/30 tracking-widest">
+                          OFF
+                        </span>
+                      )}
+                    </button>
                   );
-                }
+                })}
+              </div>
+            );
+          })}
 
-                return (
-                  <div
-                    key={s.id}
-                    onClick={() => toggleSectionMute(layer.kind, s.id)}
-                    style={{
-                      width: blockW,
-                      height: TRACK_H - 10,
-                      marginLeft: 1,
-                      marginRight: 1,
-                      borderRadius: 5,
-                      background: isMutedHere
-                        ? "rgba(255,255,255,0.03)"
-                        : `linear-gradient(135deg, ${trackColor}cc 0%, ${trackColor}77 100%)`,
-                      border: `1px solid ${isMutedHere ? "rgba(255,255,255,0.07)" : trackColor + "66"}`,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      position: "relative",
-                      overflow: "hidden",
-                      flexShrink: 0,
-                      transition: "all 0.12s",
-                    }}
-                  >
-                    {!isMutedHere &&
-                      Array.from({ length: Math.max(1, s.bars * 2) }).map((_, i) => {
-                        const total = s.bars * 2;
-                        const h = 28 + 42 * Math.sin((i / total) * Math.PI);
-                        return (
-                          <div
-                            key={i}
-                            style={{
-                              position: "absolute",
-                              left: `${(i / total) * 100}%`,
-                              width: 1.5,
-                              height: `${h}%`,
-                              background: "rgba(255,255,255,0.22)",
-                              borderRadius: 1,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                            }}
-                          />
-                        );
-                      })}
-                    {isMutedHere && (
-                      <span style={{ fontSize: 7, fontFamily: "monospace", fontWeight: 700, color: "rgba(255,255,255,0.13)", letterSpacing: "0.04em" }}>
-                        off
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
-
-        {/* ── Playhead — only over unlocked section area ── */}
-        {unlockedSections.length > 0 && (
-          <div
-            onPointerDown={(e) => {
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-              isSeekingRef.current = true;
-              seekFromClientX(e.clientX);
-            }}
-            onPointerMove={(e) => {
-              if (!isSeekingRef.current) return;
-              seekFromClientX(e.clientX);
-            }}
-            onPointerUp={() => { isSeekingRef.current = false; }}
-            onPointerCancel={() => { isSeekingRef.current = false; }}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: LABEL_W + headScreenX,
-              width: 18,            // wide hit-target
-              marginLeft: -8,       // center the 2px line inside the hit-target
-              height: "100%",
-              cursor: "col-resize",
-              zIndex: 10,
-              transition: isPlaying && !isSeekingRef.current ? "none" : "left 0.04s",
-              display: "flex",
-              justifyContent: "center",
-            }}
-          >
-            {/* Visible line */}
-            <div style={{
-              width: 2,
-              height: "100%",
-              background: "rgba(255,255,255,0.9)",
-              boxShadow: "0 0 8px rgba(255,255,255,0.5), 0 0 20px rgba(255,255,255,0.12)",
-              pointerEvents: "none",
-              position: "relative",
-            }}>
-              {/* Triangle cap */}
-              <div style={{
+          {/* Playhead */}
+          {unlockedSections.length > 0 && (
+            <div
+              onPointerDown={(e) => {
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                isSeekingRef.current = true;
+                seekFromClientX(e.clientX);
+              }}
+              onPointerMove={(e) => {
+                if (!isSeekingRef.current) return;
+                seekFromClientX(e.clientX);
+              }}
+              onPointerUp={() => { isSeekingRef.current = false; }}
+              onPointerCancel={() => { isSeekingRef.current = false; }}
+              style={{
                 position: "absolute",
-                top: -1,
-                left: "50%",
-                transform: "translateX(-50%)",
-                width: 0,
-                height: 0,
-                borderLeft: "5px solid transparent",
-                borderRight: "5px solid transparent",
-                borderTop: "7px solid rgba(255,255,255,0.9)",
-              }} />
+                top: 0,
+                left: LABEL_W + headScreenX,
+                width: 24,
+                marginLeft: -11,
+                height: "100%",
+                cursor: "col-resize",
+                zIndex: 10,
+                transition: isPlaying && !isSeekingRef.current ? "none" : "left 0.04s",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              <div
+                style={{
+                  width: 3,
+                  height: "100%",
+                  background: "linear-gradient(180deg, #fbbf24 0%, #ff4d9c 100%)",
+                  borderRadius: 2,
+                  boxShadow: "0 0 12px rgba(255,77,156,0.7), 0 0 24px rgba(251,191,36,0.4)",
+                  pointerEvents: "none",
+                  position: "relative",
+                }}
+              >
+                {/* Triangle cap */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    width: 0,
+                    height: 0,
+                    borderLeft: "7px solid transparent",
+                    borderRight: "7px solid transparent",
+                    borderTop: "9px solid #fbbf24",
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {/* Helper hint at bottom */}
+      <div className="px-3 mt-1 font-sans text-[11px] text-grvd-purple/65 leading-snug">
+        tap a block to drop the layer in that section. drag the playhead to scrub.
+        🔒 sections unlock with XP.
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Header                                                                       */
+/* -------------------------------------------------------------------------- */
+
+function Header({ onBack }: { onBack: () => void }) {
+  return (
+    <div className="flex items-center justify-between px-1">
+      <ChunkyPill onClick={onBack} icon="←" size="sm">
+        back
+      </ChunkyPill>
+      <span className="font-display text-grvd-purple text-[11px] tracking-widest uppercase">
+        🎚️ arrange
+      </span>
+      <span className="w-12" />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* SectionRibbon — chunky labeled column header                                 */
+/* -------------------------------------------------------------------------- */
+
+function SectionRibbon({
+  section, width, headerH,
+}: { section: SectionDef & { locked: boolean }; width: number; headerH: number }) {
+  const locked = section.locked;
+  return (
+    <div
+      style={{
+        width,
+        height: headerH,
+        flexShrink: 0,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 1,
+        marginRight: 2,
+        borderRadius: 8,
+        background: locked
+          ? "rgba(255,255,255,0.04)"
+          : `linear-gradient(135deg, ${section.color}aa 0%, ${section.color}55 100%)`,
+        border: locked
+          ? "1px dashed rgba(255,255,255,0.10)"
+          : `1px solid ${section.color}aa`,
+        boxShadow: locked
+          ? "none"
+          : `0 2px 0 0 rgba(0,0,0,0.25), 0 0 10px ${section.color}33, inset 0 1px 0 rgba(255,255,255,0.25)`,
+        cursor: locked ? "default" : "col-resize",
+        position: "relative",
+      }}
+    >
+      {locked ? (
+        <>
+          <span className="text-[10px] opacity-60">🔒</span>
+          <span className="font-display text-[8px] text-white/40 tracking-wider">{section.label}</span>
+          <span className="font-sans text-[7px] text-white/30 mt-0.5">{section.xpRequired} XP</span>
+        </>
+      ) : (
+        <span
+          className="font-display text-[10px] text-white tracking-widest"
+          style={{ textShadow: `0 0 6px ${section.color}cc` }}
+        >
+          {section.label}
+        </span>
+      )}
     </div>
   );
 }

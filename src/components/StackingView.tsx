@@ -222,9 +222,15 @@ export function StackingView() {
     setPlaying(true);
   }
 
-  /* ── render ── */
+  /* ── render ──
+   *
+   * Slice 1 (manifesto rule #1): used to render inside a CanvasWindow
+   * with `height: 100%`. Now lives directly under PageShell as a
+   * step-through page, so the outer container is natural-flow and the
+   * recipe strip is sticky so the player sees their progress through
+   * the recipe even while scrolling through the picker grid below. */
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }}>
+    <div className="flex flex-col min-w-0">
 
       {/* ── Header ── */}
       <div style={{
@@ -278,14 +284,20 @@ export function StackingView() {
             above the MouthWave at the bottom of the shell. */}
       </div>
 
-      {/* ── Recipe strip: horizontal scrollable step pills ── */}
-      <div style={{
-        padding: "8px 14px",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
-        flexShrink: 0,
-        overflowX: "auto",
-        scrollbarWidth: "none",
-      }}>
+      {/* ── Recipe strip: horizontal scrollable step pills ──
+       * Sticky so manifesto rule #1 (step-through visibility) stays honored
+       * even while the picker grid scrolls. top is HUD height + a few px. */}
+      <div
+        className="sticky z-20 bg-grvd-base/95 backdrop-blur-sm"
+        style={{
+          top: 64,
+          padding: "8px 14px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          flexShrink: 0,
+          overflowX: "auto",
+          scrollbarWidth: "none",
+        }}
+      >
         <div style={{ display: "flex", gap: 6, minWidth: "max-content" }}>
           {activeTemplate.recipe.map((kind, i) => {
             const layer     = existingForKind(kind);
@@ -345,8 +357,9 @@ export function StackingView() {
         </div>
       </div>
 
-      {/* ── Scrollable body: sound picker or "done" state ── */}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minWidth: 0, scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}>
+      {/* ── Body: sound picker or "done" state. Natural flow under
+       * PageShell — the page itself scrolls; recipe strip stays sticky. */}
+      <div style={{ minWidth: 0 }}>
         {currentKind === "vocal" ? (
           /* ── Vocal step: launch pad to VocalRecorder ── */
           <div style={{ padding: "24px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>

@@ -13,7 +13,11 @@ import { Studio } from "./components/Studio";
 import { Coop } from "./components/Coop";
 import { Pet } from "./components/Pet";
 import { PageShell } from "./ui/PageShell";
-import { CanvasBoard } from "./components/CanvasBoard";
+import { StackingView } from "./components/StackingView";
+import { VocalRecorder } from "./components/VocalRecorder";
+import { NameAndSave } from "./components/NameAndSave";
+import { ArrangeView } from "./components/ArrangeView";
+import { MixerView } from "./components/MixerView";
 import { XPFlash } from "./components/XPFlash";
 import { AchievementToast } from "./components/AchievementToast";
 import { AuthScreen } from "./components/AuthScreen";
@@ -25,12 +29,10 @@ import { useAuth } from "./lib/auth";
 import { useSync } from "./lib/useSync";
 import { useCoopSession } from "./lib/coop-db";
 
-/**
- * CANVAS_STAGES — these stages render through the infinite canvas (CanvasBoard).
- * CanvasBoard internally renders StackingView / VocalRecorder / NameAndSave
- * inside a Recipe window, plus Arrange and Mixer windows once the recipe is done.
+/* Slice 1 (manifesto rule #1) — the infinite-canvas framing was deleted.
+ * Stack / Vocal / Name / Arrange / Mixer are now their own dedicated
+ * step-through pages routed below, just like every other stage.
  */
-const CANVAS_STAGES = new Set(["stack", "vocal", "name"]);
 
 /** Inner app — rendered for both signed-in users AND guests. */
 function AppCore() {
@@ -112,14 +114,16 @@ function AppCore() {
           </div>
         )}
 
-        {/* Canvas stages (stack / vocal / name) render via CanvasBoard */}
-        {CANVAS_STAGES.has(stage) && <CanvasBoard />}
-
-        {/* Full-screen single-view stages */}
-        {stage === "home"     && <Home />}
-        {stage === "crib"     && <Crib />}
-        {stage === "template" && <TemplatePicker />}
-        {stage === "done"     && <Done />}
+        {/* Every stage routes to its own dedicated page — no infinite canvas */}
+        {stage === "home"        && <Home />}
+        {stage === "crib"        && <Crib />}
+        {stage === "template"    && <TemplatePicker />}
+        {stage === "stack"       && <StackingView />}
+        {stage === "vocal"       && <VocalRecorder />}
+        {stage === "name"        && <NameAndSave />}
+        {stage === "done"        && <Done />}
+        {stage === "arrange"     && <ArrangeView />}
+        {stage === "mixer"       && <MixerView />}
         {stage === "booth"       && <ListeningBooth />}
         {stage === "leaderboard" && <Leaderboard />}
         {stage === "profile"     && <Profile />}

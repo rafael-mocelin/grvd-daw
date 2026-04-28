@@ -191,6 +191,28 @@ export function Done() {
         />
       )}
 
+      {/* Slice 1 — post-Done arrange + mixer entry points (replaces the old
+       *  canvas-window panning gestures). Only visible when the song has
+       *  layers to arrange/mix. */}
+      {latest.layers.length > 0 && (
+        <div className="flex flex-wrap gap-2 justify-center">
+          <button
+            className="btn-ghost text-xs"
+            onClick={() => { stopSong(); setStage("arrange"); }}
+            title="arrange sections — drop layers in/out per part"
+          >
+            🎚️ arrange
+          </button>
+          <button
+            className="btn-ghost text-xs"
+            onClick={() => { stopSong(); setStage("mixer"); }}
+            title="mix levels + FX per layer"
+          >
+            🎛️ mix
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 justify-center">
         <button
           className="btn-primary"

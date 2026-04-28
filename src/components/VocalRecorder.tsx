@@ -284,7 +284,8 @@ export function VocalRecorder() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }}>
+    /* Slice 1: now a step-through page under PageShell, not a canvas window. */
+    <div className="flex flex-col min-w-0">
 
       {/* Header */}
       <div style={{
@@ -350,10 +351,7 @@ export function VocalRecorder() {
         </div>
       )}
 
-      <div style={{
-        flex: 1, overflowY: "auto", overflowX: "hidden", minWidth: 0,
-        scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent",
-      }}>
+      <div style={{ minWidth: 0 }}>
         {tab === "record" ? (
           <RecordTab
             verse={verse}
