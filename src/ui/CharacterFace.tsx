@@ -1,0 +1,181 @@
+/**
+ * CharacterFace — the GRVD pet, drawable at any size.
+ *
+ * Single source of truth for the character's visual treatment, used at
+ * three scales today:
+ *   - 56px in the AvatarPuck (HUD top-left)
+ *   - 240px in the Pet portal page
+ *   - 200-280px on Home's stage view (slice 2)
+ *
+ * Visuals consistent across scales:
+ *   - Mood-tinted gradient disc (palette gradient pulled from MOOD_TINT)
+ *   - Two SVG eyes whose pupils translate toward the cursor in real-time
+ *   - Mouth path that morphs with mood + audio level
+ *   - Optional idle bob animation (default on)
+ *
+ * Differences from AvatarPuck: this component is purely visual — no
+ * level ring, no level badge, no tap-to-navigate behavior. The puck
+ * keeps those affordances since it's a navigation control; this is the
+ * face by itself for use as a hero element.
+ */
+
+import { useEffect, useRef } from "react";
+import { useStore } from "../store/useStore";
+import { useAudioLevel } from "../hooks/useAudioLevel";
+import type { Mood } from "../data/types";
+
+interface CharacterFaceProps {
+  /** Diameter in px. */
+  size?:    number;
+  /** Idle vertical bob animation. Default true. */
+  bob?:     boolean;
+  /** Pupil tracking radius — how far pupils translate from center
+   *  when the cursor is far away. Auto-scales with `size` if omitted. */
+  trackRange?: number;
+  /** Override the mood (otherwise uses store moodOverride ?? tamagotchi.mood). */
+  mood?:    Mood;
+  className?: string;
+}
+
+const MOUTH_PATH: Record<Mood, string> = {
+  happy:   "M 8 15 Q 12 18 16 15",
+  hyped:   "M 7 14 Q 12 19 17 14",
+  chill:   "M 9 16 Q 12 17 15 16",
+  sad:     "M 8 17 Q 12 14 16 17",
+  lonely:  "M 9 17 Q 12 15 15 17",
+  sleepy:  "M 10 16 L 14 16",
+  asleep:  "M 10 16 L 14 16",
+};
+
+const EYE_OPEN: Record<Mood, number> = {
+  happy:  1.0,
+  hyped:  1.0,
+  chill:  0.85,
+  sad:    0.7,
+  lonely: 0.7,
+  sleepy: 0.35,
+  asleep: 0.0,
+};
+
+const MOOD_TINT: Record<Mood, string> = {
+  happy:  "from-grvd-purple to-grvd-magenta",
+  hyped:  "from-grvd-magenta to-grvd-orange",
+  chill:  "from-grvd-purple to-grvd-cyan",
+  sad:    "from-grvd-line to-grvd-purple",
+  lonely: "from-grvd-line to-grvd-purple",
+  sleepy: "from-grvd-base to-grvd-line",
+  asleep: "from-grvd-base to-grvd-base",
+};
+
+export function CharacterFace({
+  size       = 200,
+  bob        = true,
+  trackRange,
+  mood: moodProp,
+  className  = "",
+}: CharacterFaceProps) {
+  const tamagotchi   = useStore((s) => s.tamagotchi);
+  const moodOverride = useStore((s) => s.moodOverride);
+  const mood: Mood   = moodProp ?? moodOverride ?? tamagotchi.mood;
+
+  const wrapperRef    = useRef<HTMLDivElement | null>(null);
+  const leftPupilRef  = useRef<SVGCircleElement | null>(null);
+  const rightPupilRef = useRef<SVGCircleElement | null>(null);
+  const mouthRef      = useRef<SVGPathElement   | null>(null);
+
+  const audioLevelRef = useAudioLevel();
+
+  // Auto-scale the pupil-travel radius with size: a 56px puck pupils
+  // travel 1.6 SVG units; a 240px face should travel proportionally.
+  const effectiveTrackRange = trackRange ?? Math.max(1.6, size / 35);
+
+  useEffect(() => {
+    let raf = 0;
+    let cancelled = false;
+    let cursorX = 0, cursorY = 0;
+    const onMove = (e: PointerEvent) => { cursorX = e.clientX; cursorY = e.clientY; };
+    window.addEventListener("pointermove", onMove, { passive: true });
+
+    const tick = () => {
+      if (cancelled) return;
+      const wrapper = wrapperRef.current;
+      if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top  + rect.height / 2;
+        let dx = cursorX - cx;
+        let dy = cursorY - cy;
+        const dist = Math.hypot(dx, dy) || 1;
+        const r = Math.min(effectiveTrackRange, dist / Math.max(60, size * 0.6));
+        dx = (dx / dist) * r;
+        dy = (dy / dist) * r;
+        leftPupilRef.current?.setAttribute( "transform", `translate(${dx} ${dy})`);
+        rightPupilRef.current?.setAttribute("transform", `translate(${dx} ${dy})`);
+      }
+
+      // Mouth amplitude from audio level — same algorithm as AvatarPuck.
+      const level = audioLevelRef.current;
+      const m     = mouthRef.current;
+      if (m) {
+        const base = MOUTH_PATH[mood];
+        const ampPx = level * 2.5;
+        const adjusted = base.replace(/Q\s+(\d+)\s+(\d+(?:\.\d+)?)/, (_match, x, y) => {
+          const yNum = parseFloat(y);
+          const direction = yNum >= 16 ? +1 : -1;
+          return `Q ${x} ${(yNum + direction * ampPx).toFixed(2)}`;
+        });
+        if (m.getAttribute("d") !== adjusted) {
+          m.setAttribute("d", adjusted);
+        }
+      }
+
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      window.removeEventListener("pointermove", onMove);
+    };
+  }, [mood, size, effectiveTrackRange, audioLevelRef]);
+
+  const eyeOpen = EYE_OPEN[mood];
+
+  return (
+    <div
+      ref={wrapperRef}
+      className={[
+        "relative shrink-0 select-none rounded-full",
+        "bg-gradient-to-br", MOOD_TINT[mood],
+        "shadow-chunky overflow-hidden",
+        bob ? "animate-puck-bob" : "",
+        className,
+      ].join(" ")}
+      style={{ width: size, height: size }}
+      aria-hidden
+    >
+      <svg viewBox="0 0 24 24" className="absolute inset-0 w-full h-full">
+        <ellipse cx="9"  cy="11" rx="2.4" ry={2.4 * eyeOpen} fill="#fff" />
+        <ellipse cx="15" cy="11" rx="2.4" ry={2.4 * eyeOpen} fill="#fff" />
+        {eyeOpen > 0 && (
+          <>
+            <circle ref={leftPupilRef}  cx="9"  cy="11" r="1.1" fill="#0a0814" />
+            <circle ref={rightPupilRef} cx="15" cy="11" r="1.1" fill="#0a0814" />
+          </>
+        )}
+        <path
+          ref={mouthRef}
+          d={MOUTH_PATH[mood]}
+          stroke="#fff"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          fill="none"
+        />
+        {mood === "asleep" && (
+          <text x="18" y="6" fontSize="6" fill="#fff" opacity="0.8">z</text>
+        )}
+      </svg>
+    </div>
+  );
+}

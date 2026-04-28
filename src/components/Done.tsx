@@ -2,13 +2,63 @@ import { useEffect, useRef, useState } from "react";
 import { useStore, ENERGY_COSTS, computeLiveEnergy } from "../store/useStore";
 import { playSong, stopSong } from "../audio/engine";
 import { publishTemplateRpc } from "../lib/sounds-db";
+import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 import type { LayerKind } from "../data/types";
 
 /**
- * Celebration screen after saving a song. The DAW reacts — this is the
- * emotional payoff that makes saving feel like an achievement.
- * Also shows elapsed time vs. the 60-second promise.
+ * Done — UI v1 celebration screen (slice 2.3).
+ *
+ * The emotional payoff. Big golden disc centerpiece + ribbon banner +
+ * confetti + radial light + the song title in chunky display sans, then
+ * a hero "publish" pill, secondary "publish as template" pill (when
+ * eligible), arrange/mix entry points, and a small icon row at the
+ * bottom to navigate away. Manifesto rule #6: one primary CTA — the
+ * publish pill is the hero.
  */
+
+type SpeedTier = "speedrun" | "under60" | "close" | "chill";
+
+const SPEED_TIERS: Record<SpeedTier, { label: string; ribbon: string; tint: string; msg: (s: number) => string }> = {
+  speedrun: {
+    label:  "SPEED RUN 🔥",
+    ribbon: "from-grvd-lime to-grvd-cyan",
+    tint:   "shadow-glow-lime",
+    msg:    (s) => `${s}s · under 45`,
+  },
+  under60: {
+    label:  "UNDER 60 ✓",
+    ribbon: "from-grvd-cyan to-grvd-purple",
+    tint:   "shadow-glow-cyan",
+    msg:    (s) => `${s}s · nailed it`,
+  },
+  close: {
+    label:  "CLOSE",
+    ribbon: "from-grvd-gold to-grvd-orange",
+    tint:   "shadow-glow-gold",
+    msg:    (s) => `${s}s · almost there`,
+  },
+  chill: {
+    label:  "TOOK YOUR TIME",
+    ribbon: "from-grvd-purple to-grvd-magenta",
+    tint:   "shadow-glow-purple",
+    msg:    (s) => `${s}s · no rush`,
+  },
+};
+
+function tierFor(elapsed: number): SpeedTier {
+  if (elapsed <= 45) return "speedrun";
+  if (elapsed <= 60) return "under60";
+  if (elapsed <= 90) return "close";
+  return "chill";
+}
+
+const TALK_PER_TIER: Record<SpeedTier, string> = {
+  speedrun: "speed run. elite.",
+  under60:  "that's a banger. for real.",
+  close:    "good one. almost got the speed.",
+  chill:    "that's a vibe. took your time.",
+};
+
 export function Done() {
   const {
     inventory, setStage, tamagotchi, reset, vocalBuffer,
@@ -20,11 +70,13 @@ export function Done() {
   const autoPlayed = useRef(false);
   const [templateOpen, setTemplateOpen] = useState(false);
 
-  // Capture elapsed seconds at the moment Done mounts (timer is now frozen)
+  // Capture elapsed seconds at the moment Done mounts (timer is frozen).
   const elapsedRef = useRef<number>(
     sessionStartedAt ? Math.floor((Date.now() - sessionStartedAt) / 1000) : 0
   );
   const elapsed = elapsedRef.current;
+  const tier = tierFor(elapsed);
+  const tierData = SPEED_TIERS[tier];
 
   useEffect(() => {
     if (latest && !autoPlayed.current) {
@@ -34,210 +86,292 @@ export function Done() {
     return () => stopSong();
   }, [latest, vocalBuffer]);
 
-  const talkLine =
-    elapsed <= 45  ? "speed run. elite." :
-    elapsed <= 60  ? "that's a banger. for real." :
-    elapsed <= 90  ? "good one. almost got the speed." :
-                     "that's a vibe. took your time.";
-
-  // Push the celebration line into the DAW mouth bubble; clears on unmount.
-  // Declared BEFORE any early return so hook order stays stable.
+  // Push the celebration line into the talk bubble; clears on unmount.
   useEffect(() => {
     if (!latest) return;
-    sayLine(talkLine);
+    sayLine(TALK_PER_TIER[tier]);
     return () => sayLine(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [talkLine, latest]);
+  }, [tier, latest]);
 
   if (!latest) return null;
 
-  const speedResult =
-    elapsed <= 45  ? { label: "SPEED RUN 🔥",   color: "text-green-400",  msg: `${elapsed}s — under 45!` } :
-    elapsed <= 60  ? { label: "UNDER 60 ✓",      color: "text-accent",     msg: `${elapsed}s — nailed it` } :
-    elapsed <= 90  ? { label: "CLOSE",           color: "text-yellow-400", msg: `${elapsed}s — almost there` } :
-                     { label: "TAKE YOUR TIME",  color: "text-white/60",   msg: `${elapsed}s — no rush` };
+  const liveEnergy   = computeLiveEnergy(energy, energyUpdatedAt);
+  const isPublished  = !!latest.publishedPublicationId;
+  const isPublishing = publishingSongId === latest.id;
+  const canAfford    = liveEnergy >= ENERGY_COSTS.publishSong;
+  const publishLabel = isPublished
+    ? "✓ ALREADY PUBLISHED"
+    : isPublishing
+      ? "PUBLISHING…"
+      : !canAfford
+        ? `NEED ${ENERGY_COSTS.publishSong - liveEnergy} MORE ⚡`
+        : `PUBLISH · ${ENERGY_COSTS.publishSong}⚡`;
+  const publishDisabled = isPublished || isPublishing || !canAfford;
+
+  // Template publish eligibility — preserved from prior behavior.
+  const soundLayers = latest.layers.filter((l) => l.kind !== "vocal" && !!l.soundId);
+  const canPublishTemplate =
+    soundLayers.length > 0 &&
+    !!ownedSoundIds &&
+    soundLayers.every((l) => ownedSoundIds.has(l.soundId));
+
+  const progressPct = Math.min(100, (elapsed / 60) * 100);
 
   return (
-    <div className="p-6 max-w-2xl mx-auto text-center flex flex-col items-center gap-6">
-      <div>
-        <div className="chip bg-gold/10 border border-gold/30 text-gold">
-          💿 added to inventory
+    <div className="pt-3 pb-8 flex flex-col items-stretch gap-4 relative overflow-hidden">
+      {/* ── Confetti backdrop layer ── */}
+      <ConfettiField />
+
+      {/* ── Hero disc + ribbon ── */}
+      <div className="relative mx-auto mt-2 mb-1 flex flex-col items-center">
+        {/* Radial light rays behind the disc */}
+        <div
+          aria-hidden
+          className="absolute inset-0 -m-12"
+          style={{
+            background:
+              "radial-gradient(circle at center, rgba(251,191,36,0.30) 0%, rgba(255,77,156,0.20) 30%, transparent 70%)",
+            filter: "blur(8px)",
+          }}
+        />
+
+        {/* Speed-tier ribbon banner (above the disc) */}
+        <div
+          className={[
+            "relative z-10 -mb-3 px-5 py-1.5 rounded-full",
+            "bg-gradient-to-r", tierData.ribbon,
+            "shadow-chunky-press",
+            tierData.tint,
+            "font-display text-white text-sm tracking-wider",
+          ].join(" ")}
+        >
+          {tierData.label}
         </div>
-        <h2 className="font-display text-4xl font-bold mt-2">
+
+        {/* Disc */}
+        <DiscArt />
+
+        {/* "added to inventory" tiny chip below */}
+        <div className="relative z-10 mt-3">
+          <ChunkyBadge variant="gold" size="sm" icon="💿">
+            ADDED TO INVENTORY
+          </ChunkyBadge>
+        </div>
+      </div>
+
+      {/* ── Title + meta ── */}
+      <div className="text-center px-4">
+        <h2 className="font-display text-3xl text-white leading-tight">
           "{latest.name}"
         </h2>
-        <div className="mt-1 text-[12px] font-mono text-white/60">
+        <div className="mt-2 font-sans text-[11px] text-grvd-purple/75 tracking-widest uppercase">
           {latest.bpm} bpm · {latest.bars} bars · key {latest.keyRoot}
         </div>
       </div>
 
-      {/* 60-second result */}
-      {elapsed > 0 && (
-        <div className="card p-4 w-full">
-          <div className="flex items-center justify-between">
-            <div className="text-left">
-              <div className={`font-display font-bold text-xl ${speedResult.color}`}>
-                {speedResult.label}
-              </div>
-              <div className="text-[12px] font-mono text-white/50 mt-0.5">
-                {speedResult.msg}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[10px] font-mono text-white/40 uppercase">target</div>
-              <div className="text-[12px] font-mono text-white/60">60 seconds</div>
-            </div>
-          </div>
-          {/* Progress bar */}
-          <div className="mt-3 w-full h-1.5 bg-raised rounded-full overflow-hidden">
+      {/* ── 60s progress capsule ── */}
+      <div className="mx-auto w-full max-w-[320px] px-3">
+        <div className="rounded-full bg-grvd-panel/80 border border-grvd-line shadow-chunky-press px-4 py-2 flex items-center gap-3">
+          <span className="font-display text-grvd-gold text-sm">⏱</span>
+          <div className="flex-1 h-2 rounded-full bg-grvd-base overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${
-                elapsed <= 60 ? "bg-gradient-to-r from-green-500 to-accent" : "bg-orange-400/60"
-              }`}
-              style={{ width: `${Math.min(100, (elapsed / 60) * 100)}%` }}
+              className={[
+                "h-full rounded-full",
+                tier === "speedrun" ? "bg-gradient-to-r from-grvd-lime to-grvd-cyan"
+                : tier === "under60" ? "bg-gradient-to-r from-grvd-cyan to-grvd-purple"
+                : tier === "close"  ? "bg-gradient-to-r from-grvd-gold to-grvd-orange"
+                :                     "bg-gradient-to-r from-grvd-purple to-grvd-magenta",
+              ].join(" ")}
+              style={{ width: `${progressPct}%`, transition: "width 1s ease-out" }}
             />
           </div>
+          <span className="font-display text-white text-sm tabular-nums">
+            {elapsed}s
+          </span>
         </div>
-      )}
+        <div className="mt-1 text-center font-sans text-[10px] text-grvd-purple/60 tracking-wider uppercase">
+          {tierData.msg(elapsed)} · target 60s
+        </div>
+      </div>
 
-      <div className="card p-5 w-full">
-        <div className="flex flex-wrap gap-1 justify-center mb-3">
+      {/* ── Tags + collaborators + pitch score ── */}
+      <div className="px-4 flex flex-col items-center gap-2">
+        <div className="flex flex-wrap gap-1.5 justify-center">
           {latest.tags.map((t) => (
-            <span key={t} className="chip bg-raised border border-line text-white/70">
+            <ChunkyBadge key={t} variant="purple" size="sm">
               #{t}
-            </span>
+            </ChunkyBadge>
           ))}
         </div>
-        <div className="text-[12px] font-mono text-white/60">
-          layers: {latest.layers.map((l) => l.kind).join(" + ")}
-        </div>
         {latest.collaborators.length > 1 && (
-          <div className="mt-2 text-[12px] font-mono text-accent">
-            collab: {latest.collaborators.join(" × ")}
-          </div>
+          <ChunkyBadge variant="cyan" size="sm" icon="🤝">
+            {latest.collaborators.join(" × ")}
+          </ChunkyBadge>
         )}
         {latest.pitchScore !== undefined && (
-          <div className="mt-2 text-[12px] font-mono text-gold">
-            hook landed · {latest.pitchScore}/100 on pitch
-          </div>
+          <ChunkyBadge variant="gold" size="sm" icon="🎤">
+            HOOK · {latest.pitchScore}/100
+          </ChunkyBadge>
         )}
       </div>
 
-      {/* Publish CTA — the high-energy action. Lives above the secondary
-       * options so it reads as the meaningful commitment, not just another
-       * button. Disabled states are explicit: already out, mid-publish, or
-       * not enough energy. Cap-reached is caught server-side and returns a
-       * clear message via the companion ticker. */}
-      {(() => {
-        const liveEnergy    = computeLiveEnergy(energy, energyUpdatedAt);
-        const isPublished   = !!latest.publishedPublicationId;
-        const isPublishing  = publishingSongId === latest.id;
-        const canAfford     = liveEnergy >= ENERGY_COSTS.publishSong;
-        const disabled      = isPublished || isPublishing || !canAfford;
-        const label         = isPublished  ? "🎧 already published"
-                            : isPublishing ? "rendering + uploading…"
-                            : !canAfford   ? `need ${ENERGY_COSTS.publishSong - liveEnergy} more ⚡`
-                            :                `🎧 publish · ${ENERGY_COSTS.publishSong}⚡`;
-        return (
-          <button
-            className="btn-gold w-full disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={disabled}
-            onClick={() => publishSong(latest.id)}
-            title={
-              isPublished
-                ? "this drop is live in the booth"
-                : `publish to the listening booth (-${ENERGY_COSTS.publishSong} ⚡)`
-            }
-          >
-            {label}
-          </button>
-        );
-      })()}
+      {/* ── Hero publish CTA ── */}
+      <div className="px-3 mt-1">
+        <ChunkyButton
+          variant="hero"
+          size="lg"
+          icon="🎧"
+          onClick={() => publishSong(latest.id)}
+          disabled={publishDisabled}
+          className="w-full text-lg tracking-wider"
+        >
+          {publishLabel}
+        </ChunkyButton>
+      </div>
 
-      {/* Phase 5.B step 10 — publish-as-template CTA. Visible only when the
-       *  song's recipe has actual sound layers (vocal-only is excluded) and
-       *  the player owns every sound used. The modal explains the cost. */}
-      {(() => {
-        const soundLayers = latest.layers.filter((l) => l.kind !== "vocal" && !!l.soundId);
-        if (soundLayers.length === 0) return null;
-        // Producer must own every sound (RPC will also reject otherwise).
-        const ownsAll = !!ownedSoundIds && soundLayers.every((l) => ownedSoundIds.has(l.soundId));
-        if (!ownsAll) return null;
-        return (
-          <button
-            className="btn-ghost text-[11px]"
+      {/* ── Secondary publish-as-template ── */}
+      {canPublishTemplate && (
+        <div className="px-3">
+          <ChunkyButton
+            variant="purple"
+            size="md"
+            icon="🎛️"
             onClick={() => setTemplateOpen(true)}
-            title={`publish this recipe as a template (${ENERGY_COSTS.publishTemplate}⚡)`}
+            className="w-full"
           >
-            🎛️ publish as template · {ENERGY_COSTS.publishTemplate}⚡
-          </button>
-        );
-      })()}
+            PUBLISH AS TEMPLATE · {ENERGY_COSTS.publishTemplate}⚡
+          </ChunkyButton>
+        </div>
+      )}
 
-      {templateOpen && latest && (
+      {/* ── Arrange + Mix row (only when there are layers) ── */}
+      {latest.layers.length > 0 && (
+        <div className="flex items-center justify-center gap-2 px-3">
+          <ChunkyPill variant="cyan" size="md" icon="🎚️" onClick={() => { stopSong(); setStage("arrange"); }}>
+            ARRANGE
+          </ChunkyPill>
+          <ChunkyPill variant="magenta" size="md" icon="🎛️" onClick={() => { stopSong(); setStage("mixer"); }}>
+            MIX
+          </ChunkyPill>
+        </div>
+      )}
+
+      {/* ── Tertiary nav row ── */}
+      <div className="flex items-center justify-center gap-2 px-3 mt-1 mb-2">
+        <ChunkyPill variant="ghost" size="sm" icon="🔁" onClick={() => { reset(); setStage("template"); }}>
+          cook another
+        </ChunkyPill>
+        <ChunkyPill variant="ghost" size="sm" icon="🎧" onClick={() => { stopSong(); setStage("booth"); }}>
+          booth
+        </ChunkyPill>
+        <ChunkyPill variant="ghost" size="sm" icon="🏠" onClick={() => { stopSong(); setStage("home"); }}>
+          home
+        </ChunkyPill>
+      </div>
+
+      {/* ── Companion stat (subtle bottom note) ── */}
+      <div className="text-center font-sans text-[10px] text-grvd-purple/50 px-4">
+        songs finished {tamagotchi.songsFinished}
+        {tamagotchi.songsFinished > 0 && " · creativity +15 · energy −5"}
+      </div>
+
+      {templateOpen && (
         <TemplatePublisherModal
           songName={latest.name}
           bpm={latest.bpm}
           bars={latest.bars}
           keyRoot={latest.keyRoot}
           tags={latest.tags}
-          recipe={latest.layers
-            .filter((l) => l.kind !== "vocal" && !!l.soundId)
-            .map((l) => l.kind)}
-          soundIds={latest.layers
-            .filter((l) => l.kind !== "vocal" && !!l.soundId)
-            .map((l) => l.soundId)}
+          recipe={soundLayers.map((l) => l.kind)}
+          soundIds={soundLayers.map((l) => l.soundId)}
           onClose={() => setTemplateOpen(false)}
         />
       )}
+    </div>
+  );
+}
 
-      {/* Slice 1 — post-Done arrange + mixer entry points (replaces the old
-       *  canvas-window panning gestures). Only visible when the song has
-       *  layers to arrange/mix. */}
-      {latest.layers.length > 0 && (
-        <div className="flex flex-wrap gap-2 justify-center">
-          <button
-            className="btn-ghost text-xs"
-            onClick={() => { stopSong(); setStage("arrange"); }}
-            title="arrange sections — drop layers in/out per part"
-          >
-            🎚️ arrange
-          </button>
-          <button
-            className="btn-ghost text-xs"
-            onClick={() => { stopSong(); setStage("mixer"); }}
-            title="mix levels + FX per layer"
-          >
-            🎛️ mix
-          </button>
-        </div>
-      )}
+/* -------------------------------------------------------------------------- */
+/* Disc art — golden CD with rainbow spiral reflection                          */
+/* -------------------------------------------------------------------------- */
 
-      <div className="flex flex-wrap gap-2 justify-center">
-        <button
-          className="btn-primary"
-          onClick={() => { reset(); setStage("template"); }}
-        >
-          🔁 cook another
-        </button>
-        <button
-          className="btn-ghost"
-          onClick={() => { stopSong(); setStage("booth"); }}
-        >
-          🎧 visit the booth
-        </button>
-        <button
-          className="btn-ghost"
-          onClick={() => { stopSong(); setStage("home"); }}
-        >
-          ← home
-        </button>
+function DiscArt() {
+  return (
+    <div className="relative z-10" aria-hidden>
+      <div
+        className="w-[180px] h-[180px] rounded-full relative animate-puck-bob"
+        style={{
+          background: [
+            // Conic rainbow shimmer
+            "conic-gradient(from 45deg, #fbbf24, #ff4d9c, #a78bfa, #22d3ee, #4ade80, #fbbf24)",
+          ].join(", "),
+          boxShadow: [
+            "0 12px 0 0 rgba(0,0,0,0.4)",
+            "0 24px 60px rgba(251, 191, 36, 0.45)",
+            "0 0 80px rgba(255, 77, 156, 0.35)",
+            "inset 0 4px 0 rgba(255,255,255,0.6)",
+            "inset 0 -8px 16px rgba(0,0,0,0.4)",
+          ].join(", "),
+        }}
+      >
+        {/* Glossy highlight */}
+        <div
+          className="absolute top-2 left-4 right-4 h-12 rounded-full opacity-70"
+          style={{
+            background: "linear-gradient(180deg, rgba(255,255,255,0.85) 0%, transparent 100%)",
+            filter: "blur(2px)",
+          }}
+        />
+        {/* Inner darker ring */}
+        <div
+          className="absolute inset-[18px] rounded-full"
+          style={{
+            background: "radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.1) 70%, transparent 100%)",
+            border: "2px solid rgba(0,0,0,0.4)",
+          }}
+        />
+        {/* Center hole */}
+        <div className="absolute inset-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-grvd-base border-2 border-white/40" />
       </div>
+    </div>
+  );
+}
 
-      <div className="mt-4 text-[11px] font-mono text-white/40 max-w-sm">
-        Companion: songs finished {tamagotchi.songsFinished}.
-        {tamagotchi.songsFinished > 0 ? " creativity +15, energy −5." : ""}
-      </div>
+/* -------------------------------------------------------------------------- */
+/* Confetti field — drifting particles in the page background                  */
+/* -------------------------------------------------------------------------- */
+
+function ConfettiField() {
+  // Static pre-rendered particle list — cheap, no animation library.
+  const particles = [
+    { x: "8%",  y: "12%", c: "#fbbf24", d: 0   },
+    { x: "84%", y: "16%", c: "#ff4d9c", d: 0.3 },
+    { x: "20%", y: "30%", c: "#22d3ee", d: 0.6 },
+    { x: "70%", y: "26%", c: "#a78bfa", d: 0.9 },
+    { x: "12%", y: "48%", c: "#4ade80", d: 1.2 },
+    { x: "90%", y: "44%", c: "#fbbf24", d: 1.5 },
+    { x: "30%", y: "62%", c: "#ff4d9c", d: 1.8 },
+    { x: "62%", y: "58%", c: "#22d3ee", d: 2.1 },
+  ];
+  return (
+    <div aria-hidden className="absolute inset-0 pointer-events-none -z-10">
+      {particles.map((p, i) => (
+        <span
+          key={i}
+          className="absolute block w-1.5 h-3 rounded-sm"
+          style={{
+            left: p.x,
+            top:  p.y,
+            background: p.c,
+            boxShadow: `0 0 8px ${p.c}`,
+            transform: "rotate(35deg)",
+            animation: `puck-bob 3s ease-in-out infinite`,
+            animationDelay: `${p.d}s`,
+            opacity: 0.85,
+          }}
+        />
+      ))}
     </div>
   );
 }
