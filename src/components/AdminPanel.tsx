@@ -17,7 +17,6 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { useStore } from "../store/useStore";
 import type { Mood } from "../data/types";
-import { SKINS, SKIN_ORDER, type SkinId } from "../shell/skins";
 import {
   fetchGameConfig,
   adminSetGameConfig,
@@ -121,7 +120,6 @@ export function AdminPanel() {
   const { isAdmin, user } = useAuth();
   const {
     moodOverride, setMoodOverride,
-    skinId, setSkin,
     adminResetXP,
     adminResetAchievements,
     adminResetLifetimeStats,
@@ -250,56 +248,6 @@ export function AdminPanel() {
           >
             clear override
           </button>
-
-          {/* SKIN SELECTOR — moved here from the top-shell GRVD logo area */}
-          <div style={{
-            fontSize: 9, letterSpacing: "0.12em",
-            color: "rgba(255,255,255,0.6)", textTransform: "uppercase",
-            marginBottom: 6,
-          }}>
-            shell skin
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-            {SKIN_ORDER.map((id: SkinId) => {
-              const s      = SKINS[id];
-              const active = skinId === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => setSkin(id)}
-                  title={s.name}
-                  style={{
-                    flex: "1 0 calc(50% - 6px)",
-                    padding: "6px 8px",
-                    display: "flex", alignItems: "center", gap: 8,
-                    background: active ? `${s.accent}2e` : "rgba(255,255,255,0.04)",
-                    border: `1px solid ${active ? `${s.accent}aa` : "rgba(255,255,255,0.1)"}`,
-                    borderRadius: 6,
-                    color: active ? "#fff" : "rgba(255,255,255,0.8)",
-                    fontFamily: "monospace",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: "0.06em",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    boxShadow: active ? `0 0 10px ${s.accent}55` : "none",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  <span
-                    aria-hidden
-                    style={{
-                      width: 12, height: 12, borderRadius: "50%",
-                      background: s.accent,
-                      boxShadow: `0 0 6px ${s.accent}`,
-                      flexShrink: 0,
-                    }}
-                  />
-                  {s.name}
-                </button>
-              );
-            })}
-          </div>
 
           {/* GAME CONFIG — live tuning for Slice 2 thresholds */}
           <GameConfigEditor />

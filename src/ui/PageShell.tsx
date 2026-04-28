@@ -21,7 +21,14 @@ import { Hud } from "./Hud";
 
 export function PageShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-[100dvh] w-full bg-grvd-base text-white font-sans relative">
+    <div
+      className="min-h-[100dvh] w-full bg-grvd-base text-white font-sans relative"
+      // Single source of truth for HUD height — screens that want sticky
+      // sub-headers (e.g. StackingView's recipe progress strip,
+      // ArrangeView's transport bar) reference `var(--hud-h)` via inline
+      // style. If the HUD ever grows or shrinks, change it here.
+      style={{ ["--hud-h" as string]: "64px" }}
+    >
       {/* Soft radial glow at the top — gives the dark base some life
        *  without committing to a backdrop illustration. */}
       <div
@@ -30,6 +37,7 @@ export function PageShell({ children }: { children: ReactNode }) {
       />
 
       <Hud />
+
 
       <main
         className={[

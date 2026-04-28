@@ -9,7 +9,6 @@ import type {
   Tamagotchi,
   Template,
 } from "../data/types";
-import type { SkinId } from "../shell/skins";
 import { ACHIEVEMENTS, getAchievement } from "../data/achievements";
 import { upsertSong, upsertStats, upsertTamagotchi, deleteAllSongs } from "../lib/db";
 import {
@@ -191,10 +190,8 @@ interface State {
   // UI
   showLogbook: boolean;
   showStats: boolean;
-  skinId: SkinId;
   isPlaying: boolean;
-  canvasZoom: number;  // 0 = auto-compute on first CanvasBoard mount
-  /** Admin-only override — when set, shell uses this mood instead of derived. null = normal. */
+  /** Admin-only override — when set, the avatar uses this mood instead of derived. null = normal. */
   moodOverride: Mood | null;
   /**
    * The line the DAW is currently "saying" — rendered as a speech bubble
@@ -298,10 +295,8 @@ interface State {
   setCoopPeer: (name: string | null, avatar: string | null) => void;
   placeInBooth: (songId: string, status: string) => void;
   setIsPlaying: (v: boolean) => void;
-  setCanvasZoom: (v: number) => void;
   toggleLogbook: () => void;
   toggleStats: () => void;
-  setSkin: (id: SkinId) => void;
   /** Admin-only: force a specific mood for testing. Pass null to clear. */
   setMoodOverride: (m: Mood | null) => void;
   /**
@@ -480,9 +475,7 @@ export const useStore = create<State>((set, get) => ({
 
   showLogbook: false,
   showStats: false,
-  skinId: "void" as SkinId,
   isPlaying: false,
-  canvasZoom: 0,
   moodOverride: null,
   dawTalk: null,
   longestStreak: 0,
@@ -841,22 +834,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setIsPlaying:  (v) => set({ isPlaying: v }),
-  setCanvasZoom: (v) => set({ canvasZoom: v }),
   toggleLogbook: () => set({ showLogbook: !get().showLogbook }),
-  toggleStats: () => set({ showStats: !get().showStats }),
-  setSkin: (id) => {
-    set({ skinId: id });
-    // Persist to localStorage so the chosen skin survives page refreshes.
-    // This is a pure cosmetic preference with no gameplay impact — safe to
-    // keep client-local. If we later want cross-device sync (your skin on
-    // web AND Unreal), promote this to a `profiles.skin_id` column and
-    // load/save via Supabase on login. See docs/UE5_PORT_GUIDE.md.
-    try {
-      localStorage.setItem("grvd-skin", id);
-    } catch {
-      /* private mode / quota errors — fail silently */
-    }
-  },
+  toggleStats:   () => set({ showStats: !get().showStats }),
   setMoodOverride: (m) => set({ moodOverride: m }),
 
   sayLine: (msg, durationMs) => {

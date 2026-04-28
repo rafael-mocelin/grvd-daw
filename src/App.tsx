@@ -38,7 +38,7 @@ import { useCoopSession } from "./lib/coop-db";
 function AppCore() {
   const {
     stage, showLogbook,
-    applyDailyDecay, setUserId, setSkin,
+    applyDailyDecay, setUserId,
     activeCoopSessionId, applyCoopSharedState, setActiveCoopRow,
     loadInventory, ensureCoopUnionSounds,
   } = useStore();
@@ -79,19 +79,6 @@ function AppCore() {
   useEffect(() => {
     loadInventory();
   }, [user, loadInventory]);
-
-  // Hydrate the saved skin choice from localStorage on mount. Pure cosmetic
-  // pref, so browser-local persistence is enough — see note on setSkin.
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("grvd-skin");
-      if (saved && ["void", "sakura", "chrome", "forest", "gold"].includes(saved)) {
-        setSkin(saved as never);
-      }
-    } catch {
-      /* private mode / quota errors — fail silently */
-    }
-  }, [setSkin]);
 
   useEffect(() => {
     applyDailyDecay();
