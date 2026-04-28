@@ -1,18 +1,19 @@
 /**
- * StackingView — the recipe-building UI inside the canvas Recipe window.
+ * StackingView — the recipe-building UI, UI-v1 game-feel rebuild.
  *
- * Layout is SINGLE-COLUMN so it works at any window width without clipping.
- * Tailwind md:/lg: viewport-based breakpoints are intentionally avoided here —
- * this component lives inside a resizable CanvasWindow, not the full viewport.
+ * Step-through page (manifesto rule #1) with sticky recipe strip below
+ * the HUD. Every preserved feature from the prior version:
  *
- * Structure (top → bottom):
- *   [Header: template info + play/abandon]
- *   [Recipe strip: horizontal scrollable step pills]
- *   [Divider]
- *   [Current kind heading + skip]
- *   [Sound cards: 1 or 2 columns depending on window width via CSS grid auto-fill]
- *   [Footer hint]
- *   [Companion needs (collapsed)]
+ *   • Header — template chip, progress, play/abandon
+ *   • Sticky recipe strip — chunky candy step pills with glyph readout
+ *   • Vocal launchpad — when the current step is "vocal"
+ *   • Sound picker grid — auto-fill 1/2 cols, suggested-first, preview button
+ *   • Coop shared-pool ribbon
+ *   • Per-seat mute toggle for currently picked layer
+ *   • Companion needs (collapsible)
+ *
+ * Visual language: chunky candy buttons, GRVD palette, Lilita display +
+ * JetBrains Mono technical readouts.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -23,6 +24,7 @@ import type { LayerKind } from "../data/types";
 import { KIND_LABEL } from "../data/types";
 import { ensureAudio, playSong, previewLayer, stopPreview, stopSong } from "../audio/engine";
 import { LAYER_XP } from "../data/achievements";
+import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 
 export function StackingView() {
   const {
@@ -47,14 +49,7 @@ export function StackingView() {
     toggleLocalLayerMute,
   } = useStore();
 
-  /* Phase 5.B step 7 — coop material union.
-   *
-   * In an active coop session the picker swaps from "what I own" to "what
-   * the group owns combined." Each seat sees the partner's exclusive
-   * producer drops alongside their own. The union is snapshotted at
-   * session activation server-side; we read it via the live coop row.
-   *
-   * Outside coop, this returns null → picker uses ownedSoundIds as before. */
+  /* Coop material union — see prior comment block. */
   const effectiveSoundIds: Set<string> | null = useMemo(() => {
     if (activeCoopRow?.status === "active" && activeCoopRow.availableSoundIds.length > 0) {
       return new Set(activeCoopRow.availableSoundIds);
@@ -62,8 +57,6 @@ export function StackingView() {
     return ownedSoundIds;
   }, [activeCoopRow, ownedSoundIds]);
 
-  // For the shared-pool pill: how many of the union ids does the LOCAL
-  // user already own (so we can show "your N + partner M = total").
   const coopBreakdown = useMemo(() => {
     if (!activeCoopRow || activeCoopRow.status !== "active") return null;
     const total = activeCoopRow.availableSoundIds.length;
@@ -73,8 +66,8 @@ export function StackingView() {
     return { yours, partner, total };
   }, [activeCoopRow, ownedSoundIds]);
 
-  // userId is read above so the picker re-derives if auth flips.
   void userId;
+  void swapLayer;
 
   const [playing,     setPlaying]     = useState(false);
   const [needsOpen,   setNeedsOpen]   = useState(false);
@@ -85,29 +78,14 @@ export function StackingView() {
     return activeTemplate.recipe[recipeIndex] ?? null;
   }, [activeTemplate, recipeIndex]);
 
-  /* Phase 5.B step 6 — picker filters to the player's inventory.
-   *
-   * Logic:
-   *   1. Pull template-suggested ids; resolve via getSound (covers static
-   *      starter sounds AND producer drops registered at inventory load).
-   *   2. If we have an owned-set, drop suggestions the player doesn't own
-   *      AND backfill the kind section with the rest of THEIR inventory
-   *      (starter + producer drops they've claimed).
-   *   3. If the owned-set is null (guest mode, or pre-load), preserve the
-   *      original behavior: full ALL_SOUNDS catalog, suggested-first.
-   *
-   * Producer drops register in the dynamic registry on inventory load, so
-   * getSound + getDynamicSounds resolve them transparently here. */
   const suggestions = useMemo(() => {
     if (!activeTemplate || !currentKind) return [];
     const suggestedIds = activeTemplate.suggested[currentKind] ?? [];
 
-    // Resolve suggested ids first.
     const suggested = suggestedIds
       .map((id) => getSound(id))
       .filter(Boolean) as ReturnType<typeof getSound>[];
 
-    // Guest / pre-load: keep the original "everything in catalog" behavior.
     if (!effectiveSoundIds) {
       const hasReal = suggested.some((s) => s?.fileUrl);
       if (hasReal) return suggested;
@@ -117,11 +95,7 @@ export function StackingView() {
       return [...suggested, ...others];
     }
 
-    // Owned-set (or coop union) known: filter suggestions + backfill with
-    // every sound in the effective pool of this kind (static starters +
-    // producer drops claimed or borrowed via coop).
     const allowedSuggested = suggested.filter((s) => s && effectiveSoundIds.has(s.id));
-
     const seen = new Set(allowedSuggested.map((s) => s!.id));
     const allowedRest = [...ALL_SOUNDS, ...getDynamicSounds()].filter(
       (s) => s.kind === currentKind
@@ -132,15 +106,12 @@ export function StackingView() {
     return [...allowedSuggested, ...allowedRest];
   }, [activeTemplate, currentKind, effectiveSoundIds]);
 
-  // Sync to store so CanvasBoard wires know when audio is live
   useEffect(() => { setIsPlaying(playing); }, [playing, setIsPlaying]);
 
-  // Stop audio on unmount
   useEffect(() => {
     return () => { stopSong(); setIsPlaying(false); };
   }, [setIsPlaying]);
 
-  // Advance stage when recipe is complete
   useEffect(() => {
     if (!activeTemplate) return;
     if (recipeIndex >= activeTemplate.recipe.length) {
@@ -152,10 +123,12 @@ export function StackingView() {
 
   if (!activeTemplate) {
     return (
-      <div style={{ padding: 24, textAlign: "center", color: "rgba(255,255,255,0.5)", fontFamily: "monospace", fontSize: 12 }}>
+      <div className="px-4 py-8 text-center font-mono text-[12px] text-white/55">
         no template selected.{" "}
-        <button style={{ textDecoration: "underline", background: "none", border: "none", color: "inherit", cursor: "pointer" }}
-          onClick={() => setStage("template")}>
+        <button
+          className="underline text-grvd-purple"
+          onClick={() => setStage("template")}
+        >
           pick one
         </button>
       </div>
@@ -181,10 +154,6 @@ export function StackingView() {
   }
 
   async function handleTogglePlay() {
-    /* iOS/Safari: Tone.start() must be INVOKED inside the synchronous
-     * portion of a user gesture. Calling ensureAudio() without awaiting
-     * it here kicks off the unlock promise on the right stack frame;
-     * later async audio work can safely assume the context is live. */
     ensureAudio();
     if (playing) { stopSong(); setPlaying(false); return; }
     if (!activeTemplate || !layers.length) return;
@@ -200,8 +169,6 @@ export function StackingView() {
     clickX?: number,
     clickY?: number
   ) {
-    /* Prime iOS audio context synchronously — picking a sound leads to
-     * startPlayback() which needs the context already unlocked. */
     ensureAudio();
     const tpl = activeTemplate;
     if (!tpl) return;
@@ -211,10 +178,8 @@ export function StackingView() {
       : [...layers, { id: `${kind}-${Date.now()}`, kind, variant, soundId }];
     pickLayer(kind, variant, soundId);
     if (!existing) {
-      // First time picking this kind → award XP
       const xp = LAYER_XP[kind] ?? 0;
       if (xp > 0) addXP(xp, KIND_LABEL[kind], clickX, clickY);
-      // DAW's reaction appears in the speech bubble above the mouth.
       sayLine(reactionLine(kind), 2200);
     }
     stopPreview();
@@ -222,453 +187,274 @@ export function StackingView() {
     setPlaying(true);
   }
 
-  /* ── render ──
-   *
-   * Slice 1 (manifesto rule #1): used to render inside a CanvasWindow
-   * with `height: 100%`. Now lives directly under PageShell as a
-   * step-through page, so the outer container is natural-flow and the
-   * recipe strip is sticky so the player sees their progress through
-   * the recipe even while scrolling through the picker grid below. */
   return (
-    <div className="flex flex-col min-w-0">
+    <div className="flex flex-col min-w-0 pt-2">
 
       {/* ── Header ── */}
-      <div style={{
-        padding: "12px 14px 10px",
-        borderBottom: "1px solid rgba(255,255,255,0.07)",
-        flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Template chip */}
-            <div style={{
-              display: "inline-flex", alignItems: "center",
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 6, padding: "2px 8px",
-              fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.55)",
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-              maxWidth: "100%",
-            }}>
-              {activeTemplate.name} · {activeTemplate.bpm} bpm · {activeTemplate.bars} bars
-            </div>
-
-            {/* Progress bar */}
-            <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ flex: 1, height: 5, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", width: `${progressPct}%`,
-                  background: "linear-gradient(90deg, #7c3aed, #a855f7)",
-                  borderRadius: 3, transition: "width 0.3s",
-                }} />
-              </div>
-              <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.4)", whiteSpace: "nowrap" }}>
-                {recipeIndex}/{activeTemplate.recipe.length}
-              </span>
-            </div>
-          </div>
-
-          {/* Play / Abandon */}
-          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            <button
+      <div className="px-1 pb-3 flex flex-col gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <ChunkyBadge variant="ghost" size="sm">
+            {activeTemplate.name} · {activeTemplate.bpm} bpm · {activeTemplate.bars} bars
+          </ChunkyBadge>
+          <span className="ml-auto inline-flex gap-1.5">
+            <ChunkyPill
+              variant={playing ? "purple" : "ghost"}
+              size="sm"
               onClick={handleTogglePlay}
               disabled={!layers.length}
-              style={pillBtn(playing ? "#7c3aed" : "rgba(255,255,255,0.08)")}
             >
-              {playing ? "⏸" : "▶"}
-            </button>
-            <button onClick={abandon} style={pillBtn("rgba(255,255,255,0.06)")}>✕</button>
-          </div>
+              {playing ? "⏸ pause" : "▶ play"}
+            </ChunkyPill>
+            <ChunkyPill variant="ghost" size="sm" onClick={abandon}>
+              ✕ quit
+            </ChunkyPill>
+          </span>
         </div>
-        {/* DAW reactions (e.g. "that's fat.") now appear in the speech bubble
-            above the MouthWave at the bottom of the shell. */}
+
+        {/* Progress bar */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-2 bg-white/8 rounded-full overflow-hidden shadow-chunky-press">
+            <div
+              className="h-full bg-gradient-to-r from-grvd-purple to-grvd-magenta transition-[width] duration-300 rounded-full"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <span className="font-mono text-[10px] text-white/50 tabular-nums whitespace-nowrap">
+            {recipeIndex}/{activeTemplate.recipe.length}
+          </span>
+        </div>
       </div>
 
-      {/* ── Recipe strip: horizontal scrollable step pills ──
-       * Sticky so manifesto rule #1 (step-through visibility) stays honored
-       * even while the picker grid scrolls. top is HUD height + a few px. */}
+      {/* ── Recipe strip: sticky chunky pills below the HUD ── */}
       <div
-        className="sticky z-20 bg-grvd-base/95 backdrop-blur-sm"
-        style={{
-          top: 64,
-          padding: "8px 14px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          flexShrink: 0,
-          overflowX: "auto",
-          scrollbarWidth: "none",
-        }}
+        className="sticky z-20 -mx-3 px-3 py-2 bg-grvd-base/95 backdrop-blur-sm border-y border-white/6 overflow-x-auto"
+        style={{ top: "var(--hud-h, 64px)", scrollbarWidth: "none" }}
       >
-        <div style={{ display: "flex", gap: 6, minWidth: "max-content" }}>
+        <div className="flex gap-1.5 min-w-max">
           {activeTemplate.recipe.map((kind, i) => {
             const layer     = existingForKind(kind);
             const active    = i === recipeIndex;
             const clickable = !!layer && !active;
+            const sound = layer ? getSound(layer.soundId) : null;
             return (
               <button
                 key={kind + i}
                 onClick={clickable ? () => setRecipeIndex(i) : undefined}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  padding: "4px 10px",
-                  borderRadius: 20,
-                  border: active
-                    ? "1.5px solid #7c3aed"
+                disabled={!clickable}
+                className={[
+                  "inline-flex items-center gap-1.5",
+                  "px-2.5 py-1 rounded-full",
+                  "font-mono text-[10px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0",
+                  "transition-all",
+                  active
+                    ? "bg-grvd-purple/25 border-2 border-grvd-purple text-white shadow-glow-purple"
                     : layer
-                      ? "1.5px solid rgba(255,255,255,0.15)"
-                      : "1.5px solid rgba(255,255,255,0.06)",
-                  background: active
-                    ? "rgba(124,58,237,0.18)"
-                    : layer
-                      ? "rgba(255,255,255,0.05)"
-                      : "transparent",
-                  cursor: clickable ? "pointer" : "default",
-                  transition: "all 0.15s",
-                  boxShadow: active ? "0 0 10px rgba(124,58,237,0.35)" : "none",
-                  flexShrink: 0,
-                }}
+                      ? "bg-white/6 border-2 border-white/15 text-white/65"
+                      : "bg-transparent border-2 border-white/8 text-white/30",
+                ].join(" ")}
               >
-                <span style={{
-                  fontFamily: "monospace", fontSize: 9, fontWeight: 700,
-                  color: active ? "#a78bfa"
-                    : layer ? "rgba(255,255,255,0.6)"
-                    : "rgba(255,255,255,0.2)",
-                  letterSpacing: "0.05em", textTransform: "uppercase",
-                }}>
-                  {i + 1}
-                </span>
-                <span style={{
-                  fontFamily: "monospace", fontSize: 10, fontWeight: 700,
-                  color: active ? "#fff"
-                    : layer ? "rgba(255,255,255,0.65)"
-                    : "rgba(255,255,255,0.25)",
-                  textTransform: "uppercase", letterSpacing: "0.05em",
-                }}>
-                  {KIND_LABEL[kind]}
-                </span>
-                {layer && (
-                  <span style={{ fontSize: 12 }}>{getSound(layer.soundId)?.glyph ?? "●"}</span>
-                )}
-                {active && !layer && (
-                  <span style={{ fontSize: 9, color: "#a78bfa" }}>←</span>
-                )}
+                <span className="opacity-60">{i + 1}</span>
+                <span>{KIND_LABEL[kind]}</span>
+                {sound && <span className="text-base leading-none">{sound.glyph}</span>}
+                {active && !layer && <span className="text-grvd-purple">←</span>}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* ── Body: sound picker or "done" state. Natural flow under
-       * PageShell — the page itself scrolls; recipe strip stays sticky. */}
-      <div style={{ minWidth: 0 }}>
+      {/* ── Body ── */}
+      <div className="min-w-0">
         {currentKind === "vocal" ? (
-          /* ── Vocal step: launch pad to VocalRecorder ── */
-          <div style={{ padding: "24px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-            <div style={{ fontSize: 40 }}>🎤</div>
-            <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 900, color: "#fff", textAlign: "center" }}>
+          /* Vocal launchpad */
+          <div className="px-4 py-8 flex flex-col items-center gap-4">
+            <div className="text-6xl drop-shadow-[0_4px_8px_rgba(167,139,250,0.5)]">🎤</div>
+            <div className="font-display text-2xl text-white text-center leading-tight">
               time to drop the verse
             </div>
-            <p style={{ fontFamily: "monospace", fontSize: 11, color: "rgba(255,255,255,0.45)", textAlign: "center", maxWidth: 280, lineHeight: 1.6 }}>
+            <p className="font-mono text-[11px] leading-relaxed text-white/50 text-center max-w-[280px]">
               the beat's ready. rap along to the karaoke,
               or squad up with a friend to co-create.
             </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 240 }}>
-              <button
+            <div className="flex flex-col gap-2 w-full max-w-[260px]">
+              <ChunkyButton
+                variant="hero"
+                size="lg"
+                icon="🎤"
                 onClick={() => setStage("vocal")}
-                style={{
-                  ...pillBtn("rgba(124,58,237,0.85)"),
-                  padding: "10px 0", width: "100%",
-                  boxShadow: "0 0 20px rgba(124,58,237,0.4)",
-                  fontSize: 13, fontWeight: 900,
-                }}
+                className="w-full"
               >
-                🎤 record the verse
-              </button>
-              <button
+                record the verse
+              </ChunkyButton>
+              <ChunkyPill
+                variant="ghost"
+                size="md"
                 onClick={() => { setVocal(null, null, null); setStage("name"); }}
-                style={{ ...pillBtn("rgba(255,255,255,0.05)"), padding: "7px 0", width: "100%", fontSize: 11 }}
+                className="w-full"
               >
                 skip vocals →
-              </button>
+              </ChunkyPill>
             </div>
           </div>
         ) : currentKind ? (
-          <div style={{ padding: "12px 14px 16px" }}>
-
+          <div className="px-1 pt-3 pb-4">
             {/* Kind heading */}
-            <div style={{
-              display: "flex", alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 10, gap: 8,
-            }}>
-              <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 900, color: "#fff" }}>
-                pick a{" "}
-                <span style={{ color: "#a78bfa" }}>{KIND_LABEL[currentKind]}</span>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="font-display text-xl text-white leading-tight">
+                pick a <span className="text-grvd-purple">{KIND_LABEL[currentKind]}</span>
               </div>
-              <button
-                onClick={skipKind}
-                style={{
-                  ...pillBtn("rgba(255,255,255,0.06)"),
-                  fontSize: 10, padding: "3px 10px", whiteSpace: "nowrap",
-                }}
-              >
+              <ChunkyPill variant="ghost" size="sm" onClick={skipKind}>
                 skip →
-              </button>
+              </ChunkyPill>
             </div>
 
-            {/* Phase 5.B step 7 — shared pool indicator. Only when a coop
-                session is active and the union has more than just my sounds. */}
+            {/* Coop shared pool */}
             {coopBreakdown && coopBreakdown.partner > 0 && (
-              <div style={{
-                fontFamily:    "monospace",
-                fontSize:      9.5,
-                fontWeight:    700,
-                color:         "rgba(255,255,255,0.65)",
-                background:    "linear-gradient(90deg, rgba(124,58,237,0.18), rgba(34,211,238,0.12))",
-                border:        "1px solid rgba(167,139,250,0.32)",
-                borderRadius:  18,
-                padding:       "5px 12px",
-                display:       "inline-flex",
-                alignItems:    "center",
-                gap:           6,
-                marginBottom:  10,
-                letterSpacing: "0.02em",
-              }}>
+              <div className="mb-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-[10px] font-bold bg-gradient-to-r from-grvd-purple/20 to-grvd-cyan/15 border border-grvd-purple/30 text-white/75 shadow-chunky-press">
                 <span>🤝 shared pool</span>
-                <span style={{ opacity: 0.5 }}>·</span>
-                <span style={{ color: "#fff" }}>your {coopBreakdown.yours}</span>
-                <span style={{ opacity: 0.5 }}>+</span>
-                <span style={{ color: "#fbbf24" }}>partner {coopBreakdown.partner}</span>
-                <span style={{ opacity: 0.5 }}>=</span>
-                <span style={{ color: "#a78bfa", fontWeight: 900 }}>{coopBreakdown.total} sounds</span>
+                <span className="opacity-50">·</span>
+                <span className="text-white">your {coopBreakdown.yours}</span>
+                <span className="opacity-50">+</span>
+                <span className="text-grvd-gold">partner {coopBreakdown.partner}</span>
+                <span className="opacity-50">=</span>
+                <span className="text-grvd-purple">{coopBreakdown.total} sounds</span>
               </div>
             )}
 
-            {/*
-              Sound cards: auto-fill grid.
-              minmax(180px, 1fr) means:
-               • window ≥ ~376px  → 2 columns
-               • window < 376px   → 1 column
-              No viewport breakpoints — purely container-driven.
-            */}
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-              gap: 8,
-            }}>
+            {/* Picker grid */}
+            <div
+              className="grid gap-2"
+              style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}
+            >
               {suggestions.map((s) => {
                 const picked      = existingForKind(currentKind)?.soundId === s!.id;
                 const isSuggested = activeTemplate.suggested[currentKind]?.includes(s!.id);
+                const isThisPreviewing = previewingId === s!.id;
                 return (
                   <button
                     key={s!.id}
                     onClick={(e) => handlePickOrSwap(s!.id, s!.variant, currentKind, e.clientX, e.clientY)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "10px 12px",
-                      background: picked ? "rgba(124,58,237,0.18)" : "rgba(255,255,255,0.04)",
-                      border: `1.5px solid ${picked ? "#7c3aed" : "rgba(255,255,255,0.08)"}`,
-                      borderRadius: 10,
-                      cursor: "pointer", textAlign: "left",
-                      transition: "all 0.14s",
-                      boxShadow: picked ? "0 0 12px rgba(124,58,237,0.3)" : "none",
-                      minWidth: 0,
-                    }}
-                    onMouseEnter={(e) => { if (!picked) e.currentTarget.style.borderColor = "rgba(124,58,237,0.5)"; }}
-                    onMouseLeave={(e) => { if (!picked) e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}
+                    className={[
+                      "flex items-center gap-3 px-3 py-2.5 rounded-2xl text-left min-w-0",
+                      "border-2 transition-all shadow-chunky-press",
+                      "active:scale-[0.98] active:translate-y-[1px]",
+                      picked
+                        ? "bg-grvd-purple/20 border-grvd-purple shadow-glow-purple"
+                        : "bg-white/3 border-white/8 hover:border-grvd-purple/40",
+                    ].join(" ")}
                   >
-                    <span style={{ fontSize: 24, flexShrink: 0, lineHeight: 1 }}>{s!.glyph}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        display: "flex", alignItems: "center", gap: 5,
-                        flexWrap: "wrap",
-                      }}>
-                        <span style={{
-                          fontFamily: "monospace", fontSize: 12, fontWeight: 700,
-                          color: "#fff",
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        }}>
+                    <span className="text-2xl shrink-0 leading-none">{s!.glyph}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-display text-base text-white truncate">
                           {s!.name}
                         </span>
                         {isSuggested && !picked && (
-                          <span style={{
-                            fontFamily: "monospace", fontSize: 8, fontWeight: 700,
-                            background: "rgba(124,58,237,0.2)",
-                            border: "1px solid rgba(124,58,237,0.4)",
-                            color: "#a78bfa", borderRadius: 4, padding: "1px 5px",
-                            letterSpacing: "0.05em", textTransform: "uppercase",
-                            flexShrink: 0,
-                          }}>✦</span>
+                          <ChunkyBadge variant="purple" size="sm">✦</ChunkyBadge>
                         )}
                         {picked && (
-                          <span style={{
-                            fontFamily: "monospace", fontSize: 8, fontWeight: 700,
-                            background: "rgba(250,204,21,0.15)",
-                            border: "1px solid rgba(250,204,21,0.35)",
-                            color: "#facc15", borderRadius: 4, padding: "1px 5px",
-                            letterSpacing: "0.05em", textTransform: "uppercase",
-                            flexShrink: 0,
-                          }}>on</span>
+                          <ChunkyBadge variant="gold" size="sm">on</ChunkyBadge>
                         )}
                       </div>
-                      <div style={{
-                        fontFamily: "monospace", fontSize: 10,
-                        color: "rgba(255,255,255,0.4)", marginTop: 2,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>
+                      <div className="font-mono text-[10px] text-white/45 truncate mt-0.5">
                         {s!.vibe}
                       </div>
                     </div>
                     {/* Preview button */}
-                    {(() => {
-                      const isThisPreviewing = previewingId === s!.id;
-                      return (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // iOS unlock: fire-and-forget ensureAudio() inside
-                            // the synchronous gesture handler so Tone's audio
-                            // context starts on the right stack frame.
-                            ensureAudio();
-                            if (isThisPreviewing) {
-                              // Second click stops preview
-                              stopPreview();
-                              setPreviewingId(null);
-                              return;
-                            }
-                            setPreviewingId(s!.id);
-                            previewLayer(
-                              { id: "preview", kind: s!.kind, variant: s!.variant, soundId: s!.id },
-                              activeTemplate.keyRoot,
-                              activeTemplate.bpm,
-                              () => setPreviewingId(null),
-                            );
-                          }}
-                          style={{
-                            width: 28, height: 28, borderRadius: "50%",
-                            background: isThisPreviewing
-                              ? "rgba(124,58,237,0.35)"
-                              : "rgba(255,255,255,0.07)",
-                            border: `1.5px solid ${isThisPreviewing ? "#a78bfa" : "rgba(255,255,255,0.1)"}`,
-                            color: isThisPreviewing ? "#a78bfa" : "rgba(255,255,255,0.45)",
-                            fontSize: isThisPreviewing ? 9 : 10,
-                            cursor: "pointer",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            flexShrink: 0,
-                            transition: "all 0.15s",
-                            boxShadow: isThisPreviewing ? "0 0 8px rgba(124,58,237,0.5)" : "none",
-                            animation: isThisPreviewing ? "previewPulse 0.9s ease-in-out infinite alternate" : "none",
-                          }}
-                          title={isThisPreviewing ? "stop preview" : "preview sound"}
-                        >
-                          {isThisPreviewing ? "■" : "▶"}
-                        </button>
-                      );
-                    })()}
-                    <style>{`
-                      @keyframes previewPulse {
-                        from { box-shadow: 0 0 6px rgba(124,58,237,0.4); }
-                        to   { box-shadow: 0 0 14px rgba(167,139,250,0.8); }
-                      }
-                    `}</style>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        ensureAudio();
+                        if (isThisPreviewing) {
+                          stopPreview();
+                          setPreviewingId(null);
+                          return;
+                        }
+                        setPreviewingId(s!.id);
+                        previewLayer(
+                          { id: "preview", kind: s!.kind, variant: s!.variant, soundId: s!.id },
+                          activeTemplate.keyRoot,
+                          activeTemplate.bpm,
+                          () => setPreviewingId(null),
+                        );
+                      }}
+                      className={[
+                        "w-9 h-9 rounded-full shrink-0",
+                        "inline-flex items-center justify-center",
+                        "border-2 transition-all shadow-chunky-press",
+                        isThisPreviewing
+                          ? "bg-grvd-purple/35 border-grvd-purple text-white shadow-glow-purple"
+                          : "bg-white/6 border-white/12 text-white/55",
+                      ].join(" ")}
+                      title={isThisPreviewing ? "stop preview" : "preview sound"}
+                    >
+                      <span className="text-sm">{isThisPreviewing ? "■" : "▶"}</span>
+                    </button>
                   </button>
                 );
               })}
             </div>
 
-            {/* Currently picked — mute toggle row.
-             *
-             * Phase 5.B step 9 — reads/writes localMutedLayerIds, NOT
-             * Layer.muted. The mute state is per-seat: my local engine
-             * silences the layer, but my partner's engine is untouched
-             * (toggleLocalLayerMute never patches the synced coop state).
-             */}
+            {/* Mute toggle row */}
             {existingForKind(currentKind) && (() => {
-              const layer = existingForKind(currentKind)!;
+              const layer   = existingForKind(currentKind)!;
               const isMuted = localMutedLayerIds.has(layer.id);
               const isCoop  = !!activeCoopRow;
               return (
-                <div style={{
-                  marginTop: 10,
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "6px 10px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  borderRadius: 8,
-                }}>
-                  <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+                <div className="mt-3 flex items-center justify-between px-3 py-2 rounded-2xl bg-white/3 border border-white/8 shadow-chunky-press">
+                  <span className="font-mono text-[10px] text-white/45">
                     {isCoop ? "currently picked · local mute only" : "currently picked"}
                   </span>
-                  <button
+                  <ChunkyPill
+                    variant={isMuted ? "magenta" : "ghost"}
+                    size="sm"
                     onClick={() => toggleLocalLayerMute(layer.id)}
-                    title={isCoop
-                      ? "silences this layer ON YOUR PLAYBACK ONLY — partner is unaffected"
-                      : "mute this layer for previewing/playback"}
-                    style={{
-                      ...pillBtn(isMuted ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)"),
-                      fontSize: 10, padding: "3px 10px",
-                      border: `1px solid ${isMuted ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.1)"}`,
-                      color: isMuted ? "#f87171" : "rgba(255,255,255,0.5)",
-                    }}
                   >
                     {isMuted ? "unmute" : "mute"}
-                  </button>
+                  </ChunkyPill>
                 </div>
               );
             })()}
 
-            <p style={{
-              marginTop: 10,
-              fontFamily: "monospace", fontSize: 10,
-              color: "rgba(255,255,255,0.25)", lineHeight: 1.5,
-            }}>
+            <p className="mt-3 font-mono text-[10px] leading-relaxed text-white/30">
               every option here works with what you've stacked. no bad outcomes.
             </p>
           </div>
         ) : (
-          /* ── Recipe full (no currentKind): prompt to save ── */
-          <div style={{ padding: "24px 16px", textAlign: "center" }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
-            <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 900, color: "#fff", marginBottom: 6 }}>
-              recipe complete
-            </div>
-            <p style={{ fontFamily: "monospace", fontSize: 11, color: "rgba(255,255,255,0.45)", marginBottom: 16 }}>
+          /* Recipe full → name & save */
+          <div className="px-4 py-8 text-center flex flex-col items-center gap-3">
+            <div className="text-5xl">🎉</div>
+            <div className="font-display text-2xl text-white">recipe complete</div>
+            <p className="font-mono text-[11px] text-white/50 max-w-[260px]">
               swap any layer before saving — everything's still flexible.
             </p>
-            <button
+            <ChunkyButton
+              variant="hero"
+              size="lg"
+              icon="🏷️"
               onClick={() => setStage("name")}
-              style={{
-                ...pillBtn("#7c3aed"),
-                fontSize: 12, padding: "8px 20px", fontWeight: 700,
-                boxShadow: "0 0 20px rgba(124,58,237,0.4)",
-              }}
             >
-              🏷️ name & save
-            </button>
+              name & save
+            </ChunkyButton>
           </div>
         )}
 
-        {/* ── Companion needs (collapsible) ── */}
-        <div style={{
-          borderTop: "1px solid rgba(255,255,255,0.05)",
-          margin: "0 14px 14px",
-        }}>
+        {/* Companion needs (collapsible) */}
+        <div className="mt-4 mx-1 border-t border-white/6">
           <button
             onClick={() => setNeedsOpen((o) => !o)}
-            style={{
-              width: "100%", padding: "7px 0",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: "none", border: "none", cursor: "pointer",
-            }}
+            className="w-full py-2 flex items-center justify-between text-left"
           >
-            <span style={{ fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
+            <span className="font-mono text-[9px] tracking-[0.16em] uppercase text-white/35">
               companion state
             </span>
-            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
+            <span className="text-white/30 text-xs">
               {needsOpen ? "▲" : "▼"}
             </span>
           </button>
           {needsOpen && (
-            <div style={{ paddingBottom: 8 }}>
+            <div className="pb-3">
               <NeedsMeters tam={tamagotchi} />
             </div>
           )}
@@ -681,18 +467,6 @@ export function StackingView() {
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                       */
 /* -------------------------------------------------------------------------- */
-
-function pillBtn(bg: string): React.CSSProperties {
-  return {
-    display: "inline-flex", alignItems: "center", justifyContent: "center",
-    padding: "4px 12px", borderRadius: 20,
-    background: bg,
-    border: "1px solid rgba(255,255,255,0.08)",
-    color: "rgba(255,255,255,0.75)",
-    fontFamily: "monospace", fontSize: 12, fontWeight: 700,
-    cursor: "pointer", transition: "all 0.12s",
-  };
-}
 
 function reactionLine(kind: LayerKind): string {
   const lines: Record<LayerKind, string[]> = {

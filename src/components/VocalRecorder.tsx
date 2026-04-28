@@ -26,6 +26,7 @@ import {
   setVocalPitchCorrection,
 } from "../audio/engine";
 import { VOCAL_XP } from "../data/achievements";
+import { ChunkyButton, ChunkyPill } from "../ui/Chunky";
 
 /* -------------------------------------------------------------------------- */
 /* Syllable splitter                                                             */
@@ -288,65 +289,41 @@ export function VocalRecorder() {
     <div className="flex flex-col min-w-0">
 
       {/* Header */}
-      <div style={{
-        padding: "12px 14px 10px",
-        borderBottom: "1px solid rgba(255,255,255,0.07)",
-        flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div className="px-1 pt-3 pb-3 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <div style={{
-              fontFamily: "monospace", fontSize: 9, fontWeight: 800,
-              letterSpacing: "0.18em", textTransform: "uppercase",
-              color: "#a78bfa", marginBottom: 4,
-            }}>
+            <div className="font-mono text-[9px] font-bold tracking-[0.2em] uppercase text-grvd-purple">
               step 5 · vocals
             </div>
-            <div style={{
-              fontFamily: "monospace", fontSize: 16, fontWeight: 900, color: "#fff", lineHeight: 1,
-            }}>
+            <div className="font-display text-2xl text-white leading-tight mt-0.5">
               drop the verse 🎤
             </div>
           </div>
-          <button onClick={skip} style={ghostBtn}>skip</button>
+          <ChunkyPill variant="ghost" size="sm" onClick={skip}>skip</ChunkyPill>
         </div>
 
-        <div style={{
-          display: "flex", gap: 6, marginTop: 10,
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          paddingBottom: 10,
-        }}>
-          {([["record", "🎤 record"], ["squad", "🤝 squad up"]] as const).map(([id, label]) => (
-            <button
+        {/* Tab toggle */}
+        <div className="flex gap-2 pb-3 border-b border-white/6">
+          {([["record", "🎤", "record"], ["squad", "🤝", "squad up"]] as const).map(([id, icon, label]) => (
+            <ChunkyPill
               key={id}
+              variant={tab === id ? "purple" : "ghost"}
+              size="md"
+              icon={icon}
               onClick={() => setTab(id)}
-              style={{
-                fontFamily: "monospace", fontSize: 11, fontWeight: 800,
-                padding: "5px 14px", borderRadius: 20,
-                border: `1.5px solid ${tab === id ? "#7c3aed" : "rgba(255,255,255,0.1)"}`,
-                background: tab === id ? "rgba(124,58,237,0.2)" : "transparent",
-                color: tab === id ? "#a78bfa" : "rgba(255,255,255,0.4)",
-                cursor: "pointer", transition: "all 0.15s",
-                boxShadow: tab === id ? "0 0 10px rgba(124,58,237,0.25)" : "none",
-              }}
             >
               {label}
-            </button>
+            </ChunkyPill>
           ))}
         </div>
       </div>
 
       {/* Toast */}
       {toast && (
-        <div style={{
-          position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)",
-          background: "rgba(124,58,237,0.9)",
-          border: "1px solid rgba(167,139,250,0.5)",
-          borderRadius: 20, padding: "6px 16px",
-          fontFamily: "monospace", fontSize: 11, fontWeight: 700,
-          color: "#fff", zIndex: 100, whiteSpace: "nowrap",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-        }}>
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-[100] whitespace-nowrap font-mono text-[11px] font-bold text-white px-4 py-1.5 rounded-full bg-grvd-purple/90 border border-grvd-purple shadow-chunky"
+          style={{ top: 60 }}
+        >
           {toast}
         </div>
       )}
@@ -444,13 +421,8 @@ function RecordTab({
 
       {/* ── Lyrics edit panel ── */}
       {isEditing && canEdit ? (
-        <div style={{
-          background: "rgba(124,58,237,0.08)",
-          border: "1px solid rgba(124,58,237,0.25)",
-          borderRadius: 12, padding: "12px 12px 10px",
-          display: "flex", flexDirection: "column", gap: 8,
-        }}>
-          <div style={{ fontFamily: "monospace", fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", color: "#a78bfa", textTransform: "uppercase" }}>
+        <div className="rounded-2xl border border-grvd-purple/30 bg-grvd-purple/8 p-3 flex flex-col gap-2 shadow-chunky-press">
+          <div className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase text-grvd-purple">
             ✏️ edit your lyrics
           </div>
           {editLines.map((line, i) => (
@@ -459,41 +431,39 @@ function RecordTab({
               value={line}
               onChange={(e) => onEditLine(i, e.target.value)}
               placeholder={`line ${i + 1}…`}
-              style={{
-                width: "100%", boxSizing: "border-box",
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(124,58,237,0.3)",
-                borderRadius: 8, padding: "7px 10px",
-                fontFamily: "monospace", fontSize: 12, color: "#fff",
-                outline: "none",
-              }}
+              className="w-full px-3 py-2 rounded-xl bg-white/6 border border-grvd-purple/30 font-mono text-[12px] text-white outline-none focus:border-grvd-purple/70"
             />
           ))}
-          <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
-            <button onClick={onSaveEdit} style={primaryBtn}>use these lyrics ✓</button>
+          <div className="flex flex-wrap gap-2 mt-1">
+            <ChunkyButton variant="hero" size="sm" icon="✓" onClick={onSaveEdit}>
+              use these lyrics
+            </ChunkyButton>
             {hasCustomLyrics && (
-              <button onClick={onResetLyrics} style={ghostBtn}>reset to default</button>
+              <ChunkyPill variant="ghost" size="sm" onClick={onResetLyrics}>
+                reset to default
+              </ChunkyPill>
             )}
-            <button onClick={() => onResetLyrics()} style={{ ...ghostBtn, marginLeft: "auto" }}>cancel</button>
+            <ChunkyPill
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              onClick={() => onResetLyrics()}
+            >
+              cancel
+            </ChunkyPill>
           </div>
         </div>
       ) : (
-        /* ── Lyrics header row (karaoke + edit button) ── */
         canEdit && (
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <button
+          <div className="flex justify-end">
+            <ChunkyPill
+              variant={hasCustomLyrics ? "purple" : "ghost"}
+              size="sm"
+              icon="✏️"
               onClick={onOpenEdit}
-              style={{
-                fontFamily: "monospace", fontSize: 9, fontWeight: 800,
-                padding: "3px 10px", borderRadius: 10,
-                background: hasCustomLyrics ? "rgba(124,58,237,0.25)" : "rgba(255,255,255,0.06)",
-                border: `1px solid ${hasCustomLyrics ? "rgba(124,58,237,0.5)" : "rgba(255,255,255,0.12)"}`,
-                color: hasCustomLyrics ? "#a78bfa" : "rgba(255,255,255,0.4)",
-                cursor: "pointer", letterSpacing: "0.08em",
-              }}
             >
-              {hasCustomLyrics ? "✏️ my lyrics" : "✏️ edit lyrics"}
-            </button>
+              {hasCustomLyrics ? "my lyrics" : "edit lyrics"}
+            </ChunkyPill>
           </div>
         )
       )}
@@ -531,24 +501,16 @@ function RecordTab({
       )}
 
       {phase === "ready" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+        <div className="flex flex-col items-center gap-3">
           {error && (
-            <div style={{
-              fontFamily: "monospace", fontSize: 10, color: "#f87171",
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.2)",
-              borderRadius: 8, padding: "6px 12px", width: "100%", textAlign: "center",
-            }}>
+            <div className="w-full text-center font-mono text-[10px] text-red-400 bg-red-400/10 border border-red-400/25 rounded-xl px-3 py-1.5">
               {error}
             </div>
           )}
-          <button onClick={onRecord} style={primaryBtn}>
-            🎤 start recording
-          </button>
-          <p style={{
-            fontFamily: "monospace", fontSize: 10,
-            color: "rgba(255,255,255,0.3)", textAlign: "center",
-          }}>
+          <ChunkyButton variant="hero" size="lg" icon="🎤" onClick={onRecord}>
+            start recording
+          </ChunkyButton>
+          <p className="font-mono text-[10px] text-white/30 text-center">
             beat plays in the back · rap along · {recordSecs.toFixed(1)}s at {bpm} BPM
           </p>
         </div>
@@ -616,30 +578,33 @@ function RecordTab({
       )}
 
       {phase === "done" && score !== null && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
+        <div className="flex flex-col items-center gap-3">
           <PitchBar contour={contour} score={score} />
-          <div style={{ textAlign: "center" }}>
-            <span style={{
-              fontFamily: "monospace", fontSize: 28, fontWeight: 900,
-              color: scoreColor(score), textShadow: `0 0 20px ${scoreColor(score)}88`,
-            }}>
+          <div className="text-center">
+            <span
+              className="font-display text-5xl tabular-nums"
+              style={{
+                color: scoreColor(score),
+                textShadow: `0 0 24px ${scoreColor(score)}aa`,
+              }}
+            >
               {score}
             </span>
-            <span style={{ fontFamily: "monospace", fontSize: 14, color: "rgba(255,255,255,0.3)" }}>/100</span>
-            <div style={{ fontFamily: "monospace", fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>
+            <span className="font-mono text-base text-white/30">/100</span>
+            <div className="font-mono text-[11px] text-white/55 mt-1">
               {verdict(score)}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onRedo} style={ghostBtn}>🔁 redo</button>
-            <button onClick={onNext} style={primaryBtn}>save it →</button>
+          <div className="flex gap-2">
+            <ChunkyPill variant="ghost" size="md" icon="🔁" onClick={onRedo}>redo</ChunkyPill>
+            <ChunkyButton variant="hero" size="md" onClick={onNext}>save it →</ChunkyButton>
           </div>
         </div>
       )}
 
-      <button onClick={onSkip} style={{ ...ghostBtn, fontSize: 10, opacity: 0.5, alignSelf: "center" }}>
+      <ChunkyPill variant="ghost" size="sm" onClick={onSkip} className="self-center opacity-60">
         skip vocals
-      </button>
+      </ChunkyPill>
     </div>
   );
 }
@@ -786,24 +751,14 @@ function KaraokeDisplay({ verse, sylTimeline, activeSylIdx, activeLineIdx, phase
 
 function SquadTab({ onToast }: { onToast: (msg: string) => void }) {
   return (
-    <div style={{ padding: "12px 14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{
-        fontFamily: "monospace", fontSize: 9, fontWeight: 800,
-        letterSpacing: "0.18em", textTransform: "uppercase",
-        color: "rgba(255,255,255,0.3)",
-      }}>
+    <div className="px-1 pb-4 flex flex-col gap-2.5">
+      <div className="font-mono text-[9px] font-bold tracking-[0.18em] uppercase text-white/35">
         your crew
       </div>
       {FRIENDS.map((friend) => (
         <FriendCard key={friend.id} friend={friend} onToast={onToast} />
       ))}
-      <div style={{
-        background: "rgba(124,58,237,0.08)",
-        border: "1px solid rgba(124,58,237,0.18)",
-        borderRadius: 10, padding: "10px 12px",
-        fontFamily: "monospace", fontSize: 10,
-        color: "rgba(255,255,255,0.4)", lineHeight: 1.6,
-      }}>
+      <div className="rounded-2xl border border-grvd-purple/20 bg-grvd-purple/8 px-3 py-2.5 font-mono text-[10px] text-white/45 leading-relaxed shadow-chunky-press">
         🗺️ to co-create, you gotta be at the same spot in the game.
         invite them to your studio or pull up to theirs.
       </div>
@@ -814,61 +769,46 @@ function SquadTab({ onToast }: { onToast: (msg: string) => void }) {
 function FriendCard({ friend, onToast }: { friend: typeof FRIENDS[number]; onToast: (msg: string) => void }) {
   const dotColor: Record<FriendStatus, string> = {
     active:  "#4ade80",
-    nearby:  "#facc15",
-    offline: "rgba(255,255,255,0.15)",
+    nearby:  "#fbbf24",
+    offline: "rgba(255,255,255,0.18)",
   };
 
   return (
-    <div
-      style={{
-        display: "flex", alignItems: "center", gap: 10,
-        background: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        borderRadius: 12, padding: "10px 12px",
-        transition: "border-color 0.15s",
-      }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(124,58,237,0.35)"; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.08)"; }}
-    >
-      <div style={{
-        width: 40, height: 40, borderRadius: "50%",
-        background: "rgba(124,58,237,0.18)",
-        border: "2px solid rgba(124,58,237,0.3)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 22, flexShrink: 0,
-      }}>
+    <div className="flex items-center gap-3 rounded-2xl border-2 border-white/8 bg-white/3 px-3 py-2.5 shadow-chunky-press hover:border-grvd-purple/40 transition-colors">
+      <div
+        className="w-11 h-11 rounded-full bg-grvd-purple/20 border-2 border-grvd-purple/35 flex items-center justify-center text-2xl shrink-0"
+        style={{ boxShadow: "0 0 10px rgba(167,139,250,0.25), inset 0 1px 0 rgba(255,255,255,0.15)" }}
+      >
         {friend.avatar}
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 900, color: "#fff", lineHeight: 1 }}>
+      <div className="flex-1 min-w-0">
+        <div className="font-display text-base text-white leading-none">
           {friend.name}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4 }}>
-          <div style={{
-            width: 6, height: 6, borderRadius: "50%",
-            background: dotColor[friend.online],
-            boxShadow: friend.online !== "offline" ? `0 0 5px ${dotColor[friend.online]}` : "none",
-            flexShrink: 0,
-          }} />
-          <span style={{
-            fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.4)",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
+        <div className="flex items-center gap-1.5 mt-1">
+          <div
+            className="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{
+              background: dotColor[friend.online],
+              boxShadow: friend.online !== "offline" ? `0 0 6px ${dotColor[friend.online]}` : "none",
+            }}
+          />
+          <span className="font-mono text-[10px] text-white/45 truncate">
             {friend.status}
           </span>
         </div>
       </div>
       {friend.online !== "offline" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}>
-          <button onClick={() => onToast(`📍 invite sent to ${friend.name}`)} style={squadActionBtn("#7c3aed")}>
-            invite over 📍
-          </button>
-          <button onClick={() => onToast(`🚶 pulling up to ${friend.name}…`)} style={squadActionBtn("#4f46e5")}>
-            follow them 🚶
-          </button>
+        <div className="flex flex-col gap-1 shrink-0">
+          <ChunkyPill variant="purple" size="sm" onClick={() => onToast(`📍 invite sent to ${friend.name}`)}>
+            invite 📍
+          </ChunkyPill>
+          <ChunkyPill variant="ghost" size="sm" onClick={() => onToast(`🚶 pulling up to ${friend.name}…`)}>
+            follow 🚶
+          </ChunkyPill>
         </div>
       ) : (
-        <div style={{ fontFamily: "monospace", fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.18)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        <div className="font-mono text-[9px] font-bold tracking-[0.1em] uppercase text-white/20">
           offline
         </div>
       )}
@@ -964,32 +904,5 @@ function scoreColor(score: number): string {
 /* Shared styles                                                                 */
 /* -------------------------------------------------------------------------- */
 
-const primaryBtn: React.CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center",
-  padding: "8px 20px", borderRadius: 20,
-  background: "rgba(124,58,237,0.85)",
-  border: "1px solid rgba(167,139,250,0.4)",
-  color: "#fff", fontFamily: "monospace", fontSize: 12, fontWeight: 900,
-  cursor: "pointer", transition: "all 0.12s",
-  boxShadow: "0 0 16px rgba(124,58,237,0.35)",
-};
-
-const ghostBtn: React.CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center",
-  padding: "6px 14px", borderRadius: 20,
-  background: "rgba(255,255,255,0.05)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  color: "rgba(255,255,255,0.55)",
-  fontFamily: "monospace", fontSize: 11, fontWeight: 700,
-  cursor: "pointer", transition: "all 0.12s",
-};
-
-function squadActionBtn(color: string): React.CSSProperties {
-  return {
-    padding: "4px 10px", borderRadius: 12,
-    background: `${color}22`, border: `1px solid ${color}44`,
-    color: "rgba(255,255,255,0.7)",
-    fontFamily: "monospace", fontSize: 9, fontWeight: 800,
-    cursor: "pointer", transition: "all 0.12s", whiteSpace: "nowrap",
-  };
-}
+/* legacy inline-style helpers removed — every interactive surface in this
+ * file now uses ChunkyButton / ChunkyPill from ../ui/Chunky. */
