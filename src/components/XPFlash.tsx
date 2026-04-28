@@ -73,9 +73,8 @@ function FlashItem({ id, amount, label, x, y, onDone }: FlashItemProps) {
           pointerEvents: "none",
           zIndex: 99999,
           animation: "xpFloat 1.1s cubic-bezier(0.22,1,0.36,1) forwards",
-          fontFamily: "'Courier New', monospace",
-          fontWeight: 900,
-          letterSpacing: "0.04em",
+          fontFamily: "'Lilita One', 'Plus Jakarta Sans', system-ui, sans-serif",
+          letterSpacing: "0.02em",
           whiteSpace: "nowrap",
           lineHeight: 1,
           userSelect: "none",
@@ -83,10 +82,10 @@ function FlashItem({ id, amount, label, x, y, onDone }: FlashItemProps) {
       >
         <span
           style={{
-            fontSize: 18,
-            color: "#facc15",
+            fontSize: 26,
+            color: "#fbbf24",
             textShadow:
-              "0 0 10px #facc15, 0 0 22px #f59e0b, 0 2px 0 rgba(0,0,0,0.8)",
+              "0 0 12px #fbbf24, 0 0 28px #fb923c, 0 3px 0 rgba(0,0,0,0.85)",
           }}
         >
           +{amount} XP
@@ -95,12 +94,14 @@ function FlashItem({ id, amount, label, x, y, onDone }: FlashItemProps) {
           <span
             style={{
               display: "block",
+              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+              fontWeight: 700,
               fontSize: 9,
-              color: "rgba(250,204,21,0.65)",
-              marginTop: 2,
+              color: "rgba(251,191,36,0.7)",
+              marginTop: 3,
               textAlign: "center",
-              textShadow: "0 0 6px rgba(245,158,11,0.6)",
-              letterSpacing: "0.1em",
+              textShadow: "0 0 6px rgba(251,146,60,0.6)",
+              letterSpacing: "0.16em",
               textTransform: "uppercase",
             }}
           >

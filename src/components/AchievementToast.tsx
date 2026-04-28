@@ -126,13 +126,13 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
             width: "100%",
             height: "100%",
             background:
-              "linear-gradient(135deg, rgba(12,10,20,0.97) 0%, rgba(20,15,35,0.97) 100%)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderLeft: `3px solid ${tierColor}`,
-            borderRadius: 12,
+              "linear-gradient(135deg, rgba(26,22,50,0.98) 0%, rgba(10,8,20,0.98) 100%)",
+            border: "1px solid rgba(255,255,255,0.10)",
+            borderLeft: `4px solid ${tierColor}`,
+            borderRadius: 18,
             overflow: "hidden",
             boxShadow:
-              "0 8px 32px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)",
+              `0 12px 32px rgba(0,0,0,0.55), 0 4px 0 rgba(0,0,0,0.4), 0 0 24px ${tierColor}33`,
             animation: "tierPulse 2s ease-in-out 3",
           }}
         >
@@ -200,13 +200,13 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
               {/* "Achievement Unlocked" label */}
               <div
                 style={{
-                  fontFamily: "monospace",
-                  fontSize: 7,
-                  fontWeight: 900,
-                  letterSpacing: "0.2em",
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 8,
+                  fontWeight: 800,
+                  letterSpacing: "0.22em",
                   textTransform: "uppercase",
                   color: tierColor,
-                  marginBottom: 2,
+                  marginBottom: 3,
                   textShadow: `0 0 8px ${tierColor}`,
                 }}
               >
@@ -216,11 +216,11 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
               {/* Name */}
               <div
                 style={{
-                  fontFamily: "monospace",
-                  fontSize: 14,
-                  fontWeight: 900,
+                  fontFamily: "'Lilita One', 'Plus Jakarta Sans', system-ui, sans-serif",
+                  fontSize: 17,
                   color: "#ffffff",
-                  lineHeight: 1.1,
+                  lineHeight: 1.05,
+                  letterSpacing: "0.01em",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -232,9 +232,9 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
               {/* Description */}
               <div
                 style={{
-                  fontFamily: "monospace",
-                  fontSize: 9,
-                  color: "rgba(255,255,255,0.45)",
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 10,
+                  color: "rgba(255,255,255,0.5)",
                   marginTop: 2,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -281,23 +281,23 @@ function ToastCard({ achievementId, index, onDone }: ToastCardProps) {
             >
               <span
                 style={{
-                  fontFamily: "monospace",
-                  fontSize: 13,
-                  fontWeight: 900,
-                  color: "#facc15",
-                  textShadow: "0 0 10px #facc15, 0 0 20px #f59e0b",
+                  fontFamily: "'Lilita One', 'Plus Jakarta Sans', system-ui, sans-serif",
+                  fontSize: 18,
+                  color: "#fbbf24",
+                  textShadow: "0 0 12px #fbbf24, 0 0 24px #fb923c, 0 2px 0 rgba(0,0,0,0.7)",
                   lineHeight: 1,
+                  letterSpacing: "0.02em",
                 }}
               >
                 +{ach.xpReward}
               </span>
               <span
                 style={{
-                  fontFamily: "monospace",
-                  fontSize: 7,
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 8,
                   fontWeight: 700,
-                  color: "rgba(250,204,21,0.5)",
-                  letterSpacing: "0.1em",
+                  color: "rgba(251,191,36,0.65)",
+                  letterSpacing: "0.16em",
                 }}
               >
                 XP

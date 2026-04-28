@@ -210,19 +210,19 @@ function ToastCard({ n, onDismiss }: { n: Notification; onDismiss: () => void })
   return (
     <div
       style={{
-        width:         300,
-        minHeight:     56,
-        background:    "linear-gradient(135deg, rgba(0,0,0,0.85) 0%, rgba(20,20,28,0.95) 100%)",
+        width:         320,
+        minHeight:     60,
+        background:    "linear-gradient(135deg, rgba(26,22,50,0.96) 0%, rgba(10,8,20,0.96) 100%)",
         border:        `1px solid ${accent}55`,
-        borderLeft:    `3px solid ${accent}`,
-        borderRadius:  10,
-        boxShadow:     `0 8px 22px rgba(0,0,0,0.5), 0 0 14px ${accent}22`,
-        padding:       "10px 12px",
+        borderLeft:    `4px solid ${accent}`,
+        borderRadius:  18,
+        boxShadow:     `0 12px 32px rgba(0,0,0,0.55), 0 4px 0 rgba(0,0,0,0.4), 0 0 22px ${accent}33`,
+        padding:       "11px 14px",
         display:       "flex",
-        gap:           10,
+        gap:           12,
         alignItems:    "center",
         cursor:        interactive ? "default" : "pointer",
-        animation:     "toast-slide-in 240ms cubic-bezier(.22,.94,.46,1)",
+        animation:     "toast-slide-in 260ms cubic-bezier(.22,.94,.46,1)",
       }}
       onClick={() => {
         if (interactive) return;
@@ -232,21 +232,22 @@ function ToastCard({ n, onDismiss }: { n: Notification; onDismiss: () => void })
     >
       <style>{`
         @keyframes toast-slide-in {
-          from { transform: translateX(28px); opacity: 0; }
-          to   { transform: translateX(0);    opacity: 1; }
+          from { transform: translateX(28px) scale(0.95); opacity: 0; }
+          to   { transform: translateX(0) scale(1);       opacity: 1; }
         }
       `}</style>
       <span
         style={{
-          width:          36,
-          height:         36,
-          borderRadius:   18,
-          background:     `${accent}22`,
-          border:         `1px solid ${accent}55`,
+          width:          40,
+          height:         40,
+          borderRadius:   20,
+          background:     `radial-gradient(circle at 35% 35%, ${accent}55, ${accent}22)`,
+          border:         `2px solid ${accent}77`,
+          boxShadow:      `0 0 12px ${accent}55, inset 0 1px 0 rgba(255,255,255,0.15)`,
           display:        "flex",
           alignItems:     "center",
           justifyContent: "center",
-          fontSize:       18,
+          fontSize:       20,
           flexShrink:     0,
         }}
       >
@@ -255,13 +256,14 @@ function ToastCard({ n, onDismiss }: { n: Notification; onDismiss: () => void })
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            fontFamily:   "'Space Grotesk', system-ui, sans-serif",
-            fontSize:     12,
-            fontWeight:   700,
-            color:        "#fff",
-            whiteSpace:   "nowrap",
-            overflow:     "hidden",
-            textOverflow: "ellipsis",
+            fontFamily:    "'Lilita One', 'Plus Jakarta Sans', system-ui, sans-serif",
+            fontSize:      14,
+            color:         "#fff",
+            letterSpacing: "0.01em",
+            whiteSpace:    "nowrap",
+            overflow:      "hidden",
+            textOverflow:  "ellipsis",
+            lineHeight:    1.15,
           }}
         >
           {title}
@@ -269,10 +271,10 @@ function ToastCard({ n, onDismiss }: { n: Notification; onDismiss: () => void })
         {body && (
           <div
             style={{
-              fontFamily:   "monospace",
+              fontFamily:   "'JetBrains Mono', ui-monospace, monospace",
               fontSize:     10,
               color:        "rgba(255,255,255,0.55)",
-              marginTop:    2,
+              marginTop:    3,
               whiteSpace:   "nowrap",
               overflow:     "hidden",
               textOverflow: "ellipsis",
@@ -282,22 +284,22 @@ function ToastCard({ n, onDismiss }: { n: Notification; onDismiss: () => void })
           </div>
         )}
         {interactive && (onPrimary || onSecondary) && (
-          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             {onPrimary && (
               <button
                 onClick={(e) => { e.stopPropagation(); onPrimary?.(); }}
                 style={{
-                  padding:        "4px 8px",
+                  padding:        "5px 12px",
                   background:     accent,
                   border:         "none",
-                  color:          "rgba(0,0,0,0.85)",
-                  fontFamily:     "monospace",
-                  fontSize:       10,
-                  fontWeight:     800,
-                  letterSpacing:  "0.08em",
+                  color:          "#0a0814",
+                  fontFamily:     "'Lilita One', 'Plus Jakarta Sans', system-ui, sans-serif",
+                  fontSize:       11,
+                  letterSpacing:  "0.06em",
                   textTransform:  "uppercase",
-                  borderRadius:   5,
+                  borderRadius:   999,
                   cursor:         "pointer",
+                  boxShadow:      "0 3px 0 rgba(0,0,0,0.35)",
                 }}
               >
                 {primaryLabel}
@@ -307,16 +309,16 @@ function ToastCard({ n, onDismiss }: { n: Notification; onDismiss: () => void })
               <button
                 onClick={(e) => { e.stopPropagation(); onSecondary?.(); }}
                 style={{
-                  padding:        "4px 8px",
+                  padding:        "5px 12px",
                   background:     "rgba(255,255,255,0.06)",
-                  border:         "1px solid rgba(255,255,255,0.18)",
-                  color:          "rgba(255,255,255,0.7)",
-                  fontFamily:     "monospace",
+                  border:         "1px solid rgba(255,255,255,0.16)",
+                  color:          "rgba(255,255,255,0.78)",
+                  fontFamily:     "'JetBrains Mono', ui-monospace, monospace",
                   fontSize:       10,
                   fontWeight:     700,
-                  letterSpacing:  "0.06em",
+                  letterSpacing:  "0.08em",
                   textTransform:  "uppercase",
-                  borderRadius:   5,
+                  borderRadius:   999,
                   cursor:         "pointer",
                 }}
               >
