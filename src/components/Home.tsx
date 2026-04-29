@@ -93,8 +93,20 @@ export function Home() {
       >
         <StudioScene>
           <Mascot />
-          {dawTalk && <SpeechBubble text={dawTalk} />}
         </StudioScene>
+
+        {/* Speech bubble — drops UNDER the top banner, anchored to the
+         *  mascot's position on the left. Tail points up-left toward
+         *  the mascot so it reads as the pet talking, not the avatar. */}
+        {dawTalk && (
+          <SpeechBubble
+            text={dawTalk}
+            tailSide="top"
+            top={78}
+            left={20}
+            maxWidth={240}
+          />
+        )}
 
         {/* Top banner — single dark-transparent strip across the panel
          *  top, holding the mascot on the left and the 3 needs bars on

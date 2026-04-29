@@ -1,32 +1,68 @@
 /**
  * SpeechBubble — BURST hero-design talk bubble.
  *
- * White rounded rectangle with a black toon outline and a downward-left
- * pointing tail. Pop-in animation + idle float. Anchored absolute by
- * default; the parent stage positions it next to the mascot.
+ * White rounded rectangle with a black toon outline and a tail
+ * pointing toward the speaker. Pop-in animation + idle float.
+ * Anchored absolute by default; the parent positions it.
  *
- * Used by Home (the big home stage) and any other screen that wants
- * the same chunky speech-bubble look.
+ * Two tail variants:
+ *   - tailSide="bottom" (default) — tail at bottom-left, points DOWN-left
+ *     toward a speaker BELOW the bubble. Used historically when the
+ *     bubble sat above the mascot.
+ *   - tailSide="top"             — tail at top-left, points UP-left toward
+ *     a speaker ABOVE the bubble. Used by Home where the mascot lives
+ *     in the top banner and the bubble drops below it.
+ *
+ * Position props (left/right/top/bottom) are forwarded to the absolute
+ * positioning so the parent decides where the bubble sits.
  */
 
+import type { CSSProperties } from "react";
 import { C } from "./tokens";
 
 interface SpeechBubbleProps {
   text: string;
-  /** Right offset (px) from the parent's right edge. Default 14. */
-  right?:  number;
-  /** Bottom offset (px) from the parent's bottom edge. Default 130 —
-   *  tuned to land just above the mascot's head. */
-  bottom?: number;
+  /** Where the pointer tail attaches. Default bottom. */
+  tailSide?: "top" | "bottom";
+  /** Override max width to allow long lines to wrap nicely. Default 220. */
+  maxWidth?: number;
+  /** Absolute positioning offsets. Pass any subset. */
+  left?:    number;
+  right?:   number;
+  top?:     number;
+  bottom?:  number;
 }
 
-export function SpeechBubble({ text, right = 14, bottom = 130 }: SpeechBubbleProps) {
+export function SpeechBubble({
+  text,
+  tailSide = "bottom",
+  maxWidth = 220,
+  left,
+  right,
+  top,
+  bottom,
+}: SpeechBubbleProps) {
+  // Default placement (legacy callers): bottom-right of the stage.
+  const pos: CSSProperties = {
+    position: "absolute",
+    right:  right  ?? (left  === undefined ? 14  : undefined),
+    bottom: bottom ?? (top   === undefined ? 130 : undefined),
+    left,
+    top,
+    zIndex: 6,
+  };
+
+  // Bubble shape: rounded corners on three sides, sharper on the corner
+  // the tail attaches to so the join reads cleanly.
+  const borderRadius =
+    tailSide === "top"
+      ? "4px 14px 14px 14px"   // tail top-left
+      : "14px 14px 14px 4px";  // tail bottom-left
+
   return (
     <div
       style={{
-        position: "absolute",
-        right, bottom,
-        zIndex: 6,
+        ...pos,
         animation: "burstBubblePop 0.5s cubic-bezier(.34,1.56,.64,1) both, burstBubbleFloat 3s ease-in-out infinite 0.5s",
       }}
       aria-live="polite"
@@ -35,32 +71,55 @@ export function SpeechBubble({ text, right = 14, bottom = 130 }: SpeechBubblePro
       <div
         style={{
           position: "relative",
+          maxWidth,
           background: "#fff",
           border: "2.5px solid #0a0f1c",
-          borderRadius: "14px 14px 14px 4px",
+          borderRadius,
           padding: "8px 12px",
           fontFamily: "'Lilita One', system-ui",
-          fontSize: 16,
+          fontSize: 14,
           color: C.navyDeep,
           letterSpacing: 0.3,
+          lineHeight: 1.2,
           boxShadow: "0 4px 0 rgba(0,0,0,0.4), 0 8px 18px rgba(0,0,0,0.4)",
-          whiteSpace: "nowrap",
         }}
       >
         {text}
-        {/* Tail pointing down-left toward the mascot */}
+
+        {/* Tail */}
         <div
           aria-hidden
-          style={{
-            position: "absolute", left: -2, bottom: -10,
-            width: 14, height: 14,
-            background: "#fff",
-            border: "2.5px solid #0a0f1c",
-            borderTop: "none",
-            borderRight: "none",
-            transform: "rotate(-45deg) translate(2px, -2px)",
-            clipPath: "polygon(0 0, 100% 100%, 0 100%)",
-          }}
+          style={
+            tailSide === "top"
+              ? {
+                  // Tail at top-left, pointing UP toward a speaker above.
+                  position: "absolute",
+                  left: -2,
+                  top: -10,
+                  width: 14,
+                  height: 14,
+                  background: "#fff",
+                  border: "2.5px solid #0a0f1c",
+                  borderBottom: "none",
+                  borderRight: "none",
+                  transform: "rotate(45deg) translate(-2px, 2px)",
+                  clipPath: "polygon(0 0, 100% 0, 0 100%)",
+                }
+              : {
+                  // Tail at bottom-left, pointing DOWN toward a speaker below.
+                  position: "absolute",
+                  left: -2,
+                  bottom: -10,
+                  width: 14,
+                  height: 14,
+                  background: "#fff",
+                  border: "2.5px solid #0a0f1c",
+                  borderTop: "none",
+                  borderRight: "none",
+                  transform: "rotate(-45deg) translate(2px, -2px)",
+                  clipPath: "polygon(0 0, 100% 100%, 0 100%)",
+                }
+          }
         />
       </div>
 
