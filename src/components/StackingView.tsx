@@ -69,9 +69,17 @@ export function StackingView() {
   void userId;
   void swapLayer;
 
-  const [playing,     setPlaying]     = useState(false);
+  // Read play state from the store so it persists across navigation
+  // (StackingView → arrange → back keeps playing). Local mirror initializes
+  // from the store on mount so the UI reflects whatever Tone is doing.
+  const storeIsPlaying = useStore((s) => s.isPlaying);
+  const [playing,     setPlaying]     = useState(storeIsPlaying);
   const [needsOpen,   setNeedsOpen]   = useState(false);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
+  // The id of the sound the user previewed last — used by the click-twice-
+  // to-select picker UX. First tap previews; second consecutive tap on
+  // the same sound selects it and advances the recipe.
+  const [armedSoundId, setArmedSoundId] = useState<string | null>(null);
 
   const currentKind: LayerKind | null = useMemo(() => {
     if (!activeTemplate) return null;
@@ -108,9 +116,11 @@ export function StackingView() {
 
   useEffect(() => { setIsPlaying(playing); }, [playing, setIsPlaying]);
 
-  useEffect(() => {
-    return () => { stopSong(); setIsPlaying(false); };
-  }, [setIsPlaying]);
+  // Note: we intentionally DO NOT stop the song on unmount. The player
+  // can hop into arrange/mixer and back, and the loop keeps going. They
+  // explicitly stop via the play/pause pill in the header. (Going back
+  // to home/booth/etc. doesn't unmount us anyway because routing rerenders
+  // App at the top — the audio engine state is global to Tone.)
 
   useEffect(() => {
     if (!activeTemplate) return;
@@ -120,6 +130,12 @@ export function StackingView() {
       else setStage("name");
     }
   }, [recipeIndex, activeTemplate, setStage]);
+
+  // Drop the click-twice arm when the recipe advances to a new kind so
+  // the player has to deliberately re-arm a sound on each step.
+  useEffect(() => {
+    setArmedSoundId(null);
+  }, [recipeIndex]);
 
   if (!activeTemplate) {
     return (
@@ -226,45 +242,40 @@ export function StackingView() {
 
         {/* Quick-access ARRANGE + MIX buttons during creation.
          *
-         * Surfaces them in the player's eye-line while they're still
-         * stacking, without making them leave the recipe flow. Sets
-         * editorReturnStage to "stack" so the back button drops them
-         * back here to keep cooking.
+         * Always visible from the moment the player enters the stacking
+         * flow — they shouldn't have to commit to a layer before getting
+         * the option to arrange/mix.
          *
-         * Only renders once at least one layer has been picked — these
-         * views are useless on an empty session. */}
-        {layers.length > 0 && (
-          <div className="flex items-center gap-1.5 pt-0.5">
-            <ChunkyPill
-              variant="cyan"
-              size="sm"
-              icon="🎚️"
-              onClick={() => {
-                stopSong();
-                setPlaying(false);
-                useStore.setState({ editorReturnStage: "stack" });
-                setStage("arrange");
-              }}
-              className="flex-1"
-            >
-              arrange
-            </ChunkyPill>
-            <ChunkyPill
-              variant="magenta"
-              size="sm"
-              icon="🎛️"
-              onClick={() => {
-                stopSong();
-                setPlaying(false);
-                useStore.setState({ editorReturnStage: "stack" });
-                setStage("mixer");
-              }}
-              className="flex-1"
-            >
-              mix
-            </ChunkyPill>
-          </div>
-        )}
+         * Crucially, we do NOT stop playback when navigating: the song
+         * persists across the arrange/mixer trip so the player can keep
+         * vibing while they tweak. Same on the way back (handled by
+         * removing the unmount-stops-song effect below). */}
+        <div className="flex items-center gap-2 pt-0.5">
+          <ChunkyPill
+            variant="cyan"
+            size="md"
+            icon="🎚️"
+            onClick={() => {
+              useStore.setState({ editorReturnStage: "stack" });
+              setStage("arrange");
+            }}
+            className="flex-1 text-base"
+          >
+            arrange
+          </ChunkyPill>
+          <ChunkyPill
+            variant="magenta"
+            size="md"
+            icon="🎛️"
+            onClick={() => {
+              useStore.setState({ editorReturnStage: "stack" });
+              setStage("mixer");
+            }}
+            className="flex-1 text-base"
+          >
+            mix
+          </ChunkyPill>
+        </div>
       </div>
 
       {/* ── Recipe strip: sticky chunky pills below the HUD ── */}
@@ -372,17 +383,47 @@ export function StackingView() {
                 const picked      = existingForKind(currentKind)?.soundId === s!.id;
                 const isSuggested = activeTemplate.suggested[currentKind]?.includes(s!.id);
                 const isThisPreviewing = previewingId === s!.id;
+                const isArmed = armedSoundId === s!.id;
                 return (
                   <button
                     key={s!.id}
-                    onClick={(e) => handlePickOrSwap(s!.id, s!.variant, currentKind, e.clientX, e.clientY)}
+                    onClick={(e) => {
+                      ensureAudio();
+                      // Click-twice-to-select UX:
+                      //  1st click on a NEW sound → preview it, arm it.
+                      //  2nd click on the SAME sound → select it, advance recipe.
+                      //  Click on a DIFFERENT sound → preview the new one,
+                      //  arm it, drop the previous arm.
+                      if (isArmed) {
+                        // Confirm: select + advance.
+                        stopPreview();
+                        setPreviewingId(null);
+                        setArmedSoundId(null);
+                        handlePickOrSwap(s!.id, s!.variant, currentKind, e.clientX, e.clientY);
+                        return;
+                      }
+                      // First tap: preview + arm.
+                      stopPreview();
+                      setPreviewingId(s!.id);
+                      setArmedSoundId(s!.id);
+                      previewLayer(
+                        { id: "preview", kind: s!.kind, variant: s!.variant, soundId: s!.id },
+                        activeTemplate.keyRoot,
+                        activeTemplate.bpm,
+                        () => setPreviewingId(null),
+                      );
+                    }}
                     className={[
-                      "flex items-center gap-3 px-3 py-2.5 rounded-2xl text-left min-w-0",
+                      "flex items-center gap-3 px-3 py-3 rounded-2xl text-left min-w-0",
                       "border-2 transition-all shadow-chunky-press",
                       "active:scale-[0.98] active:translate-y-[1px]",
                       picked
                         ? "bg-grvd-purple/20 border-grvd-purple shadow-glow-purple"
-                        : "bg-white/3 border-white/8 hover:border-grvd-purple/40",
+                        : isArmed
+                          ? "bg-grvd-cyan/20 border-grvd-cyan shadow-glow-cyan"
+                          : isThisPreviewing
+                            ? "bg-grvd-purple/15 border-grvd-purple/60"
+                            : "bg-white/3 border-white/8 hover:border-grvd-purple/40",
                     ].join(" ")}
                   >
                     <span className="text-2xl shrink-0 leading-none">{s!.glyph}</span>
@@ -391,48 +432,40 @@ export function StackingView() {
                         <span className="font-display text-base text-white truncate">
                           {s!.name}
                         </span>
-                        {isSuggested && !picked && (
+                        {isSuggested && !picked && !isArmed && (
                           <ChunkyBadge variant="purple" size="sm">✦</ChunkyBadge>
                         )}
                         {picked && (
                           <ChunkyBadge variant="gold" size="sm">on</ChunkyBadge>
+                        )}
+                        {isArmed && !picked && (
+                          <ChunkyBadge variant="cyan" size="sm">tap again</ChunkyBadge>
                         )}
                       </div>
                       <div className="font-mono text-[10px] text-white/45 truncate mt-0.5">
                         {s!.vibe}
                       </div>
                     </div>
-                    {/* Preview button */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        ensureAudio();
-                        if (isThisPreviewing) {
-                          stopPreview();
-                          setPreviewingId(null);
-                          return;
-                        }
-                        setPreviewingId(s!.id);
-                        previewLayer(
-                          { id: "preview", kind: s!.kind, variant: s!.variant, soundId: s!.id },
-                          activeTemplate.keyRoot,
-                          activeTemplate.bpm,
-                          () => setPreviewingId(null),
-                        );
-                      }}
+                    {/* Sound state indicator (read-only — no separate
+                     *  preview button; the whole row is the preview/select
+                     *  control). Speaker icon while previewing, check when
+                     *  armed-to-select, dot otherwise. */}
+                    <span
                       className={[
-                        "w-9 h-9 rounded-full shrink-0",
-                        "inline-flex items-center justify-center",
-                        "border-2 transition-all shadow-chunky-press",
-                        isThisPreviewing
-                          ? "bg-grvd-purple/35 border-grvd-purple text-white shadow-glow-purple"
-                          : "bg-white/6 border-white/12 text-white/55",
+                        "w-7 h-7 rounded-full shrink-0",
+                        "inline-flex items-center justify-center text-sm",
+                        "border-2 transition-colors",
+                        picked
+                          ? "bg-grvd-gold/30 border-grvd-gold text-grvd-gold"
+                          : isArmed
+                            ? "bg-grvd-cyan/30 border-grvd-cyan text-grvd-cyan"
+                            : isThisPreviewing
+                              ? "bg-grvd-purple/30 border-grvd-purple text-white"
+                              : "bg-white/6 border-white/12 text-white/40",
                       ].join(" ")}
-                      title={isThisPreviewing ? "stop preview" : "preview sound"}
                     >
-                      <span className="text-sm">{isThisPreviewing ? "■" : "▶"}</span>
-                    </button>
+                      {picked ? "✓" : isThisPreviewing ? "♪" : isArmed ? "→" : "·"}
+                    </span>
                   </button>
                 );
               })}
