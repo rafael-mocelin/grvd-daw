@@ -25,7 +25,7 @@ import {
 import { C, chrome, readout } from "./burst/tokens";
 import { Gloss } from "./burst/Gloss";
 import { Icon } from "./burst/Icon";
-import { MascotHead } from "./burst/MascotHead";
+import { CharacterFace } from "./CharacterFace";
 
 /* -------------------------------------------------------------------------- */
 /* LevelBadge                                                                  */
@@ -71,21 +71,21 @@ export function LevelBadge() {
           boxShadow: "0 4px 0 rgba(0,0,0,0.5), 0 8px 18px rgba(0,0,0,0.55), inset 0 2px 0 rgba(255,255,255,0.6)",
         }}
       />
-      {/* Inner disc — navy backdrop with the live mascot head sitting
-       *  on top so the HUD anchor shows the actual character instead of
-       *  a generic icon. */}
+      {/* Inner disc — the live pet/mascot (the gradient mood-tinted face
+       *  with cursor-tracking eyes and an audio-amped mouth). Same
+       *  character that fills the YOUR PET portal screen, just shrunk
+       *  to fit the HUD. The chibi avatar with arms/legs lives on the
+       *  home stage — that's the player IN the BURST world; this is
+       *  the in-app pet. */}
       <div
         aria-hidden
         style={{
-          position: "absolute", inset: 6, borderRadius: "50%",
-          background: `radial-gradient(circle at 35% 30%, ${C.navyLight}, ${C.navyDeep})`,
-          border: "2px solid #0a0f1c",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "inset 0 -3px 0 rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.2)",
+          position: "absolute", inset: 4, borderRadius: "50%",
           overflow: "hidden",
+          border: "2px solid #0a0f1c",
         }}
       >
-        <MascotHead size={42} />
+        <CharacterFace size={52} bob={false} />
       </div>
       {/* LV pill */}
       <div
