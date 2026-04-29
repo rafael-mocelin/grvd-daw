@@ -102,40 +102,61 @@ export function CharacterFace({
   const moodOverride = useStore((s) => s.moodOverride);
   const mood: Mood   = moodProp ?? moodOverride ?? tamagotchi.mood;
 
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const mouthRef   = useRef<SVGPathElement   | null>(null);
+  const wrapperRef    = useRef<HTMLDivElement | null>(null);
+  const tiltRef       = useRef<HTMLDivElement | null>(null);
+  const eyeGroupRef   = useRef<SVGGElement     | null>(null);
   const audioLevelRef = useAudioLevel();
 
-  // Mouth amplitude — pulses the mouth path's mid-control-point Y
-  // proportional to live audio level so the pet feels alive when the
-  // engine is playing.
+  // ── Audio-reactive animation loop ──
+  // Two effects drive the pet's "alive" feeling now that the mouth pulse
+  // was retired:
+  //   1. Eye PUMP — both eyes scale up slightly proportional to live
+  //      audio level (1.0 idle → ~1.45 at peak). Sells the "reacting to
+  //      the beat" energy.
+  //   2. Head TILT — slow sine oscillation rotates the whole head left↔
+  //      right while audio is playing. Amplitude scales with level so
+  //      a quiet track gets a subtle bob and a loud track full vibing.
+  //      Period is ~700ms (≈ 86 BPM swing — generic groovy default; the
+  //      audio level gate keeps it from running when the engine is silent).
   useEffect(() => {
     let raf = 0;
     let cancelled = false;
+    const start = performance.now();
+
     const tick = () => {
       if (cancelled) return;
       const level = audioLevelRef.current;
-      const m     = mouthRef.current;
-      if (m) {
-        const base = MOUTH_PATH[mood];
-        const ampPx = level * 2;
-        const adjusted = base.replace(/Q\s+([\d.]+)\s+([\d.]+)/, (_match, x, y) => {
-          const yNum = parseFloat(y);
-          const direction = yNum >= 19 ? +1 : -1;
-          return `Q ${x} ${(yNum + direction * ampPx).toFixed(2)}`;
-        });
-        if (m.getAttribute("d") !== adjusted) {
-          m.setAttribute("d", adjusted);
-        }
+      const t     = performance.now() - start;
+
+      // Eye pump
+      const g = eyeGroupRef.current;
+      if (g) {
+        const scale = 1 + Math.min(level * 1.5, 0.45);
+        // Scale around the eye row's midpoint so eyes grow outward,
+        // not from the SVG origin. Eye row sits around y=15 in the
+        // 28×28 viewBox, mid-x ≈ 14.
+        g.setAttribute("transform", `translate(14 15) scale(${scale.toFixed(3)}) translate(-14 -15)`);
       }
+
+      // Head tilt — only when something's actually playing (level > a
+      // small floor). A short attack/release smooths the gating so the
+      // motion doesn't snap on/off.
+      const tilt = tiltRef.current;
+      if (tilt) {
+        const gate = Math.min(1, Math.max(0, (level - 0.02) * 6));
+        const angle = Math.sin(t / 700 * Math.PI) * 6 * gate;
+        tilt.style.transform = `rotate(${angle.toFixed(2)}deg)`;
+      }
+
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
+
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [mood, audioLevelRef]);
+  }, [audioLevelRef]);
   void trackRange;
   void size;
 
@@ -156,6 +177,20 @@ export function CharacterFace({
       style={{ width: size, height: size }}
       aria-hidden
     >
+      {/* Tilt wrapper — JS-driven rotation that runs only while audio
+       *  is playing. Sits INSIDE the bob wrapper so the two motions
+       *  compose (bob = vertical idle, tilt = horizontal sway to the
+       *  beat) without fighting for the same transform. */}
+      <div
+        ref={tiltRef}
+        className="absolute inset-0"
+        style={{
+          transformOrigin: "50% 70%",   // pivot around the chin/neck so the
+                                         // head tips rather than translating
+          willChange: "transform",
+          transition: "transform 60ms linear",
+        }}
+      >
       <svg
         viewBox="0 0 28 28"
         className="absolute inset-0 w-full h-full"
@@ -215,26 +250,28 @@ export function CharacterFace({
           </>
         )}
 
-        {/* Eyes — big black almond ovals with a small white highlight
-         *  near the top. Eyelid scales by mood (eyeOpen). */}
-        {eyeOpen > 0 ? (
-          <>
-            <ellipse cx="10.5" cy="15" rx="1.6" ry={2.1 * eyeOpen} fill="#0a0814" />
-            <ellipse cx="17.5" cy="15" rx="1.6" ry={2.1 * eyeOpen} fill="#0a0814" />
-            <circle  cx="10.05" cy="14.2" r="0.55" fill="#fff" opacity={Math.min(1, eyeOpen + 0.2)} />
-            <circle  cx="17.05" cy="14.2" r="0.55" fill="#fff" opacity={Math.min(1, eyeOpen + 0.2)} />
-          </>
-        ) : (
-          // Closed eyes — gentle arc lines
-          <>
-            <path d="M 9 15 Q 10.5 16 12 15" stroke="#0a0814" strokeWidth="0.7" fill="none" strokeLinecap="round" />
-            <path d="M 16 15 Q 17.5 16 19 15" stroke="#0a0814" strokeWidth="0.7" fill="none" strokeLinecap="round" />
-          </>
-        )}
+        {/* Eyes — big black almond ovals with a small white highlight.
+         *  Wrapped in a <g> so the audio-reactive RAF loop can scale
+         *  them up on the beat (eye-pump). */}
+        <g ref={eyeGroupRef}>
+          {eyeOpen > 0 ? (
+            <>
+              <ellipse cx="10.5" cy="15" rx="1.6" ry={2.1 * eyeOpen} fill="#0a0814" />
+              <ellipse cx="17.5" cy="15" rx="1.6" ry={2.1 * eyeOpen} fill="#0a0814" />
+              <circle  cx="10.05" cy="14.2" r="0.55" fill="#fff" opacity={Math.min(1, eyeOpen + 0.2)} />
+              <circle  cx="17.05" cy="14.2" r="0.55" fill="#fff" opacity={Math.min(1, eyeOpen + 0.2)} />
+            </>
+          ) : (
+            // Closed eyes — gentle arc lines
+            <>
+              <path d="M 9 15 Q 10.5 16 12 15" stroke="#0a0814" strokeWidth="0.7" fill="none" strokeLinecap="round" />
+              <path d="M 16 15 Q 17.5 16 19 15" stroke="#0a0814" strokeWidth="0.7" fill="none" strokeLinecap="round" />
+            </>
+          )}
+        </g>
 
-        {/* Mouth */}
+        {/* Mouth — static (no longer audio-pulsed). Mood-keyed shape only. */}
         <path
-          ref={mouthRef}
           d={MOUTH_PATH[mood]}
           stroke="#0a0814"
           strokeWidth="0.9"
@@ -247,6 +284,7 @@ export function CharacterFace({
           <text x="22" y="6" fontSize="3" fill="#fff" opacity="0.85" fontFamily="'Lilita One', system-ui">z</text>
         )}
       </svg>
+      </div>
 
       {/* DJ headphones overlay — silver band over the top + two earcups. */}
       {headphones && (
