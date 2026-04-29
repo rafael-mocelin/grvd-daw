@@ -46,7 +46,7 @@ export const TEMPLATES: Template[] = [
     hookLine: "I been ridin' round, I been gettin' it",
     suggested: {
       kick: ["k-trap", "k-halftime"],
-      hat: ["h-trills", "h-sixteenths", "h-skip"],
+      hat: ["r-hat-160", "r-hat-150"],
       "808": ["b-move", "b-root"],
       sample: ["sam-dream", "sam-dark"],
       melody: ["m-bell", "m-flute"],
@@ -65,7 +65,7 @@ export const TEMPLATES: Template[] = [
     suggested: {
       kick: ["k-boom"],
       snare: ["s-clap", "s-rim"],
-      hat: ["h-eighths"],
+      hat: ["r-hat-150"],
       sample: ["sam-soul"],
     },
   },
@@ -82,7 +82,7 @@ export const TEMPLATES: Template[] = [
     suggested: {
       kick: ["k-halftime", "k-trap"],
       snare: ["s-halftime"],
-      hat: ["h-sixteenths"],
+      hat: ["r-hat-160"],
       "808": ["b-long", "b-move"],
       sample: ["sam-dark"],
     },
@@ -100,7 +100,7 @@ export const TEMPLATES: Template[] = [
     suggested: {
       kick: ["k-bounce", "k-trap"],
       snare: ["s-clap"],
-      hat: ["h-skip", "h-eighths"],
+      hat: ["r-hat-128", "r-hat-150"],
       sample: ["sam-neon", "sam-dream"],
       melody: ["m-bell", "m-pluck"],
     },
@@ -117,7 +117,7 @@ export const TEMPLATES: Template[] = [
     hookLine: "They sleepin', they sleepin', wake up, wake up",
     suggested: {
       kick: ["k-boom", "k-trap"],
-      hat: ["h-eighths", "h-trills"],
+      hat: ["r-hat-150", "r-hat-160"],
       sample: ["sam-soul", "sam-dark"],
     },
   },

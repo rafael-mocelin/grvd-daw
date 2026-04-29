@@ -22,10 +22,11 @@ export const SOUNDS: SoundOption[] = [
   { id: "s-halftime", kind: "snare", name: "kraaa", glyph: "🔊", variant: "halftime", tags: ["drill"], vibe: "one big snare on the 3" },
 
   // ---- Hats ----
-  { id: "h-eighths", kind: "hat", name: "tss-tss", glyph: "✨", variant: "eighths", tags: ["rap", "boom-bap"], vibe: "straight 8ths, chill" },
-  { id: "h-trills", kind: "hat", name: "trrrr", glyph: "🌀", variant: "trills", tags: ["trap"], vibe: "16th trill, trap staple" },
-  { id: "h-skip", kind: "hat", name: "skrrr", glyph: "💨", variant: "skip", tags: ["pop-rap"], vibe: "skipping triplet feel" },
-  { id: "h-sixteenths", kind: "hat", name: "ttttt", glyph: "🧨", variant: "sixteenths", tags: ["drill", "trap"], vibe: "relentless 16ths" },
+  // Synth-only hat patterns (h-eighths / h-trills / h-skip / h-sixteenths)
+  // were removed: they didn't have audible playback and read as dead
+  // entries to the player. The picker now only surfaces the file-backed
+  // hat loops below (organic / monitor / segway). If we need more hat
+  // variety, drop in new WAVs and add r-hat-* entries.
 
   // ---- 808s ----
   { id: "b-root", kind: "808", name: "wooom", glyph: "🛸", variant: "root", tags: ["trap", "rap"], vibe: "root note, simple and heavy" },
