@@ -195,7 +195,7 @@ export function MixerView() {
   if (!layers.length) {
     return (
       <div className="pt-4 pb-8 flex flex-col items-center gap-6">
-        <Header onBack={() => setStage("done")} />
+        <Header onBack={() => setStage(useStore.getState().editorReturnStage)} />
         <div className="mt-8 px-6 py-10 rounded-2xl bg-grvd-panel/60 border border-grvd-line text-center">
           <div className="text-4xl mb-2">🎛️</div>
           <div className="font-display text-lg text-white">no layers yet</div>
@@ -209,7 +209,7 @@ export function MixerView() {
 
   return (
     <div className="pt-2 pb-8 flex flex-col gap-3">
-      <Header onBack={() => setStage("done")} />
+      <Header onBack={() => setStage(useStore.getState().editorReturnStage)} />
 
       <div className="px-1 font-sans text-[11px] text-grvd-purple/70 leading-snug">
         drag faders up / down. tap FX to toggle. swipe sideways for more strips.

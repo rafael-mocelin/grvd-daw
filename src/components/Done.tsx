@@ -217,8 +217,36 @@ export function Done() {
         )}
       </div>
 
+      {/* ── Sweeten row: ARRANGE + MIX ──
+       *
+       * Promoted from secondary pills to a hero pair. Reads as "you cooked
+       * the recipe — now sweeten or ship." Sits ABOVE the publish CTA so
+       * it lands in the player's eye-line before they commit to the booth. */}
+      {latest.layers.length > 0 && (
+        <div className="px-3 grid grid-cols-2 gap-2">
+          <ChunkyButton
+            variant="cyan"
+            size="lg"
+            icon="🎚️"
+            onClick={() => { stopSong(); useStore.setState({ editorReturnStage: "done" }); setStage("arrange"); }}
+            className="w-full"
+          >
+            arrange
+          </ChunkyButton>
+          <ChunkyButton
+            variant="magenta"
+            size="lg"
+            icon="🎛️"
+            onClick={() => { stopSong(); useStore.setState({ editorReturnStage: "done" }); setStage("mixer"); }}
+            className="w-full"
+          >
+            mix
+          </ChunkyButton>
+        </div>
+      )}
+
       {/* ── Hero publish CTA ── */}
-      <div className="px-3 mt-1">
+      <div className="px-3">
         <ChunkyButton
           variant="hero"
           size="lg"
@@ -243,18 +271,6 @@ export function Done() {
           >
             PUBLISH AS TEMPLATE · {ENERGY_COSTS.publishTemplate}⚡
           </ChunkyButton>
-        </div>
-      )}
-
-      {/* ── Arrange + Mix row (only when there are layers) ── */}
-      {latest.layers.length > 0 && (
-        <div className="flex items-center justify-center gap-2 px-3">
-          <ChunkyPill variant="cyan" size="md" icon="🎚️" onClick={() => { stopSong(); setStage("arrange"); }}>
-            ARRANGE
-          </ChunkyPill>
-          <ChunkyPill variant="magenta" size="md" icon="🎛️" onClick={() => { stopSong(); setStage("mixer"); }}>
-            MIX
-          </ChunkyPill>
         </div>
       )}
 

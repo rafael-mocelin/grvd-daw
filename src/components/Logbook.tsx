@@ -14,7 +14,7 @@ export function Logbook() {
   const {
     inventory, vocalBuffer, toggleLogbook,
     publishSong, publishingSongId, energy, energyUpdatedAt,
-    activeCoopSessionId,
+    activeCoopSessionId, editSong, sayLine,
   } = useStore();
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
@@ -153,7 +153,38 @@ export function Logbook() {
                 </div>
 
                 {/* Action row */}
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center flex-wrap gap-2 mt-1">
+                  {/* Re-enter the editor for this saved song.
+                   * editSong rehydrates activeTemplate + layers + vocal
+                   * blob URL + arrangeMutes from the inventory row, then
+                   * routes to arrange/mixer. Returns false if the song's
+                   * template is unknown (e.g. deprecated since save). */}
+                  <ChunkyPill
+                    variant="cyan"
+                    size="sm"
+                    icon="🎚️"
+                    onClick={() => {
+                      stopSong();
+                      const ok = editSong(s.id, "arrange");
+                      if (ok) toggleLogbook();
+                      else sayLine("can't load that song's template", 2400);
+                    }}
+                  >
+                    arrange
+                  </ChunkyPill>
+                  <ChunkyPill
+                    variant="magenta"
+                    size="sm"
+                    icon="🎛️"
+                    onClick={() => {
+                      stopSong();
+                      const ok = editSong(s.id, "mixer");
+                      if (ok) toggleLogbook();
+                      else sayLine("can't load that song's template", 2400);
+                    }}
+                  >
+                    mix
+                  </ChunkyPill>
                   <ChunkyPill
                     variant="ghost"
                     size="sm"

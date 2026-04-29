@@ -37,7 +37,7 @@ import {
 import { registerDynamicSounds, getSound } from "../data/sounds";
 import { renderSongToWav, updateMuteState } from "../audio/engine";
 import { patchCoopState, fetchCoopSession } from "../lib/coop-db";
-import { TEMPLATES } from "../data/templates";
+import { TEMPLATES, getTemplate } from "../data/templates";
 
 /* -------------------------------------------------------------------------- */
 /* Stage machine — the 60-second journey                                       */
@@ -171,6 +171,14 @@ interface State {
   vocalAutotuneEnabled: boolean;        // true = snap to key during playback
   /** Per-section mute state for ArrangeView, keyed "kind:sectionId". */
   arrangeMutes: Record<string, boolean>;
+  /**
+   * Where arrange/mixer's "← back" should route to.
+   *
+   * Default `done` — the post-save Done page is the original entry point.
+   * NameAndSave sets this to `name` before routing to arrange/mixer so
+   * mid-creation back-trips return to the save screen instead of crashing
+   * on an empty inventory. Logbook re-entry sets it to `home`. */
+  editorReturnStage: Stage;
 
   // 60-second timer
   sessionStartedAt: number | null; // ms timestamp when player picked a template
@@ -289,6 +297,24 @@ interface State {
   setArrangeMutes: (m: Record<string, boolean>) => void;
   setSongName: (name: string) => void;
   finalizeSong: (collaborators?: string[]) => Song;
+  /**
+   * Re-enter the editor for a previously saved song.
+   *
+   * Looks up the song in inventory by id, resolves its template, and pours
+   * its layers + vocal + arrange-mute state back into the live editing
+   * slices (activeTemplate / layers / songName / vocalBlobUrl / pitchScore
+   * / arrangeMutes). Then routes the user to `target` (arrange or mixer).
+   *
+   * Note: the in-memory `vocalBuffer` (AudioBuffer) is NOT rehydrated —
+   * only the persisted blob URL. The arrange/mixer engines play vocals
+   * via the URL path through makeVocalPlayer, so this is sufficient for
+   * playback. Re-recording vocals would need a fresh navigation back
+   * through the recipe pipeline.
+   *
+   * Returns true on success, false if the song or its template can't be
+   * resolved (e.g. the template was deprecated since the song was saved).
+   */
+  editSong: (songId: string, target: "arrange" | "mixer") => boolean;
   abandon: () => void;
   feedNeed: (need: Need, amount: number) => void;
   applyDailyDecay: () => void;
@@ -462,6 +488,7 @@ export const useStore = create<State>((set, get) => ({
   vocalPitchContour: null,
   vocalAutotuneEnabled: true,   // autotune ON by default
   arrangeMutes: {},
+  editorReturnStage: "done",
   sessionStartedAt: null,
 
   inventory: [],
@@ -748,6 +775,35 @@ export const useStore = create<State>((set, get) => ({
     const uid = get().userId;
     if (uid) upsertSong(song, uid);
     return song;
+  },
+
+  editSong: (songId, target) => {
+    const song = get().inventory.find((s) => s.id === songId);
+    if (!song) return false;
+    const template = getTemplate(song.templateId);
+    if (!template) return false;
+    set({
+      activeTemplate: template,
+      layers:         [...song.layers],
+      songName:       song.name,
+      // vocalBuffer cannot be reconstructed from a saved Song — only the
+      // blob URL persists. The arrange/mixer engines play vocals via the
+      // URL path through makeVocalPlayer, so this is sufficient for
+      // playback. Re-recording requires a fresh trip through VocalRecorder.
+      vocalBuffer:    null,
+      vocalBlobUrl:   song.vocalBlobUrl ?? null,
+      pitchScore:     song.pitchScore ?? null,
+      vocalPitchContour: null,
+      arrangeMutes:   song.arrangeMutes ? { ...song.arrangeMutes } : {},
+      // Recipe progress is meaningless for a saved song — the recipe
+      // already finished. Reset to 0 so if the user backs out into
+      // StackingView they don't land mid-step.
+      recipeIndex:    0,
+      stage:          target,
+      // Re-entries from Logbook should return there, not to Done.
+      editorReturnStage: "home",
+    });
+    return true;
   },
 
   abandon: () => {
