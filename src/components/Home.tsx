@@ -101,11 +101,10 @@ export function Home() {
          *  of the lamp cone and feels like the panel's HUD strip. */}
         <div
           style={{
-            // Pinned tight to the panel's top edge — top:0 sits right
-            // up against the chrome border, still inside the frame so
-            // the bars don't bleed outside the rounded corners.
+            // Top strip sits just inside the chrome border with a small
+            // breathing gap so the mascot's ears don't kiss the border.
             position: "absolute",
-            top: 0,
+            top: 8,
             left: 8,
             right: 8,
             display: "flex",
