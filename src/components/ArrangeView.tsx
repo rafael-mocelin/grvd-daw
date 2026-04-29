@@ -33,6 +33,7 @@ import {
   seekTransport,
 } from "../audio/engine";
 import { ChunkyPill } from "../ui/Chunky";
+import { CreationToolbar } from "../ui/burst/CreationToolbar";
 
 /* -------------------------------------------------------------------------- */
 /* Section definitions (unchanged from original)                                */
@@ -295,6 +296,13 @@ export function ArrangeView() {
   return (
     <div className="pt-2 pb-8 flex flex-col gap-3">
       <Header onBack={() => setStage(useStore.getState().editorReturnStage)} />
+
+      {/* Persistent creation toolbar — same component lives on
+       *  StackingView and MixerView so the player hops between the
+       *  three without losing audio. */}
+      <div className="px-1">
+        <CreationToolbar />
+      </div>
 
       {/* ── Sticky transport bar ──
        * Sits just below the HUD (height comes from --hud-h on PageShell). */}

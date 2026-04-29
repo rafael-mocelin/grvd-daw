@@ -24,6 +24,7 @@ import { getSound } from "../data/sounds";
 import { KIND_LABEL } from "../data/types";
 import { setLayerVolume, setVocalAutotuneEnabled } from "../audio/engine";
 import { ChunkyPill } from "../ui/Chunky";
+import { CreationToolbar } from "../ui/burst/CreationToolbar";
 
 /* -------------------------------------------------------------------------- */
 /* Palette + FX maps                                                            */
@@ -210,6 +211,13 @@ export function MixerView() {
   return (
     <div className="pt-2 pb-8 flex flex-col gap-3">
       <Header onBack={() => setStage(useStore.getState().editorReturnStage)} />
+
+      {/* Persistent creation toolbar — same component lives on
+       *  StackingView and ArrangeView so the player can hop between
+       *  the three without losing audio. */}
+      <div className="px-1">
+        <CreationToolbar />
+      </div>
 
       <div className="px-1 font-sans text-[11px] text-grvd-purple/70 leading-snug">
         drag faders up / down. tap FX to toggle. swipe sideways for more strips.

@@ -25,6 +25,7 @@ import { KIND_LABEL } from "../data/types";
 import { ensureAudio, playSong, previewLayer, stopPreview, stopSong } from "../audio/engine";
 import { LAYER_XP } from "../data/achievements";
 import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
+import { CreationToolbar } from "../ui/burst/CreationToolbar";
 
 export function StackingView() {
   const {
@@ -240,68 +241,11 @@ export function StackingView() {
           </span>
         </div>
 
-        {/* Quick-access ARRANGE + MIX buttons during creation.
-         *
-         * Always visible from the moment the player enters the stacking
-         * flow. Custom chunky buttons (not ChunkyPill) so we can make
-         * them taller / fatter / louder — the design ask was big readable
-         * labels, not slim stretched pills. Buttons stay center-justified
-         * at a fixed max-width so they don't run rail-to-rail.
-         *
-         * Crucially, we do NOT stop playback when navigating: the song
-         * persists across the arrange/mixer trip so the player can keep
-         * vibing while they tweak. Same on the way back (handled by
-         * removing the unmount-stops-song effect below). */}
-        <div className="flex items-center justify-center gap-3 pt-1">
-          <button
-            onClick={() => {
-              useStore.setState({ editorReturnStage: "stack" });
-              setStage("arrange");
-            }}
-            className={[
-              "flex flex-col items-center justify-center gap-1",
-              "px-5 py-3 min-w-[140px] rounded-2xl",
-              "bg-grvd-cyan border-[3px] border-[#0a0f1c]",
-              "shadow-chunky shadow-glow-cyan",
-              "active:shadow-chunky-press active:translate-y-[2px] active:scale-[0.97]",
-              "transition-all duration-150 select-none cursor-pointer",
-            ].join(" ")}
-          >
-            <span className="text-2xl leading-none drop-shadow-[0_2px_3px_rgba(0,0,0,0.5)]">
-              🎚️
-            </span>
-            <span
-              className="font-display text-grvd-base text-base tracking-wider leading-none"
-              style={{ textShadow: "0 1px 0 rgba(255,255,255,0.45)" }}
-            >
-              ARRANGE
-            </span>
-          </button>
-          <button
-            onClick={() => {
-              useStore.setState({ editorReturnStage: "stack" });
-              setStage("mixer");
-            }}
-            className={[
-              "flex flex-col items-center justify-center gap-1",
-              "px-5 py-3 min-w-[140px] rounded-2xl",
-              "bg-grvd-magenta border-[3px] border-[#0a0f1c]",
-              "shadow-chunky shadow-glow-magenta",
-              "active:shadow-chunky-press active:translate-y-[2px] active:scale-[0.97]",
-              "transition-all duration-150 select-none cursor-pointer",
-            ].join(" ")}
-          >
-            <span className="text-2xl leading-none drop-shadow-[0_2px_3px_rgba(0,0,0,0.5)]">
-              🎛️
-            </span>
-            <span
-              className="font-display text-white text-base tracking-wider leading-none"
-              style={{ textShadow: "0 2px 0 rgba(0,0,0,0.55)" }}
-            >
-              MIX
-            </span>
-          </button>
-        </div>
+        {/* Persistent creation toolbar — three icon-only buttons (cook,
+         *  arrange, mix). Same toolbar mounts on ArrangeView and
+         *  MixerView so the player can hop between the three without
+         *  losing playback. See ui/burst/CreationToolbar.tsx. */}
+        <CreationToolbar />
       </div>
 
       {/* ── Recipe strip: sticky chunky pills below the HUD ── */}
