@@ -96,29 +96,33 @@ export function Home() {
           {dawTalk && <SpeechBubble text={dawTalk} />}
         </StudioScene>
 
-        {/* Top strip — pet (left) + 3 needs bars inline next to it.
-         *  Pinned to the very top of the stage panel so it sits clear
-         *  of the lamp cone and feels like the panel's HUD strip. */}
+        {/* Mascot — left side of the panel top, positioned independently
+         *  from the needs bars so each can be tweaked on its own without
+         *  dragging the other along. */}
         <div
           style={{
-            // Top strip sits just inside the chrome border with a small
-            // breathing gap so the mascot's ears don't kiss the border.
             position: "absolute",
-            top: 8,
-            left: 8,
-            right: 8,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
+            top: 14,
+            left: 12,
             zIndex: 8,
           }}
         >
-          <div style={{ flexShrink: 0 }}>
-            <CharacterFace size={64} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <NeedsMeters tam={tamagotchi} compact />
-          </div>
+          <CharacterFace size={64} />
+        </div>
+
+        {/* Needs bars — pinned high inside the chrome border, room left
+         *  for the mascot on the left. Independent from the mascot's
+         *  top offset so moving one doesn't move the other. */}
+        <div
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 86,
+            right: 12,
+            zIndex: 8,
+          }}
+        >
+          <NeedsMeters tam={tamagotchi} compact />
         </div>
 
         {/* Nav buttons — BOOTH stacks on top of STUDIO (left column),
