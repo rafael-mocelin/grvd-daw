@@ -117,9 +117,20 @@ export function Home() {
             boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 1px rgba(0,0,0,0.5)",
           }}
         >
-          <div style={{ flexShrink: 0 }}>
+          <button
+            onClick={() => setStage("pet")}
+            aria-label="open pet portal"
+            style={{
+              flexShrink: 0,
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              display: "block",
+            }}
+          >
             <CharacterFace size={56} />
-          </div>
+          </button>
           <div style={{ flex: 1, minWidth: 0 }}>
             <NeedsMeters tam={tamagotchi} compact bare />
           </div>

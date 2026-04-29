@@ -28,6 +28,54 @@ import { Icon } from "./burst/Icon";
 import { CharacterFace } from "./CharacterFace";
 
 /* -------------------------------------------------------------------------- */
+/* HomeButton                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Round chunky chrome button with a 🏠 glyph. Sits next to LevelBadge
+ * in the HUD as a quick "back to home" affordance from any screen.
+ */
+export function HomeButton() {
+  const setStage = useStore((s) => s.setStage);
+  return (
+    <button
+      onClick={() => setStage("home")}
+      aria-label="back to home"
+      className="block shrink-0 cursor-pointer"
+      style={{
+        position: "relative",
+        width: 48,
+        height: 48,
+        background: "transparent",
+        border: "none",
+        padding: 0,
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          position: "absolute", inset: 0, borderRadius: "50%",
+          background: `radial-gradient(circle at 35% 30%, ${C.navyLight}, ${C.navyDeep} 70%, #0a0f1c)`,
+          border: "2px solid #0a0f1c",
+          boxShadow: "0 4px 0 rgba(0,0,0,0.5), 0 6px 14px rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.18)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 22,
+            lineHeight: 1,
+            filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.5))",
+          }}
+        >
+          🏠
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* LevelBadge                                                                  */
 /* -------------------------------------------------------------------------- */
 

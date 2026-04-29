@@ -1,20 +1,20 @@
 /**
  * Hud.tsx — BURST single-row HUD.
  *
- * Single row, four pieces side by side at mobile widths:
+ * Single row of four pieces:
  *
- *   [Level disc] [Currency strip] [Energy capsule] [XP ribbon]
+ *   [Profile] [🏠 home] [Coin · Gem] [XP]
  *
- * The energy capsule lives on the top row now (was previously its
- * own row beneath the others) — the player asked for a clear
- * always-visible energy bar, not a stacked second row.
+ * The energy capsule was removed — energy lives on the home stage's
+ * top strip (NeedsMeters) where it belongs alongside the other two
+ * needs. Here we keep just the navigation anchors + currency + xp.
  *
  * Sticky to the top of every screen via PageShell. The HUD's
  * computed height (`--hud-h`) is referenced by sticky strips on
  * other screens (StackingView, ArrangeView).
  */
 
-import { LevelBadge, CurrencyStrip, EnergyCapsule, XpRibbon } from "./HudPieces";
+import { LevelBadge, HomeButton, CurrencyStrip, XpRibbon } from "./HudPieces";
 
 export function Hud() {
   return (
@@ -40,8 +40,8 @@ export function Hud() {
         }}
       >
         <LevelBadge />
+        <HomeButton />
         <CurrencyStrip coins={0} gems={0} />
-        <EnergyCapsule />
         <XpRibbon />
       </div>
     </header>
