@@ -16,12 +16,7 @@ import { Gloss } from "./Gloss";
 type Pos = "tl" | "tr" | "bl" | "br";
 
 interface NavButtonProps {
-  /** Preset corner position. Mutually exclusive with `style`. */
-  pos?:      Pos;
-  /** Explicit absolute position style overriding the preset. Use this
-   *  for layouts that don't fit the four-corner pattern (e.g. stacked
-   *  columns of buttons on the left/right edge of the stage panel). */
-  style?:    React.CSSProperties;
+  pos:       Pos;
   /** Top color of the gradient. */
   gradFrom:  string;
   /** Bottom color of the gradient. */
@@ -40,7 +35,7 @@ const POS_STYLE: Record<Pos, React.CSSProperties> = {
   br: { bottom: 12, right: 12 },
 };
 
-export function NavButton({ pos, style, gradFrom, gradTo, label, icon, halo, onPress }: NavButtonProps) {
+export function NavButton({ pos, gradFrom, gradTo, label, icon, halo, onPress }: NavButtonProps) {
   const [pressed, setPressed] = useState(false);
 
   return (
@@ -54,8 +49,7 @@ export function NavButton({ pos, style, gradFrom, gradTo, label, icon, halo, onP
       aria-label={label}
       style={{
         position: "absolute",
-        ...(pos ? POS_STYLE[pos] : {}),
-        ...(style ?? {}),
+        ...POS_STYLE[pos],
         width: 76, height: 76,
         borderRadius: 18,
         border: "2.5px solid #0a0f1c",
