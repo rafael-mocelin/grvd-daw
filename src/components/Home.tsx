@@ -150,7 +150,7 @@ export function Home() {
         }}
       >
         <GhostPill onClick={toggleLogbook}>
-          📓 musics{hasTracks && ` · ${inventory.length}`}
+          📓 YOUR SONGS{hasTracks && ` · ${inventory.length}`}
         </GhostPill>
       </div>
     </div>
