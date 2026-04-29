@@ -48,8 +48,78 @@ const META: Record<Need, NeedMeta> = {
 export function NeedsMeters({ tam, compact }: Props) {
   const keys: Need[] = ["social", "creativity", "energy"];
 
+  // Compact mode → 3 mini horizontal bars on one row, each one a chunky
+  // dark pill containing [icon · small fat fill bar]. Each pill ~60-70px
+  // wide. Used in the Home top strip next to the pet so the row is short.
+  //
+  // Full mode → tall stacked rows with labels + numeric values; used in
+  // Crib + Pet portal where the readout is the focus.
+  if (compact) {
+    return (
+      <div className="flex items-center gap-1.5 w-full">
+        {keys.map((k) => {
+          const v = tam.needs[k];
+          const { label, icon, fill, glow } = META[k];
+          const showGlow = v >= 60;
+          return (
+            <div
+              key={k}
+              aria-label={`${label} ${v}/100`}
+              style={{
+                flex: "1 1 0",
+                minWidth: 0,
+                height: 22,
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "0 4px 0 5px",
+                borderRadius: 999,
+                background: "rgba(10,8,20,0.78)",
+                border: "1.5px solid rgba(0,0,0,0.7)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 1px rgba(0,0,0,0.5)",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1,
+                  filter: showGlow ? `drop-shadow(0 0 4px ${glow})` : "none",
+                  flexShrink: 0,
+                }}
+              >
+                {icon}
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  height: 8,
+                  borderRadius: 999,
+                  background: "rgba(0,0,0,0.5)",
+                  border: "1px solid rgba(0,0,0,0.6)",
+                  overflow: "hidden",
+                  boxShadow: "inset 0 1px 1px rgba(0,0,0,0.6)",
+                }}
+              >
+                <span
+                  style={{
+                    display: "block",
+                    height: "100%",
+                    width: `${v}%`,
+                    background: fill,
+                    boxShadow: showGlow ? `0 0 4px ${glow}, inset 0 1px 0 rgba(255,255,255,0.4)` : "inset 0 1px 0 rgba(255,255,255,0.4)",
+                    transition: "width 500ms ease",
+                  }}
+                />
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex flex-col ${compact ? "gap-1" : "gap-2"} ${compact ? "" : "w-full"}`}>
+    <div className="flex flex-col gap-2 w-full">
       {keys.map((k) => {
         const v = tam.needs[k];
         const { label, icon, fill, glow } = META[k];
@@ -57,68 +127,34 @@ export function NeedsMeters({ tam, compact }: Props) {
         return (
           <div
             key={k}
-            className={[
-              "flex items-center",
-              compact ? "gap-1.5 px-1.5 py-0.5" : "gap-2.5 px-3 py-2",
-              "rounded-full bg-white/3 border border-white/8",
-              "shadow-chunky-press",
-            ].join(" ")}
-            aria-label={`${label} ${v}/100`}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-2xl bg-white/3 border border-white/8 shadow-chunky-press"
           >
-            {/* Icon — no surrounding disc in compact mode (saves space). */}
             <span
-              className={[
-                "shrink-0 inline-flex items-center justify-center",
-                compact ? "text-[12px] leading-none" : "rounded-full w-8 h-8 text-base bg-grvd-base border border-white/10",
-                "transition-[filter] duration-300",
-              ].join(" ")}
-              style={
-                compact
-                  ? showGlow
-                    ? { filter: `drop-shadow(0 0 6px ${glow})` }
-                    : undefined
-                  : {
-                      boxShadow: showGlow
-                        ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.15)`
-                        : "inset 0 1px 0 rgba(255,255,255,0.10)",
-                    }
-              }
+              className="shrink-0 inline-flex items-center justify-center rounded-full w-8 h-8 text-base bg-grvd-base border border-white/10 transition-shadow duration-300"
+              style={{
+                boxShadow: showGlow
+                  ? `0 0 12px ${glow}, inset 0 1px 0 rgba(255,255,255,0.15)`
+                  : "inset 0 1px 0 rgba(255,255,255,0.10)",
+              }}
             >
               {icon}
             </span>
-
-            {/* Label — only outside compact mode. */}
-            {!compact && (
-              <span className="font-mono text-[10px] tracking-[0.16em] uppercase text-white/65 shrink-0 whitespace-nowrap w-[78px]">
-                {label}
-              </span>
-            )}
-
-            {/* Fill bar */}
-            <div
-              className={[
-                "flex-1 rounded-full overflow-hidden",
-                compact ? "h-1.5" : "h-2.5",
-                "bg-grvd-base/60 border border-white/8",
-                "shadow-[inset_0_1px_2px_rgba(0,0,0,0.5)]",
-              ].join(" ")}
-            >
+            <span className="font-mono text-[10px] tracking-[0.16em] uppercase text-white/65 shrink-0 whitespace-nowrap w-[78px]">
+              {label}
+            </span>
+            <div className="flex-1 h-2.5 bg-grvd-base/60 rounded-full overflow-hidden border border-white/8 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5)]">
               <div
                 className="h-full rounded-full transition-[width] duration-500"
                 style={{
                   width: `${v}%`,
                   background: fill,
-                  boxShadow: showGlow ? `0 0 6px ${glow}` : "none",
+                  boxShadow: showGlow ? `0 0 8px ${glow}` : "none",
                 }}
               />
             </div>
-
-            {/* Value — outside compact mode only. */}
-            {!compact && (
-              <span className="font-display text-sm text-white tabular-nums w-[28px] text-right shrink-0">
-                {v}
-              </span>
-            )}
+            <span className="font-display text-sm text-white tabular-nums w-[28px] text-right shrink-0">
+              {v}
+            </span>
           </div>
         );
       })}
