@@ -96,44 +96,33 @@ export function Home() {
           {dawTalk && <SpeechBubble text={dawTalk} />}
         </StudioScene>
 
-        {/* Mascot — left side of the panel top, positioned independently
-         *  from the needs bars so each can be tweaked on its own.
-         *  Wrapped in a chunky dark-transparent disc that matches the
-         *  needs bars' background so the strip reads as one unit. */}
-        <div
-          style={{
-            position: "absolute",
-            top: 14,
-            left: 12,
-            zIndex: 8,
-            width: 64,
-            height: 64,
-            borderRadius: "50%",
-            background: "rgba(10,8,20,0.78)",
-            border: "1.5px solid rgba(0,0,0,0.7)",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 1px rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            overflow: "hidden",
-          }}
-        >
-          <CharacterFace size={56} />
-        </div>
-
-        {/* Needs bars — pinned high inside the chrome border, room left
-         *  for the mascot on the left. Independent from the mascot's
-         *  top offset so moving one doesn't move the other. */}
+        {/* Top banner — single dark-transparent strip across the panel
+         *  top, holding the mascot on the left and the 3 needs bars on
+         *  the right. Bars use bare mode (no per-pill bg) so the banner
+         *  is the only background. */}
         <div
           style={{
             position: "absolute",
             top: 8,
-            left: 86,
-            right: 12,
+            left: 8,
+            right: 8,
             zIndex: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "6px 10px",
+            borderRadius: 14,
+            background: "rgba(10,8,20,0.78)",
+            border: "1.5px solid rgba(0,0,0,0.7)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 1px rgba(0,0,0,0.5)",
           }}
         >
-          <NeedsMeters tam={tamagotchi} compact />
+          <div style={{ flexShrink: 0 }}>
+            <CharacterFace size={56} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <NeedsMeters tam={tamagotchi} compact bare />
+          </div>
         </div>
 
         {/* Nav buttons — BOOTH stacks on top of STUDIO (left column),

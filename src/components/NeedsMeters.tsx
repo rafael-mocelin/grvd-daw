@@ -13,6 +13,9 @@ interface Props {
   tam: Tamagotchi;
   /** Compact mode shrinks padding/icons for inline footer use. */
   compact?: boolean;
+  /** Drops the per-pill dark background — for use when the parent
+   *  already provides a banner background (Home top strip). Compact only. */
+  bare?: boolean;
 }
 
 interface NeedMeta {
@@ -45,7 +48,7 @@ const META: Record<Need, NeedMeta> = {
   },
 };
 
-export function NeedsMeters({ tam, compact }: Props) {
+export function NeedsMeters({ tam, compact, bare }: Props) {
   const keys: Need[] = ["social", "creativity", "energy"];
 
   // Compact mode → 3 mini horizontal bars on one row, each one a chunky
@@ -74,9 +77,9 @@ export function NeedsMeters({ tam, compact }: Props) {
                 gap: 4,
                 padding: "0 4px 0 5px",
                 borderRadius: 999,
-                background: "rgba(10,8,20,0.78)",
-                border: "1.5px solid rgba(0,0,0,0.7)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 1px rgba(0,0,0,0.5)",
+                background: bare ? "transparent"     : "rgba(10,8,20,0.78)",
+                border:     bare ? "none"            : "1.5px solid rgba(0,0,0,0.7)",
+                boxShadow:  bare ? "none"            : "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 1px rgba(0,0,0,0.5)",
               }}
             >
               <span
