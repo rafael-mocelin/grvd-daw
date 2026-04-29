@@ -101,8 +101,11 @@ export function Home() {
          *  of the lamp cone and feels like the panel's HUD strip. */}
         <div
           style={{
+            // Pinned tight to the panel's top edge — top:0 sits right
+            // up against the chrome border, still inside the frame so
+            // the bars don't bleed outside the rounded corners.
             position: "absolute",
-            top: 4,
+            top: 0,
             left: 8,
             right: 8,
             display: "flex",
