@@ -32,20 +32,30 @@ import { CharacterFace } from "./CharacterFace";
 /* -------------------------------------------------------------------------- */
 
 export function LevelBadge() {
-  const level    = useStore((s) => s.level);
-  const setStage = useStore((s) => s.setStage);
+  const level       = useStore((s) => s.level);
+  const setStage    = useStore((s) => s.setStage);
+  const openProfile = useStore((s) => s.openProfile);
+  const userId      = useStore((s) => s.userId);
+  const player      = useStore((s) => s.player);
+
+  function go() {
+    // Tap the badge → open the player's own TastemakerProfile (drops,
+    // fans, ratings, pushes, early-ear hits, following). When there's
+    // no userId (guest), fall back to setStage("profile") which routes
+    // through Profile.tsx's null-id branch.
+    if (userId) openProfile(userId);
+    else        setStage("profile");
+  }
 
   return (
     <button
-      onClick={() => setStage("pet")}
-      aria-label={`level ${level} · open pet`}
+      onClick={go}
+      aria-label={`level ${level} · open your profile`}
       className="block shrink-0 cursor-pointer"
       style={{
         position: "relative",
         width: 64,
         height: 64,
-        // Add bottom space so the LV pill doesn't get clipped by the
-        // parent's overflow / sibling layout.
         marginBottom: 8,
         background: "transparent",
         border: "none",
@@ -71,21 +81,28 @@ export function LevelBadge() {
           boxShadow: "0 4px 0 rgba(0,0,0,0.5), 0 8px 18px rgba(0,0,0,0.55), inset 0 2px 0 rgba(255,255,255,0.6)",
         }}
       />
-      {/* Inner disc — the live pet/mascot (the gradient mood-tinted face
-       *  with cursor-tracking eyes and an audio-amped mouth). Same
-       *  character that fills the YOUR PET portal screen, just shrunk
-       *  to fit the HUD. The chibi avatar with arms/legs lives on the
-       *  home stage — that's the player IN the BURST world; this is
-       *  the in-app pet. */}
+      {/* Inner disc — the player's profile picture (avatar emoji on a
+       *  navy gradient). Tap to open their TastemakerProfile. The
+       *  pet/mascot lives on the home stage now, not the HUD anchor. */}
       <div
         aria-hidden
         style={{
           position: "absolute", inset: 4, borderRadius: "50%",
           overflow: "hidden",
           border: "2px solid #0a0f1c",
+          background: `radial-gradient(circle at 35% 30%, ${C.navyLight}, ${C.navyDeep} 70%, #0a0f1c)`,
+          display: "flex", alignItems: "center", justifyContent: "center",
         }}
       >
-        <CharacterFace size={52} bob={false} />
+        <span
+          style={{
+            fontSize: 30,
+            lineHeight: 1,
+            filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.5))",
+          }}
+        >
+          {player?.avatar || "🧢"}
+        </span>
       </div>
       {/* LV pill */}
       <div
