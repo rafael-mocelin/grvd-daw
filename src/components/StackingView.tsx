@@ -446,26 +446,9 @@ export function StackingView() {
                         {s!.vibe}
                       </div>
                     </div>
-                    {/* Sound state indicator (read-only — no separate
-                     *  preview button; the whole row is the preview/select
-                     *  control). Speaker icon while previewing, check when
-                     *  armed-to-select, dot otherwise. */}
-                    <span
-                      className={[
-                        "w-7 h-7 rounded-full shrink-0",
-                        "inline-flex items-center justify-center text-sm",
-                        "border-2 transition-colors",
-                        picked
-                          ? "bg-grvd-gold/30 border-grvd-gold text-grvd-gold"
-                          : isArmed
-                            ? "bg-grvd-cyan/30 border-grvd-cyan text-grvd-cyan"
-                            : isThisPreviewing
-                              ? "bg-grvd-purple/30 border-grvd-purple text-white"
-                              : "bg-white/6 border-white/12 text-white/40",
-                      ].join(" ")}
-                    >
-                      {picked ? "✓" : isThisPreviewing ? "♪" : isArmed ? "→" : "·"}
-                    </span>
+                    {/* No state indicator on the right — the whole row's
+                     *  background + border color already communicates state
+                     *  (cyan = armed, purple-glow = previewing, gold = picked). */}
                   </button>
                 );
               })}
