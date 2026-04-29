@@ -135,10 +135,7 @@ export function Home() {
 
       {/* ── Hero CTA ── */}
       <div>
-        <CookCTA
-          label={hasTracks ? "COOK A TRACK" : "MAKE YOUR FIRST TRACK"}
-          onPress={() => setStage("template")}
-        />
+        <CookCTA onPress={() => setStage("template")} />
       </div>
 
       {/* ── Tertiary row ──
