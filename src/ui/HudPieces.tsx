@@ -25,6 +25,7 @@ import {
 import { C, chrome, readout } from "./burst/tokens";
 import { Gloss } from "./burst/Gloss";
 import { Icon } from "./burst/Icon";
+import { MascotHead } from "./burst/MascotHead";
 
 /* -------------------------------------------------------------------------- */
 /* LevelBadge                                                                  */
@@ -70,7 +71,9 @@ export function LevelBadge() {
           boxShadow: "0 4px 0 rgba(0,0,0,0.5), 0 8px 18px rgba(0,0,0,0.55), inset 0 2px 0 rgba(255,255,255,0.6)",
         }}
       />
-      {/* Navy disc with headphones */}
+      {/* Inner disc — navy backdrop with the live mascot head sitting
+       *  on top so the HUD anchor shows the actual character instead of
+       *  a generic icon. */}
       <div
         aria-hidden
         style={{
@@ -79,9 +82,10 @@ export function LevelBadge() {
           border: "2px solid #0a0f1c",
           display: "flex", alignItems: "center", justifyContent: "center",
           boxShadow: "inset 0 -3px 0 rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.2)",
+          overflow: "hidden",
         }}
       >
-        <Icon.Headphones size={26} color="#cfd8ee" />
+        <MascotHead size={42} />
       </div>
       {/* LV pill */}
       <div
@@ -265,22 +269,15 @@ export function XpRibbon() {
       }}
       aria-label={`xp ${totalXP} — open achievements`}
     >
-      {/* Tail left — diamond peeking from behind the ribbon body */}
-      <div
-        aria-hidden
-        style={{
-          width: 12, height: 24,
-          transform: "rotate(45deg) translate(4px, 0)",
-          background: `linear-gradient(180deg, ${C.goldLight}, ${C.gold})`,
-          border: "2px solid #0a0f1c",
-          marginRight: -10,
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.6)",
-        }}
-      />
-      {/* Body */}
+      {/* Clean gold pill — the rotated-diamond ribbon tails were causing
+       *  visual artifacts at the corners (rotated squares poking out the
+       *  back of the body). Dropped them; the pill alone reads cleaner. */}
       <div
         style={{
-          position: "relative", height: 30, padding: "0 12px",
+          position: "relative",
+          height: 32,
+          padding: "0 12px",
+          borderRadius: 999,
           background: `linear-gradient(180deg, ${C.goldLight}, ${C.gold})`,
           border: "2px solid #0a0f1c",
           boxShadow: "0 4px 0 rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.6), inset 0 -2px 0 rgba(0,0,0,0.25)",
@@ -290,7 +287,9 @@ export function XpRibbon() {
         <span
           style={{
             fontFamily: "'Lilita One', system-ui",
-            fontSize: 16, color: "#3a2906", letterSpacing: 0.6,
+            fontSize: 14,
+            color: "#3a2906",
+            letterSpacing: 0.5,
             textShadow: "0 1px 0 rgba(255,255,255,0.4)",
             whiteSpace: "nowrap",
             fontVariantNumeric: "tabular-nums",
@@ -299,17 +298,6 @@ export function XpRibbon() {
           {totalXP} XP
         </span>
       </div>
-      {/* Tail right */}
-      <div
-        aria-hidden
-        style={{
-          width: 12, height: 24,
-          transform: "rotate(45deg) translate(-4px, 0)",
-          background: `linear-gradient(180deg, ${C.gold}, #a07b0e)`,
-          border: "2px solid #0a0f1c",
-          marginLeft: -10,
-        }}
-      />
     </button>
   );
 }
