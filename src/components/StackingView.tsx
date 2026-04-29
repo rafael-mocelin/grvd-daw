@@ -255,10 +255,13 @@ export function StackingView() {
       >
         <div className="flex gap-1.5 min-w-max">
           {activeTemplate.recipe.map((kind, i) => {
-            const layer     = existingForKind(kind);
-            const active    = i === recipeIndex;
-            const clickable = !!layer && !active;
-            const sound = layer ? getSound(layer.soundId) : null;
+            const layer  = existingForKind(kind);
+            const active = i === recipeIndex;
+            const sound  = layer ? getSound(layer.soundId) : null;
+            // Every step is jumpable now — players can skip ahead to
+            // sample/vocals etc. without committing to the current step
+            // first. Only the active pill itself is non-interactive.
+            const clickable = !active;
             return (
               <button
                 key={kind + i}
@@ -272,8 +275,8 @@ export function StackingView() {
                   active
                     ? "bg-grvd-purple/25 border-2 border-grvd-purple text-white shadow-glow-purple"
                     : layer
-                      ? "bg-white/6 border-2 border-white/15 text-white/65"
-                      : "bg-transparent border-2 border-white/8 text-white/30",
+                      ? "bg-white/6 border-2 border-white/15 text-white/75 hover:border-grvd-purple/45"
+                      : "bg-transparent border-2 border-white/12 text-white/55 hover:border-grvd-purple/45",
                 ].join(" ")}
               >
                 <span className="opacity-60">{i + 1}</span>
