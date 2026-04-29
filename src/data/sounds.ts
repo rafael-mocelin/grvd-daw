@@ -34,10 +34,10 @@ export const SOUNDS: SoundOption[] = [
   { id: "b-long", kind: "808", name: "woooooom", glyph: "🌌", variant: "long", tags: ["drill", "ambient"], vibe: "long, held, atmospheric" },
 
   // ---- Samples ----
-  { id: "sam-soul", kind: "sample", name: "soul loop", glyph: "🎷", variant: "soul-chop", tags: ["boom-bap", "rap"], vibe: "chopped soul, Kanye-style" },
-  { id: "sam-dream", kind: "sample", name: "dream pad", glyph: "☁️", variant: "dreamy", tags: ["pop-rap", "ambient"], vibe: "airy, open, Travis-y" },
-  { id: "sam-dark", kind: "sample", name: "dark keys", glyph: "🖤", variant: "dark-keys", tags: ["drill", "trap"], vibe: "minor, heavy, menacing" },
-  { id: "sam-neon", kind: "sample", name: "neon stab", glyph: "🟣", variant: "neon", tags: ["pop-rap", "electronic"], vibe: "bright synth stab" },
+  // Synth-only sample patterns (sam-soul / sam-dream / sam-dark / sam-neon)
+  // were removed for the same reason as the synth-only hats: no fileUrl,
+  // no audible playback. Picker now only surfaces the file-backed sample
+  // loops below (paradise / melodic / without / vinyl cut).
 
   // ---- Melodies ----
   { id: "m-bell", kind: "melody", name: "bells", glyph: "🔔", variant: "bell", tags: ["trap", "pop-rap"], vibe: "bright bell lead" },

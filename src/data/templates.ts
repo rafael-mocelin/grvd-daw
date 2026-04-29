@@ -48,7 +48,7 @@ export const TEMPLATES: Template[] = [
       kick: ["k-trap", "k-halftime"],
       hat: ["r-hat-160", "r-hat-150"],
       "808": ["b-move", "b-root"],
-      sample: ["sam-dream", "sam-dark"],
+      sample: ["r-bells-Fm", "r-sample-Bm"],
       melody: ["m-bell", "m-flute"],
     },
   },
@@ -66,7 +66,7 @@ export const TEMPLATES: Template[] = [
       kick: ["k-boom"],
       snare: ["s-clap", "s-rim"],
       hat: ["r-hat-150"],
-      sample: ["sam-soul"],
+      sample: ["r-vinyl-Em"],
     },
   },
   {
@@ -84,7 +84,7 @@ export const TEMPLATES: Template[] = [
       snare: ["s-halftime"],
       hat: ["r-hat-160"],
       "808": ["b-long", "b-move"],
-      sample: ["sam-dark"],
+      sample: ["r-sample-Bm"],
     },
   },
   {
@@ -101,7 +101,7 @@ export const TEMPLATES: Template[] = [
       kick: ["k-bounce", "k-trap"],
       snare: ["s-clap"],
       hat: ["r-hat-128", "r-hat-150"],
-      sample: ["sam-neon", "sam-dream"],
+      sample: ["r-bells-Fm", "r-melodic-Gm"],
       melody: ["m-bell", "m-pluck"],
     },
   },
@@ -118,7 +118,7 @@ export const TEMPLATES: Template[] = [
     suggested: {
       kick: ["k-boom", "k-trap"],
       hat: ["r-hat-150", "r-hat-160"],
-      sample: ["sam-soul", "sam-dark"],
+      sample: ["r-vinyl-Em", "r-sample-Bm"],
     },
   },
 ];
