@@ -26,8 +26,10 @@ export function PageShell({ children }: { children: ReactNode }) {
       // Single source of truth for HUD height — screens that want sticky
       // sub-headers (e.g. StackingView's recipe progress strip,
       // ArrangeView's transport bar) reference `var(--hud-h)` via inline
-      // style. If the HUD ever grows or shrinks, change it here.
-      style={{ ["--hud-h" as string]: "64px" }}
+      // style. The BURST hero-design HUD is two rows tall (level disc on
+      // left, currency+xp+energy stacked on right), so we bumped this
+      // from 64px to 116px.
+      style={{ ["--hud-h" as string]: "116px" }}
     >
       {/* Soft radial glow at the top — gives the dark base some life
        *  without committing to a backdrop illustration. */}

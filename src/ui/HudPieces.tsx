@@ -1,24 +1,19 @@
 /**
- * HudPieces.tsx — UI v1 hero-mockup HUD readouts.
+ * HudPieces.tsx — BURST hero-design HUD readouts.
  *
- * The four shapes that live in the persistent top ribbon:
+ * Faithful port of the four HUD components from the Claude Design
+ * handoff. Each one composes the BURST chrome treatment (`chrome()`)
+ * with custom layered geometry to read as a chunky physical object
+ * — gold ring with embossed disc, chrome capsule with bumped-out
+ * badge, ribbon banner with diamond tails, etc.
  *
- *   <LevelDisc>  — gold-ringed circular level badge with a headphones
- *                   glyph and "LEVEL N" caption hanging below. Replaces
- *                   the AvatarPuck as the HUD anchor; tap still routes
- *                   to the pet portal.
- *   <EnergyOrb>  — chunky purple capsule. Lightning bolt in a gradient
- *                   disc on the left, "N/100" readout, magenta→purple
- *                   liquid fill from left.
- *   <XpRibbon>   — gold ribbon banner with "XP" badge on the left,
- *                   "N XP" body text. Two little ribbon tails on the
- *                   bottom corners give it the trophy-banner shape.
- *   <CoinSlot>   — gold disc with a crown glyph + count. Placeholder
- *                   for the future currency; rendered always so the
- *                   HUD frame is locked from day 1.
+ *   <LevelBadge>     gold ring + navy disc + LV pill (HUD anchor)
+ *   <CurrencyStrip>  navy capsule with [coin · gem] split
+ *   <EnergyCapsule>  navy pill with coral bolt badge + coral→gold fill
+ *   <XpRibbon>       gold ribbon banner with diamond tails
  *
- * Mobile-first: tuned to fit at 375-414px viewport widths. The HUD
- * sticks to the top of every screen via PageShell.
+ * Live values come from the zustand store. EnergyCapsule re-renders
+ * once a second so passive regen ticks visibly.
  */
 
 import { useEffect, useState } from "react";
@@ -27,18 +22,15 @@ import {
   ENERGY_MAX,
   computeLiveEnergy,
 } from "../store/useStore";
+import { C, chrome, readout } from "./burst/tokens";
+import { Gloss } from "./burst/Gloss";
+import { Icon } from "./burst/Icon";
 
 /* -------------------------------------------------------------------------- */
-/* LevelDisc                                                                    */
+/* LevelBadge                                                                  */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Big gold-ringed level disc. The icon is a generic music symbol (head-
- * phones) rather than a mood face — saves space and keeps the HUD anchor
- * stable visually as mood swings. Tap routes to the pet portal where
- * the live mascot lives.
- */
-export function LevelDisc({ size = 56 }: { size?: number }) {
+export function LevelBadge() {
   const level    = useStore((s) => s.level);
   const setStage = useStore((s) => s.setStage);
 
@@ -46,51 +38,119 @@ export function LevelDisc({ size = 56 }: { size?: number }) {
     <button
       onClick={() => setStage("pet")}
       aria-label={`level ${level} · open pet`}
-      className="relative shrink-0 select-none animate-puck-bob"
-      style={{ width: size, height: size + 10 /* room for caption */ }}
+      className="block shrink-0 cursor-pointer"
+      style={{
+        position: "relative",
+        width: 64,
+        height: 64,
+        // Add bottom space so the LV pill doesn't get clipped by the
+        // parent's overflow / sibling layout.
+        marginBottom: 8,
+        background: "transparent",
+        border: "none",
+        padding: 0,
+      }}
     >
-      {/* Gold ring */}
-      <span
+      {/* Gold halo glow */}
+      <div
         aria-hidden
-        className="absolute inset-x-0 top-0 rounded-full bg-level-ring shadow-glow-gold"
-        style={{ height: size }}
+        style={{
+          position: "absolute", inset: -6, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(212,160,23,0.55) 0%, rgba(212,160,23,0) 70%)",
+          filter: "blur(2px)",
+        }}
       />
-      {/* Inner purple disc with headphones */}
-      <span
+      {/* Gold ring */}
+      <div
         aria-hidden
-        className={[
-          "absolute inset-x-[3px] top-[3px] rounded-full",
-          "bg-gradient-to-br from-grvd-purple to-[#5b3aa5]",
-          "shadow-chunky-press",
-          "flex items-center justify-center text-white",
-        ].join(" ")}
-        style={{ height: size - 6, fontSize: size * 0.5 }}
-      >
-        🎧
-      </span>
-      {/* "LEVEL N" caption hugging the bottom of the disc */}
-      <span
+        style={{
+          position: "absolute", inset: 0, borderRadius: "50%",
+          background: `radial-gradient(circle at 35% 30%, ${C.goldLight}, ${C.gold} 60%, #7a5a08 100%)`,
+          border: "2px solid #0a0f1c",
+          boxShadow: "0 4px 0 rgba(0,0,0,0.5), 0 8px 18px rgba(0,0,0,0.55), inset 0 2px 0 rgba(255,255,255,0.6)",
+        }}
+      />
+      {/* Navy disc with headphones */}
+      <div
         aria-hidden
-        className={[
-          "absolute left-1/2 -translate-x-1/2",
-          "px-1.5 py-[1px] rounded-full",
-          "bg-grvd-gold text-grvd-base",
-          "font-display text-[8px] leading-none tracking-[0.18em]",
-          "shadow-chunky-press whitespace-nowrap",
-        ].join(" ")}
-        style={{ top: size - 4 }}
+        style={{
+          position: "absolute", inset: 6, borderRadius: "50%",
+          background: `radial-gradient(circle at 35% 30%, ${C.navyLight}, ${C.navyDeep})`,
+          border: "2px solid #0a0f1c",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "inset 0 -3px 0 rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.2)",
+        }}
       >
-        L{level}
-      </span>
+        <Icon.Headphones size={26} color="#cfd8ee" />
+      </div>
+      {/* LV pill */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute", bottom: -6, left: "50%", transform: "translateX(-50%)",
+          padding: "2px 10px", borderRadius: 10,
+          background: `linear-gradient(180deg, ${C.goldLight}, ${C.gold})`,
+          border: "2px solid #0a0f1c",
+          fontFamily: "'Lilita One', system-ui",
+          fontSize: 12, color: "#3a2906", letterSpacing: 0.5,
+          boxShadow: "0 3px 0 rgba(0,0,0,0.4), inset 0 1.5px 0 rgba(255,255,255,0.7)",
+          textShadow: "0 1px 0 rgba(255,255,255,0.4)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        LV {level}
+      </div>
     </button>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* EnergyOrb                                                                   */
+/* CurrencyStrip                                                               */
 /* -------------------------------------------------------------------------- */
 
-export function EnergyOrb() {
+/**
+ * Navy capsule containing coin + gem readouts side by side.
+ * Coins/gems are placeholder economy values for now — render a fixed
+ * "0" until the currency system ships, but keep the slot occupied so
+ * the HUD frame is visually locked from day 1.
+ */
+export function CurrencyStrip({ coins = 0, gems = 0 }: { coins?: number; gems?: number }) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        ...chrome(`linear-gradient(180deg, ${C.navyLight}, ${C.navyDeep})`),
+        borderRadius: 14, height: 40,
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "0 12px",
+      }}
+    >
+      <Gloss radius={14} opacity={0.25} />
+      <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
+        <Icon.Coin size={20} />
+        <span style={{ ...readout(), fontSize: 16 }}>{coins}</span>
+      </div>
+      <div
+        aria-hidden
+        style={{
+          width: 1.5, height: 22,
+          background: "rgba(255,255,255,0.18)",
+          borderLeft: "1px solid rgba(0,0,0,0.5)",
+        }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
+        <Icon.Gem size={18} />
+        <span style={{ ...readout(), fontSize: 16 }}>{gems}</span>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* EnergyCapsule                                                               */
+/* -------------------------------------------------------------------------- */
+
+export function EnergyCapsule() {
   const baseEnergy      = useStore((s) => s.energy);
   const energyUpdatedAt = useStore((s) => s.energyUpdatedAt);
 
@@ -106,55 +166,61 @@ export function EnergyOrb() {
 
   return (
     <div
-      className={[
-        "relative h-9 grow min-w-[110px]",
-        "rounded-full bg-[#1c1635]",
-        "border-2 border-grvd-purple/60",
-        "shadow-chunky-press shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)]",
-        "flex items-center pl-9 pr-3",
-      ].join(" ")}
+      style={{ position: "relative", height: 40, flex: 1, minWidth: 0 }}
       aria-label={`energy ${live}/${ENERGY_MAX}`}
     >
-      {/* Lightning badge — gradient disc on the left edge, slightly
-       * overshooting the capsule so it pops out chunky-style. */}
-      <span
+      {/* Coral bolt badge bumping out the left edge */}
+      <div
         aria-hidden
-        className={[
-          "absolute -left-1 top-1/2 -translate-y-1/2",
-          "w-9 h-9 rounded-full",
-          "bg-gradient-to-br from-grvd-magenta to-grvd-purple",
-          "border-2 border-grvd-magenta/70",
-          "shadow-chunky-press shadow-glow-magenta",
-          "flex items-center justify-center",
-        ].join(" ")}
+        style={{
+          position: "absolute", left: -6, top: "50%",
+          transform: "translateY(-50%)",
+          width: 36, height: 36, borderRadius: "50%",
+          background: `radial-gradient(circle at 35% 30%, #ff7a8e, ${C.coral} 60%, ${C.coralDeep})`,
+          border: "2px solid #0a0f1c",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 3px 0 rgba(0,0,0,0.5), 0 0 18px rgba(233,69,96,0.6), inset 0 2px 0 rgba(255,255,255,0.5)",
+          zIndex: 2,
+        }}
       >
-        <span className="text-grvd-gold text-base leading-none drop-shadow-[0_1px_0_rgba(0,0,0,0.6)]">
-          ⚡
-        </span>
-      </span>
-
-      {/* Liquid fill track inside the capsule */}
-      <span
-        aria-hidden
-        className="absolute inset-y-1 left-9 right-1 rounded-full overflow-hidden bg-black/40"
+        <Icon.Bolt size={18} color="#fff" />
+      </div>
+      {/* Pill body */}
+      <div
+        style={{
+          position: "absolute", inset: "0 0 0 24px",
+          ...chrome(`linear-gradient(180deg, ${C.navyLight}, ${C.navyDeep})`),
+          borderRadius: 999,
+          overflow: "hidden",
+          display: "flex", alignItems: "center",
+        }}
       >
-        <span
-          className="block h-full bg-gradient-to-r from-grvd-magenta via-grvd-purple to-grvd-magenta shadow-glow-purple"
+        {/* Liquid fill */}
+        <div
+          aria-hidden
           style={{
+            position: "absolute", left: 0, top: 0, bottom: 0,
             width: `${pct}%`,
+            background: `linear-gradient(180deg, ${C.coral} 0%, ${C.gold} 100%)`,
+            borderRight: "2px solid rgba(0,0,0,0.4)",
+            boxShadow: "inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 0 rgba(0,0,0,0.3)",
             transition: "width 600ms ease",
-            backgroundSize: "200% 100%",
           }}
         />
-      </span>
-
-      {/* N/MAX readout — sits over the fill */}
-      <span
-        className="relative z-10 ml-auto font-display text-white text-[13px] leading-none tabular-nums whitespace-nowrap"
-        style={{ textShadow: "0 1px 2px rgba(0,0,0,0.7)" }}
-      >
-        {live}<span className="opacity-70">/{ENERGY_MAX}</span>
-      </span>
+        {/* N/MAX readout */}
+        <div
+          style={{
+            position: "relative",
+            marginLeft: "auto",
+            marginRight: 14,
+            ...readout(),
+            fontSize: 16,
+          }}
+        >
+          {live}
+          <span style={{ opacity: 0.7 }}>/{ENERGY_MAX}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -163,109 +229,68 @@ export function EnergyOrb() {
 /* XpRibbon                                                                    */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Gold ribbon banner. Shape: rounded rectangle body with two small "tail"
- * triangles cut into the bottom corners (rendered as absolute squares
- * rotated 45° behind the body — the standard CSS ribbon trick).
- */
 export function XpRibbon() {
   const totalXP = useStore((s) => s.totalXP);
   return (
     <div
-      className="relative h-9 shrink-0"
+      style={{ position: "relative", height: 40, display: "flex", alignItems: "center" }}
       aria-label={`xp ${totalXP}`}
     >
-      {/* Tails — purple darker squares behind the ribbon, peeking out the
-       *  bottom corners. */}
-      <span
+      {/* Tail left — diamond peeking from behind the ribbon body */}
+      <div
         aria-hidden
-        className="absolute left-1 -bottom-1.5 w-3 h-3 bg-[#a87b1a] rotate-45 shadow-chunky-press"
+        style={{
+          width: 12, height: 24,
+          transform: "rotate(45deg) translate(4px, 0)",
+          background: `linear-gradient(180deg, ${C.goldLight}, ${C.gold})`,
+          border: "2px solid #0a0f1c",
+          marginRight: -10,
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.6)",
+        }}
       />
-      <span
-        aria-hidden
-        className="absolute right-1 -bottom-1.5 w-3 h-3 bg-[#a87b1a] rotate-45 shadow-chunky-press"
-      />
-
       {/* Body */}
       <div
-        className={[
-          "relative h-full px-2.5 pl-9",
-          "rounded-lg",
-          "bg-gradient-to-b from-grvd-gold via-[#fcd34d] to-[#e0a90c]",
-          "border-2 border-[#a87b1a]",
-          "shadow-chunky-press",
-          "flex items-center gap-1",
-        ].join(" ")}
+        style={{
+          position: "relative", height: 30, padding: "0 12px",
+          background: `linear-gradient(180deg, ${C.goldLight}, ${C.gold})`,
+          border: "2px solid #0a0f1c",
+          boxShadow: "0 4px 0 rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.6), inset 0 -2px 0 rgba(0,0,0,0.25)",
+          display: "flex", alignItems: "center", gap: 4,
+        }}
       >
-        {/* "XP" rosette badge on the left edge */}
         <span
-          aria-hidden
-          className={[
-            "absolute -left-1.5 top-1/2 -translate-y-1/2",
-            "w-9 h-9 rounded-full",
-            "bg-gradient-to-br from-grvd-magenta to-[#c2185b]",
-            "border-2 border-[#fcd34d]",
-            "shadow-chunky-press",
-            "flex items-center justify-center",
-          ].join(" ")}
+          style={{
+            fontFamily: "'Lilita One', system-ui",
+            fontSize: 16, color: "#3a2906", letterSpacing: 0.6,
+            textShadow: "0 1px 0 rgba(255,255,255,0.4)",
+            whiteSpace: "nowrap",
+            fontVariantNumeric: "tabular-nums",
+          }}
         >
-          <span
-            className="font-display text-white text-[11px] tracking-tight leading-none"
-            style={{ textShadow: "0 1px 0 rgba(0,0,0,0.5)" }}
-          >
-            XP
-          </span>
-        </span>
-
-        {/* Numeric readout */}
-        <span
-          className="font-display text-grvd-base text-[13px] leading-none tabular-nums whitespace-nowrap"
-          style={{ textShadow: "0 1px 0 rgba(255,255,255,0.45)" }}
-        >
-          {totalXP}
+          {totalXP} XP
         </span>
       </div>
+      {/* Tail right */}
+      <div
+        aria-hidden
+        style={{
+          width: 12, height: 24,
+          transform: "rotate(45deg) translate(-4px, 0)",
+          background: `linear-gradient(180deg, ${C.gold}, #a07b0e)`,
+          border: "2px solid #0a0f1c",
+          marginLeft: -10,
+        }}
+      />
     </div>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* CoinSlot                                                                    */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Gold disc with a crown glyph + count, placeholder for the future
- * currency. Always visible so the HUD frame is locked from day 1.
- */
+/* Legacy aliases — kept so existing imports don't break.
+ * `LevelDisc` and `EnergyOrb` were the slice-C names; they now alias
+ * the BURST hero-design components. `CoinSlot` is a thin shim that
+ * uses the new CurrencyStrip for the coin half only. */
+export const LevelDisc = LevelBadge;
+export const EnergyOrb = EnergyCapsule;
 export function CoinSlot({ value = 0 }: { value?: number }) {
-  return (
-    <div
-      className="relative h-9 shrink-0 flex items-center"
-      aria-label={`coins ${value}`}
-      title="coming soon"
-    >
-      {/* Coin disc */}
-      <span
-        aria-hidden
-        className={[
-          "w-9 h-9 rounded-full",
-          "bg-gradient-to-br from-grvd-gold via-[#fcd34d] to-[#e0a90c]",
-          "border-2 border-[#a87b1a]",
-          "shadow-chunky-press shadow-glow-gold",
-          "flex items-center justify-center",
-        ].join(" ")}
-      >
-        <span className="text-grvd-base text-base leading-none drop-shadow-[0_1px_0_rgba(255,255,255,0.4)]">
-          👑
-        </span>
-      </span>
-      {/* Count next to the coin */}
-      <span
-        className="ml-1.5 font-display text-grvd-gold text-[14px] leading-none tabular-nums"
-        style={{ textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}
-      >
-        {value}
-      </span>
-    </div>
-  );
+  return <CurrencyStrip coins={value} gems={0} />;
 }

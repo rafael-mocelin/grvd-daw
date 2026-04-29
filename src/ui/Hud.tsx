@@ -1,38 +1,62 @@
 /**
- * Hud.tsx — UI v1 persistent top ribbon.
+ * Hud.tsx — BURST hero-design HUD.
  *
- * Hero-mockup layout (left → right at mobile width 375-414px):
+ * Two-row layout from the Claude Design handoff:
  *
- *   [LevelDisc]   [EnergyOrb capsule]   [XpRibbon]   [CoinSlot]
+ *   ┌─────────────────────────────────┐
+ *   │  ┌──────┐ ┌────────┐ ┌───────┐  │
+ *   │  │  LV  │ │ coin/  │ │  XP   │  │
+ *   │  │ disc │ │ gem    │ │ ribbon│  │
+ *   │  │      │ ├────────┴─────────┤  │
+ *   │  └──────┘ │  energy capsule   │  │
+ *   │           └───────────────────┘  │
+ *   └─────────────────────────────────┘
  *
- * The LevelDisc replaces the old AvatarPuck as the HUD anchor — same
- * tap target (opens the pet portal), but now reads as a passive level
- * badge so the active mascot can live big on the home stage instead.
+ * The LevelBadge spans both rows on the left; the right column has
+ * [CurrencyStrip + XpRibbon] on top and the EnergyCapsule below.
  *
- * Talk bubble lives on whichever screen the mascot is currently on
- * (home stage, pet portal, etc.) — it's no longer attached to the HUD.
- *
- * Safe-area padding for iPhone notches via env(safe-area-inset-top).
+ * Sticky to the top of every screen via PageShell. The HUD's
+ * computed height (`--hud-h`) is used by sticky strips on other
+ * screens (StackingView, ArrangeView).
  */
 
-import { LevelDisc, EnergyOrb, XpRibbon, CoinSlot } from "./HudPieces";
+import { LevelBadge, CurrencyStrip, EnergyCapsule, XpRibbon } from "./HudPieces";
 
 export function Hud() {
   return (
     <header
-      className={[
-        "sticky top-0 z-30",
-        "w-full",
-        "bg-gradient-to-b from-grvd-base via-grvd-base to-transparent",
-        "pt-[max(env(safe-area-inset-top),12px)]",
-        "pb-3 px-3",
-      ].join(" ")}
+      className="sticky top-0 z-30 w-full"
+      style={{
+        // Background fades from BURST navy at the top to transparent at the
+        // bottom so the page content shows through cleanly.
+        background:
+          "linear-gradient(180deg, #0f1828 0%, #0f1828 60%, rgba(15,24,40,0) 100%)",
+        paddingTop: "max(env(safe-area-inset-top), 12px)",
+        paddingBottom: 12,
+        paddingLeft: 14,
+        paddingRight: 14,
+      }}
     >
-      <div className="flex items-center gap-2 max-w-[480px] mx-auto">
-        <LevelDisc />
-        <EnergyOrb />
-        <XpRibbon />
-        <CoinSlot />
+      <div
+        style={{
+          maxWidth: 480, margin: "0 auto",
+          display: "flex", alignItems: "center", gap: 8,
+          paddingTop: 6,
+        }}
+      >
+        <LevelBadge />
+        <div
+          style={{
+            display: "flex", flexDirection: "column", gap: 6,
+            flex: 1, minWidth: 0,
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <CurrencyStrip coins={0} gems={0} />
+            <XpRibbon />
+          </div>
+          <EnergyCapsule />
+        </div>
       </div>
     </header>
   );
