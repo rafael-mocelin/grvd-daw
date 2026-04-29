@@ -29,9 +29,10 @@ export const SOUNDS: SoundOption[] = [
   // variety, drop in new WAVs and add r-hat-* entries.
 
   // ---- 808s ----
-  { id: "b-root", kind: "808", name: "wooom", glyph: "🛸", variant: "root", tags: ["trap", "rap"], vibe: "root note, simple and heavy" },
-  { id: "b-move", kind: "808", name: "wub-wub", glyph: "🌊", variant: "move", tags: ["trap", "pop-rap"], vibe: "moves with the melody" },
-  { id: "b-long", kind: "808", name: "woooooom", glyph: "🌌", variant: "long", tags: ["drill", "ambient"], vibe: "long, held, atmospheric" },
+  // Synth-only 808 patterns (b-root / b-move / b-long) were removed for
+  // the same reason as the silent hats and samples: no fileUrl, no
+  // audible playback. Picker only surfaces the file-backed 808 loops
+  // below (jump / hound / werk).
 
   // ---- Samples ----
   // Synth-only sample patterns (sam-soul / sam-dream / sam-dark / sam-neon)

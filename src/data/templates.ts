@@ -47,7 +47,7 @@ export const TEMPLATES: Template[] = [
     suggested: {
       kick: ["k-trap", "k-halftime"],
       hat: ["r-hat-160", "r-hat-150"],
-      "808": ["b-move", "b-root"],
+      "808": ["r-808-144-Em", "r-808-150-Dsm"],
       sample: ["r-bells-Fm", "r-sample-Bm"],
       melody: ["m-bell", "m-flute"],
     },
@@ -83,7 +83,7 @@ export const TEMPLATES: Template[] = [
       kick: ["k-halftime", "k-trap"],
       snare: ["s-halftime"],
       hat: ["r-hat-160"],
-      "808": ["b-long", "b-move"],
+      "808": ["r-808-144-Fm", "r-808-144-Em"],
       sample: ["r-sample-Bm"],
     },
   },
