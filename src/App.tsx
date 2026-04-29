@@ -12,6 +12,7 @@ import { Friends } from "./components/Friends";
 import { Studio } from "./components/Studio";
 import { Coop } from "./components/Coop";
 import { Pet } from "./components/Pet";
+import { Achievements } from "./components/Achievements";
 import { PageShell } from "./ui/PageShell";
 import { StackingView } from "./components/StackingView";
 import { VocalRecorder } from "./components/VocalRecorder";
@@ -112,12 +113,13 @@ function AppCore() {
         {stage === "arrange"     && <ArrangeView />}
         {stage === "mixer"       && <MixerView />}
         {stage === "booth"       && <ListeningBooth />}
-        {stage === "leaderboard" && <Leaderboard />}
-        {stage === "profile"     && <Profile />}
-        {stage === "friends"     && <Friends />}
-        {stage === "studio"      && <Studio />}
-        {stage === "coop"        && <Coop />}
-        {stage === "pet"         && <Pet />}
+        {stage === "leaderboard"  && <Leaderboard />}
+        {stage === "profile"      && <Profile />}
+        {stage === "friends"      && <Friends />}
+        {stage === "studio"       && <Studio />}
+        {stage === "coop"         && <Coop />}
+        {stage === "pet"          && <Pet />}
+        {stage === "achievements" && <Achievements />}
 
         {showLogbook && <Logbook />}
       </PageShell>

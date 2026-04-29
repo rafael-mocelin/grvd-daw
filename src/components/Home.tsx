@@ -141,7 +141,10 @@ export function Home() {
         />
       </div>
 
-      {/* ── Tertiary row ── */}
+      {/* ── Tertiary row ──
+       * The "crib" pill was removed: tapping the LevelBadge in the HUD
+       * already opens the same pet/crib menu, so the pill was redundant.
+       * "logbook" was renamed to "musics" to match player vocabulary. */}
       <div
         style={{
           display: "flex",
@@ -149,9 +152,8 @@ export function Home() {
           gap: 10,
         }}
       >
-        <GhostPill onClick={() => setStage("crib")}>🏠 crib</GhostPill>
         <GhostPill onClick={toggleLogbook}>
-          📓 logbook{hasTracks && ` · ${inventory.length}`}
+          📓 musics{hasTracks && ` · ${inventory.length}`}
         </GhostPill>
       </div>
     </div>

@@ -153,6 +153,7 @@ export function CurrencyStrip({ coins = 0, gems = 0 }: { coins?: number; gems?: 
 export function EnergyCapsule() {
   const baseEnergy      = useStore((s) => s.energy);
   const energyUpdatedAt = useStore((s) => s.energyUpdatedAt);
+  const setStage        = useStore((s) => s.setStage);
 
   // Re-render once a second so passive regen ticks visibly.
   const [, force] = useState(0);
@@ -165,9 +166,19 @@ export function EnergyCapsule() {
   const pct  = Math.max(0, Math.min(100, (live / ENERGY_MAX) * 100));
 
   return (
-    <div
-      style={{ position: "relative", height: 40, flex: 1, minWidth: 0 }}
-      aria-label={`energy ${live}/${ENERGY_MAX}`}
+    <button
+      onClick={() => setStage("pet")}
+      style={{
+        position: "relative",
+        height: 40,
+        flex: 1,
+        minWidth: 0,
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+      }}
+      aria-label={`energy ${live}/${ENERGY_MAX} — open pet to recharge`}
     >
       {/* Coral bolt badge bumping out the left edge */}
       <div
@@ -221,7 +232,7 @@ export function EnergyCapsule() {
           <span style={{ opacity: 0.7 }}>/{ENERGY_MAX}</span>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -230,11 +241,22 @@ export function EnergyCapsule() {
 /* -------------------------------------------------------------------------- */
 
 export function XpRibbon() {
-  const totalXP = useStore((s) => s.totalXP);
+  const totalXP  = useStore((s) => s.totalXP);
+  const setStage = useStore((s) => s.setStage);
   return (
-    <div
-      style={{ position: "relative", height: 40, display: "flex", alignItems: "center" }}
-      aria-label={`xp ${totalXP}`}
+    <button
+      onClick={() => setStage("achievements")}
+      style={{
+        position: "relative",
+        height: 40,
+        display: "flex",
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+      }}
+      aria-label={`xp ${totalXP} — open achievements`}
     >
       {/* Tail left — diamond peeking from behind the ribbon body */}
       <div
@@ -281,7 +303,7 @@ export function XpRibbon() {
           marginLeft: -10,
         }}
       />
-    </div>
+    </button>
   );
 }
 

@@ -58,8 +58,9 @@ export type Stage =
   | "studio"   // Phase 5.B: sound inventory + producer publish + discover
   | "coop"     // Phase 4: co-production
   | "pet"      // UI v1: full-screen pet portal (the C in B+C from the AvatarPuck redesign)
-  | "arrange"  // Slice 1: post-Done arrangement view (was a window in CanvasBoard)
-  | "mixer";   // Slice 1: post-Done mixer view (was a window in CanvasBoard)
+  | "arrange"      // Slice 1: post-Done arrangement view (was a window in CanvasBoard)
+  | "mixer"        // Slice 1: post-Done mixer view (was a window in CanvasBoard)
+  | "achievements"; // BURST: tappable from the XP ribbon — unlocked + locked achievements browser
 
 /**
  * Stages that belong to the song-creation pipeline. Used by setStage's
