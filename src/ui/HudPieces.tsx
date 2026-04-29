@@ -171,67 +171,74 @@ export function EnergyCapsule() {
       style={{
         position: "relative",
         height: 40,
-        flex: 1,
-        minWidth: 0,
-        background: "transparent",
-        border: "none",
-        padding: 0,
+        // Capsule-style HUD piece: bolt icon + bar + "N/100" readout in
+        // a single row. Sized like CurrencyStrip / XpRibbon so all four
+        // HUD pieces sit on one row.
+        ...chrome(`linear-gradient(180deg, ${C.navyLight}, ${C.navyDeep})`),
+        borderRadius: 999,
+        padding: "0 12px 0 8px",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
         cursor: "pointer",
+        flex: 1,
+        minWidth: 100,
       }}
       aria-label={`energy ${live}/${ENERGY_MAX} — open pet to recharge`}
     >
-      {/* Coral bolt badge bumping out the left edge */}
-      <div
+      {/* Coral bolt badge — sits inline at the start of the capsule. */}
+      <span
         aria-hidden
         style={{
-          position: "absolute", left: -6, top: "50%",
-          transform: "translateY(-50%)",
-          width: 36, height: 36, borderRadius: "50%",
+          width: 28, height: 28, borderRadius: "50%",
           background: `radial-gradient(circle at 35% 30%, #ff7a8e, ${C.coral} 60%, ${C.coralDeep})`,
           border: "2px solid #0a0f1c",
           display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 3px 0 rgba(0,0,0,0.5), 0 0 18px rgba(233,69,96,0.6), inset 0 2px 0 rgba(255,255,255,0.5)",
-          zIndex: 2,
+          boxShadow: "0 2px 0 rgba(0,0,0,0.5), 0 0 12px rgba(233,69,96,0.55), inset 0 1.5px 0 rgba(255,255,255,0.5)",
+          flexShrink: 0,
         }}
       >
-        <Icon.Bolt size={18} color="#fff" />
-      </div>
-      {/* Pill body */}
-      <div
+        <Icon.Bolt size={14} color="#fff" />
+      </span>
+
+      {/* Liquid bar — coral→gold gradient fill on a dark track. */}
+      <span
+        aria-hidden
         style={{
-          position: "absolute", inset: "0 0 0 24px",
-          ...chrome(`linear-gradient(180deg, ${C.navyLight}, ${C.navyDeep})`),
+          flex: 1,
+          height: 10,
+          minWidth: 24,
           borderRadius: 999,
+          background: "rgba(0,0,0,0.55)",
+          border: "1.5px solid #0a0f1c",
+          boxShadow: "inset 0 1px 2px rgba(0,0,0,0.6)",
           overflow: "hidden",
-          display: "flex", alignItems: "center",
+          position: "relative",
         }}
       >
-        {/* Liquid fill */}
-        <div
-          aria-hidden
+        <span
           style={{
-            position: "absolute", left: 0, top: 0, bottom: 0,
+            display: "block",
+            height: "100%",
             width: `${pct}%`,
             background: `linear-gradient(180deg, ${C.coral} 0%, ${C.gold} 100%)`,
-            borderRight: "2px solid rgba(0,0,0,0.4)",
-            boxShadow: "inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 0 rgba(0,0,0,0.3)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
             transition: "width 600ms ease",
           }}
         />
-        {/* N/MAX readout */}
-        <div
-          style={{
-            position: "relative",
-            marginLeft: "auto",
-            marginRight: 14,
-            ...readout(),
-            fontSize: 16,
-          }}
-        >
-          {live}
-          <span style={{ opacity: 0.7 }}>/{ENERGY_MAX}</span>
-        </div>
-      </div>
+      </span>
+
+      {/* N/MAX readout */}
+      <span
+        style={{
+          ...readout(),
+          fontSize: 13,
+          whiteSpace: "nowrap",
+          flexShrink: 0,
+        }}
+      >
+        {live}<span style={{ opacity: 0.65 }}>/{ENERGY_MAX}</span>
+      </span>
     </button>
   );
 }
