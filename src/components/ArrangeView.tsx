@@ -280,9 +280,14 @@ export function ArrangeView() {
 
   if (!layers.length) {
     return (
-      <div className="pt-4 pb-8 flex flex-col items-center gap-6">
+      <div className="pt-4 pb-8 flex flex-col gap-4">
         <Header onBack={() => setStage(useStore.getState().editorReturnStage)} />
-        <div className="mt-8 px-6 py-10 rounded-2xl bg-grvd-panel/60 border border-grvd-line text-center">
+        {/* Toolbar still visible in the empty state so the player can
+         *  hop back to cook even before they have any layers. */}
+        <div className="px-1">
+          <CreationToolbar />
+        </div>
+        <div className="mx-auto px-6 py-10 rounded-2xl bg-grvd-panel/60 border border-grvd-line text-center">
           <div className="text-4xl mb-2">🎚️</div>
           <div className="font-display text-lg text-white">no layers yet</div>
           <div className="font-sans text-grvd-purple/70 text-sm mt-1">
