@@ -1,26 +1,21 @@
 /**
  * Hud.tsx — UI v1 persistent top ribbon.
  *
- * Mobile-first HUD that lives at the top of every screen (replaces the
- * old ScreenTopBar from inside DeviceShell).
+ * Hero-mockup layout (left → right at mobile width 375-414px):
  *
- * Layout (left → right at mobile width 375-414px):
+ *   [LevelDisc]   [EnergyOrb capsule]   [XpRibbon]   [CoinSlot]
  *
- *   [AvatarPuck]   [EnergyOrb]   [XpRibbon]   [CoinSlot]
+ * The LevelDisc replaces the old AvatarPuck as the HUD anchor — same
+ * tap target (opens the pet portal), but now reads as a passive level
+ * badge so the active mascot can live big on the home stage instead.
  *
- *   [    TalkBubble (drops below the puck when present)    ]
- *
- * The TalkBubble used to anchor immediately right of the puck, but at
- * mobile width that put it on top of the EnergyOrb. It now drops
- * BELOW the puck — pointer-up so it still feels like the companion is
- * speaking — leaving the HUD row clean for the orb / xp / coins.
+ * Talk bubble lives on whichever screen the mascot is currently on
+ * (home stage, pet portal, etc.) — it's no longer attached to the HUD.
  *
  * Safe-area padding for iPhone notches via env(safe-area-inset-top).
  */
 
-import { AvatarPuck }            from "./AvatarPuck";
-import { TalkBubble }             from "./TalkBubble";
-import { EnergyOrb, XpRibbon, CoinSlot } from "./HudPieces";
+import { LevelDisc, EnergyOrb, XpRibbon, CoinSlot } from "./HudPieces";
 
 export function Hud() {
   return (
@@ -33,20 +28,11 @@ export function Hud() {
         "pb-3 px-3",
       ].join(" ")}
     >
-      <div className="relative max-w-[480px] mx-auto">
-        {/* Top row — fixed-height HUD: puck + currency-shape readouts. */}
-        <div className="flex items-center gap-2">
-          <AvatarPuck />
-          <EnergyOrb />
-          <XpRibbon />
-          <CoinSlot />
-        </div>
-
-        {/* TalkBubble — drops below the puck (anchored to its left edge)
-         *  so it stops colliding with the EnergyOrb at mobile widths. */}
-        <div className="absolute left-2 top-[60px] z-20 pointer-events-none">
-          <TalkBubble />
-        </div>
+      <div className="flex items-center gap-2 max-w-[480px] mx-auto">
+        <LevelDisc />
+        <EnergyOrb />
+        <XpRibbon />
+        <CoinSlot />
       </div>
     </header>
   );

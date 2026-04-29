@@ -34,6 +34,9 @@ interface CharacterFaceProps {
   trackRange?: number;
   /** Override the mood (otherwise uses store moodOverride ?? tamagotchi.mood). */
   mood?:    Mood;
+  /** Render an overlay of big DJ headphones across the top of the disc.
+   *  Used by the Home stage hero where the mascot is "in the studio". */
+  headphones?: boolean;
   className?: string;
 }
 
@@ -72,6 +75,7 @@ export function CharacterFace({
   bob        = true,
   trackRange,
   mood: moodProp,
+  headphones = false,
   className  = "",
 }: CharacterFaceProps) {
   const tamagotchi   = useStore((s) => s.tamagotchi);
@@ -134,36 +138,84 @@ export function CharacterFace({
     <div
       ref={wrapperRef}
       className={[
-        "relative shrink-0 select-none rounded-full",
-        "bg-gradient-to-br", MOOD_TINT[mood],
-        "shadow-chunky overflow-hidden",
+        "relative shrink-0 select-none",
         bob ? "animate-puck-bob" : "",
         className,
       ].join(" ")}
       style={{ width: size, height: size }}
       aria-hidden
     >
-      <svg viewBox="0 0 24 24" className="absolute inset-0 w-full h-full">
-        <ellipse cx="9"  cy="11" rx="2.4" ry={2.4 * eyeOpen} fill="#fff" />
-        <ellipse cx="15" cy="11" rx="2.4" ry={2.4 * eyeOpen} fill="#fff" />
-        {eyeOpen > 0 && (
-          <>
-            <circle ref={leftPupilRef}  cx="9"  cy="11" r="1.1" fill="#0a0814" />
-            <circle ref={rightPupilRef} cx="15" cy="11" r="1.1" fill="#0a0814" />
-          </>
-        )}
-        <path
-          ref={mouthRef}
-          d={MOUTH_PATH[mood]}
-          stroke="#fff"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          fill="none"
-        />
-        {mood === "asleep" && (
-          <text x="18" y="6" fontSize="6" fill="#fff" opacity="0.8">z</text>
-        )}
-      </svg>
+      {/* Face disc — the rounded mood-tinted gradient */}
+      <div
+        className={[
+          "absolute inset-0 rounded-full overflow-hidden",
+          "bg-gradient-to-br", MOOD_TINT[mood],
+          "shadow-chunky",
+        ].join(" ")}
+      >
+        <svg viewBox="0 0 24 24" className="absolute inset-0 w-full h-full">
+          <ellipse cx="9"  cy="11" rx="2.4" ry={2.4 * eyeOpen} fill="#fff" />
+          <ellipse cx="15" cy="11" rx="2.4" ry={2.4 * eyeOpen} fill="#fff" />
+          {eyeOpen > 0 && (
+            <>
+              <circle ref={leftPupilRef}  cx="9"  cy="11" r="1.1" fill="#0a0814" />
+              <circle ref={rightPupilRef} cx="15" cy="11" r="1.1" fill="#0a0814" />
+            </>
+          )}
+          <path
+            ref={mouthRef}
+            d={MOUTH_PATH[mood]}
+            stroke="#fff"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            fill="none"
+          />
+          {mood === "asleep" && (
+            <text x="18" y="6" fontSize="6" fill="#fff" opacity="0.8">z</text>
+          )}
+        </svg>
+      </div>
+
+      {/* DJ headphones overlay — silver band over the top, two earcups
+       *  on each side. SVG sized to the disc; rendered above the face. */}
+      {headphones && (
+        <svg
+          viewBox="0 0 24 24"
+          className="absolute -inset-y-[6%] -inset-x-[8%] pointer-events-none"
+          style={{ width: `${size * 1.16}px`, height: `${size * 1.12}px` }}
+        >
+          {/* Headband — arc across the top */}
+          <path
+            d="M 4 11 Q 12 1.5 20 11"
+            stroke="#3a3540"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            fill="none"
+            opacity="0.95"
+          />
+          <path
+            d="M 4 11 Q 12 1.5 20 11"
+            stroke="#bcbcc6"
+            strokeWidth="0.6"
+            strokeLinecap="round"
+            fill="none"
+          />
+          {/* Left earcup */}
+          <ellipse cx="3.4"  cy="13" rx="2.4" ry="3.2" fill="#3a3540" stroke="#1a161e" strokeWidth="0.4" />
+          <ellipse cx="3.4"  cy="13" rx="1.4" ry="2.0" fill="#1a161e" />
+          {/* Right earcup */}
+          <ellipse cx="20.6" cy="13" rx="2.4" ry="3.2" fill="#3a3540" stroke="#1a161e" strokeWidth="0.4" />
+          <ellipse cx="20.6" cy="13" rx="1.4" ry="2.0" fill="#1a161e" />
+          {/* Highlight on the band */}
+          <path
+            d="M 5 11 Q 12 3 19 11"
+            stroke="rgba(255,255,255,0.35)"
+            strokeWidth="0.3"
+            strokeLinecap="round"
+            fill="none"
+          />
+        </svg>
+      )}
     </div>
   );
 }
