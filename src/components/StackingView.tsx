@@ -26,6 +26,7 @@ import { ensureAudio, playSong, previewLayer, stopPreview, stopSong } from "../a
 import { LAYER_XP } from "../data/achievements";
 import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 import { CreationToolbar } from "../ui/burst/CreationToolbar";
+import { RecipeStrip }     from "../ui/burst/RecipeStrip";
 
 export function StackingView() {
   const {
@@ -248,46 +249,10 @@ export function StackingView() {
         <CreationToolbar />
       </div>
 
-      {/* ── Recipe strip: sticky chunky pills below the HUD ── */}
-      <div
-        className="sticky z-20 -mx-3 px-3 py-2 bg-grvd-base/95 backdrop-blur-sm border-y border-white/6 overflow-x-auto"
-        style={{ top: "var(--hud-h, 64px)", scrollbarWidth: "none" }}
-      >
-        <div className="flex gap-1.5 min-w-max">
-          {activeTemplate.recipe.map((kind, i) => {
-            const layer  = existingForKind(kind);
-            const active = i === recipeIndex;
-            const sound  = layer ? getSound(layer.soundId) : null;
-            // Every step is jumpable now — players can skip ahead to
-            // sample/vocals etc. without committing to the current step
-            // first. Only the active pill itself is non-interactive.
-            const clickable = !active;
-            return (
-              <button
-                key={kind + i}
-                onClick={clickable ? () => setRecipeIndex(i) : undefined}
-                disabled={!clickable}
-                className={[
-                  "inline-flex items-center gap-1.5",
-                  "px-2.5 py-1 rounded-full",
-                  "font-mono text-[10px] font-bold uppercase tracking-wide whitespace-nowrap shrink-0",
-                  "transition-all",
-                  active
-                    ? "bg-grvd-purple/25 border-2 border-grvd-purple text-white shadow-glow-purple"
-                    : layer
-                      ? "bg-white/6 border-2 border-white/15 text-white/75 hover:border-grvd-purple/45"
-                      : "bg-transparent border-2 border-white/12 text-white/55 hover:border-grvd-purple/45",
-                ].join(" ")}
-              >
-                <span className="opacity-60">{i + 1}</span>
-                <span>{KIND_LABEL[kind]}</span>
-                {sound && <span className="text-base leading-none">{sound.glyph}</span>}
-                {active && !layer && <span className="text-grvd-purple">←</span>}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* ── Recipe strip — shared component used here AND on the
+       *  NameAndSave page so the SAVE step is reachable from anywhere
+       *  in the recipe (without having to walk back through vocals). */}
+      <RecipeStrip />
 
       {/* ── Body ── */}
       <div className="min-w-0">

@@ -15,6 +15,7 @@ import { SAVE_SONG_XP } from "../data/achievements";
 import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 import { Modal } from "../ui/Modal";
 import { CreationToolbar } from "../ui/burst/CreationToolbar";
+import { RecipeStrip }     from "../ui/burst/RecipeStrip";
 
 export function NameAndSave() {
   const {
@@ -107,6 +108,11 @@ export function NameAndSave() {
 
   return (
     <div className="pt-3 pb-8 flex flex-col gap-4">
+      {/* Recipe strip — same component StackingView uses, with the
+       *  SAVE pill auto-highlighted because we're on the "name" stage.
+       *  Lets the player jump back to any recipe step from here. */}
+      <RecipeStrip />
+
       {/* Header */}
       <div>
         <ChunkyBadge variant="cyan" size="sm">step 3 / 3 · save</ChunkyBadge>
