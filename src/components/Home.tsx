@@ -97,17 +97,28 @@ export function Home() {
         </StudioScene>
 
         {/* Mascot — left side of the panel top, positioned independently
-         *  from the needs bars so each can be tweaked on its own without
-         *  dragging the other along. */}
+         *  from the needs bars so each can be tweaked on its own.
+         *  Wrapped in a chunky dark-transparent disc that matches the
+         *  needs bars' background so the strip reads as one unit. */}
         <div
           style={{
             position: "absolute",
             top: 14,
             left: 12,
             zIndex: 8,
+            width: 64,
+            height: 64,
+            borderRadius: "50%",
+            background: "rgba(10,8,20,0.78)",
+            border: "1.5px solid rgba(0,0,0,0.7)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 1px rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
           }}
         >
-          <CharacterFace size={64} />
+          <CharacterFace size={56} />
         </div>
 
         {/* Needs bars — pinned high inside the chrome border, room left
