@@ -97,14 +97,14 @@ export function Home() {
         </StudioScene>
 
         {/* Top strip — pet (left) + 3 needs bars inline next to it.
-         *  Sits above the StudioScene at z-8 so it lands on top of the
-         *  back wall but under the speech bubble. */}
+         *  Pinned to the very top of the stage panel so it sits clear
+         *  of the lamp cone and feels like the panel's HUD strip. */}
         <div
           style={{
             position: "absolute",
-            top: 12,
-            left: 12,
-            right: 12,
+            top: 4,
+            left: 8,
+            right: 8,
             display: "flex",
             alignItems: "center",
             gap: 10,
