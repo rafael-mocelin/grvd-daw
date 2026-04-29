@@ -1,12 +1,20 @@
+/**
+ * Crib — the not-actively-producing welcome screen, UI-v1 game-feel rebuild.
+ *
+ * In the wider game this is the character's bedroom background. Here it's
+ * the chill state — the DAW is asleep, you can pet it via care buttons,
+ * or pull it out to start cooking. The first-session view nudges the
+ * 60-second challenge harder; returning users see a clean primary CTA.
+ *
+ * The mood line still pumps into the AvatarPuck's TalkBubble via sayLine.
+ */
+
 import { useEffect } from "react";
 import { useStore } from "../store/useStore";
 import { NeedsMeters } from "./NeedsMeters";
+import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
+import { CharacterFace } from "../ui/CharacterFace";
 
-/**
- * The "crib" screen — what the player sees when they're not actively
- * producing. In the game this is the background of the character's
- * bedroom; here it's the welcome state. Pulls the DAW out of sleep.
- */
 export function Crib() {
   const { tamagotchi, setStage, feedNeed, inventory, toggleLogbook, sayLine } =
     useStore();
@@ -16,15 +24,15 @@ export function Crib() {
   const talkLines: Record<typeof mood, string> = {
     asleep: "...",
     sleepy: "mmh... pull me out when you're ready",
-    chill: "wanna cook something up?",
-    happy: "let's gooo — I got ideas",
-    hyped: "PULL ME OUT PULL ME OUT — bangers today",
-    sad: "been a minute... you good?",
+    chill:  "wanna cook something up?",
+    happy:  "let's gooo — I got ideas",
+    hyped:  "PULL ME OUT PULL ME OUT — bangers today",
+    sad:    "been a minute... you good?",
     lonely: "take me somewhere. let's see some people.",
   };
 
-  // Push the mood line into the DAW's "mouth" speech bubble at the bottom
-  // of the shell. Persists while on the crib — cleared on unmount.
+  // Push the mood line into the AvatarPuck's TalkBubble. Persists while
+  // on the crib — cleared on unmount.
   useEffect(() => {
     sayLine(talkLines[mood]);
     return () => sayLine(null);
@@ -32,42 +40,77 @@ export function Crib() {
   }, [mood, sayLine]);
 
   return (
-    <div className="flex flex-col items-center gap-5 p-4 pt-5">
-      <NeedsMeters tam={tamagotchi} />
-
-      {/* Care buttons */}
-      <div className="flex gap-2 justify-center">
-        <button className="btn-ghost text-[11px]" onClick={() => feedNeed("social", 10)}>💬</button>
-        <button className="btn-ghost text-[11px]" onClick={() => feedNeed("creativity", 10)}>🎨</button>
-        <button className="btn-ghost text-[11px]" onClick={() => feedNeed("energy", 15)}>⚡</button>
+    <div className="pt-3 pb-8 flex flex-col gap-5">
+      {/* Hero: live character — the player IS the pet, again. */}
+      <div className="flex flex-col items-center gap-3 mt-2">
+        <CharacterFace size={160} />
+        <ChunkyBadge variant="ghost" size="sm">
+          {mood === "asleep" ? "💤 asleep" :
+           mood === "sleepy" ? "🥱 sleepy" :
+           mood === "happy"  ? "😊 happy"  :
+           mood === "hyped"  ? "🔥 hyped"  :
+           mood === "sad"    ? "🥲 sad"    :
+           mood === "lonely" ? "🫥 lonely" :
+                               "😎 chill"}
+        </ChunkyBadge>
       </div>
 
-      {/* 60-second challenge / main CTA */}
+      {/* Companion needs */}
+      <NeedsMeters tam={tamagotchi} />
+
+      {/* Care row — quick-feed pills */}
+      <div className="flex gap-2 justify-center">
+        <ChunkyPill variant="cyan"    size="sm" icon="💬" onClick={() => feedNeed("social", 10)}>
+          chat
+        </ChunkyPill>
+        <ChunkyPill variant="purple"  size="sm" icon="🎨" onClick={() => feedNeed("creativity", 10)}>
+          spark
+        </ChunkyPill>
+        <ChunkyPill variant="gold"    size="sm" icon="⚡"  onClick={() => feedNeed("energy", 15)}>
+          juice
+        </ChunkyPill>
+      </div>
+
+      {/* Hero CTA — first-session gets the 60-second nudge, returning gets a clean
+          "cook something" call. */}
       {isFirstSession ? (
-        <div className="card p-4 w-full border-accent/40 shadow-glow">
-          <div className="text-accent font-display font-bold text-sm mb-1">
+        <div className="rounded-3xl border-2 border-grvd-magenta/40 bg-gradient-to-br from-grvd-magenta/15 to-grvd-purple/10 p-5 flex flex-col gap-3 shadow-chunky-press">
+          <div className="font-display text-2xl text-white leading-tight">
             ⏱ can you finish in 60s?
           </div>
-          <div className="text-[10px] font-mono text-white/50 mb-3">
+          <div className="font-mono text-[11px] text-white/55 leading-relaxed">
             pick a vibe → stack sounds → name it
           </div>
-          <button className="btn-primary w-full text-sm" onClick={() => setStage("template")}>
-            🎛️ start the clock
-          </button>
+          <ChunkyButton
+            variant="hero"
+            size="lg"
+            icon="🎛️"
+            onClick={() => setStage("template")}
+            className="w-full"
+          >
+            start the clock
+          </ChunkyButton>
         </div>
       ) : (
-        <button className="btn-primary w-full" onClick={() => setStage("template")}>
-          🎛️ cook something up
-        </button>
+        <ChunkyButton
+          variant="hero"
+          size="lg"
+          icon="🎛️"
+          onClick={() => setStage("template")}
+          className="w-full"
+        >
+          cook something up
+        </ChunkyButton>
       )}
 
-      <div className="flex gap-2 w-full">
-        <button className="btn-ghost text-xs flex-1" onClick={() => setStage("coop")}>
-          🤝 coop
-        </button>
-        <button className="btn-ghost text-xs flex-1" onClick={toggleLogbook}>
-          📓 logbook {inventory.length > 0 && `(${inventory.length})`}
-        </button>
+      {/* Secondary nav */}
+      <div className="flex gap-2">
+        <ChunkyPill variant="ghost" size="md" icon="🤝" onClick={() => setStage("coop")} className="flex-1">
+          coop
+        </ChunkyPill>
+        <ChunkyPill variant="ghost" size="md" icon="📓" onClick={toggleLogbook} className="flex-1">
+          logbook{inventory.length > 0 && ` · ${inventory.length}`}
+        </ChunkyPill>
       </div>
     </div>
   );

@@ -2,9 +2,10 @@
  * AdminPanel — debug/testing tools, visible only when user is promoted to
  * admin via Supabase app_metadata.
  *
- * Gives the admin a quick way to force mood states so the shell face can
- * be visually tested (otherwise you'd have to wait for tamagotchi needs
- * to decay to see sleepy/asleep).
+ * UI-v1 game-feel rebuild — chunky candy panel chrome, palette-aligned
+ * sections, ChunkyPill mood buttons, GRVD-tinted save rows. All admin
+ * functionality preserved: mood force, live game-config editor, reset
+ * actions with two-tap confirmation.
  *
  * To become admin, run in Supabase SQL editor:
  *   UPDATE auth.users
@@ -23,17 +24,18 @@ import {
   type EarlyEarThreshold,
   type ArtistBoostConfig,
 } from "../lib/game-db";
+import { ChunkyPill } from "./../ui/Chunky";
 
 const MOODS: Mood[] = ["hyped", "happy", "chill", "sleepy", "asleep", "sad", "lonely"];
 
-const MOOD_EMOJI: Record<Mood, string> = {
-  hyped:  "[*]",
-  happy:  "[:)]",
-  chill:  "[-]",
-  sleepy: "[z]",
-  asleep: "[Z]",
-  sad:    "[:(]",
-  lonely: "[;_;]",
+const MOOD_GLYPH: Record<Mood, string> = {
+  hyped:  "🔥",
+  happy:  "😊",
+  chill:  "😎",
+  sleepy: "🥱",
+  asleep: "💤",
+  sad:    "🥲",
+  lonely: "🫥",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -49,7 +51,12 @@ interface ConfirmButtonProps {
   variant?: "danger" | "warn";
 }
 
-function ConfirmButton({ label, confirmLabel = "tap again to confirm", onConfirm, variant = "warn" }: ConfirmButtonProps) {
+function ConfirmButton({
+  label,
+  confirmLabel = "tap again to confirm",
+  onConfirm,
+  variant = "warn",
+}: ConfirmButtonProps) {
   const [armed, setArmed] = useState(false);
   const [justFired, setJustFired] = useState(false);
   const disarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,37 +82,24 @@ function ConfirmButton({ label, confirmLabel = "tap again to confirm", onConfirm
     setTimeout(() => setJustFired(false), 1200);
   }
 
-  const baseColor = variant === "danger" ? "#ef4444" : "#fbbf24";
-  const bg = armed
-    ? `${baseColor}33`
-    : justFired
-      ? "rgba(74,222,128,0.2)"
-      : "rgba(255,255,255,0.03)";
-  const border = armed
-    ? baseColor
-    : justFired
-      ? "rgba(74,222,128,0.6)"
-      : "rgba(255,255,255,0.1)";
-  const text = justFired ? "#4ade80" : armed ? baseColor : "rgba(255,255,255,0.85)";
+  // Map variant + state → tailwind palette classes.
+  const armedClass = variant === "danger"
+    ? "bg-red-500/20 border-red-500 text-red-300"
+    : "bg-grvd-gold/25 border-grvd-gold text-grvd-gold";
+  const idleClass  = "bg-white/3 border-white/10 text-white/85 hover:border-white/25";
+  const firedClass = "bg-grvd-lime/15 border-grvd-lime/55 text-grvd-lime";
+
+  const cls = justFired ? firedClass : armed ? armedClass : idleClass;
 
   return (
     <button
       onClick={handleClick}
-      style={{
-        width: "100%",
-        padding: "7px 10px",
-        background: bg,
-        border: `1px solid ${border}`,
-        borderRadius: 6,
-        color: text,
-        fontFamily: "monospace",
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: "0.06em",
-        cursor: "pointer",
-        textAlign: "left",
-        transition: "background 0.15s, border-color 0.15s, color 0.15s",
-      }}
+      className={[
+        "w-full text-left rounded-xl px-3 py-2",
+        "border-2 transition-all shadow-chunky-press",
+        "font-mono text-[10px] font-bold tracking-[0.06em]",
+        cls,
+      ].join(" ")}
     >
       {justFired ? "✓ done" : armed ? confirmLabel : label}
     </button>
@@ -133,29 +127,24 @@ export function AdminPanel() {
 
   return (
     <>
-      {/* Floating launcher — always visible for admins, above the shell */}
+      {/* Floating launcher — always visible for admins, top-right corner.
+       *
+       * Sits ABOVE the HUD (z-9000) so it's reachable from any screen.
+       * Gold disc with halo so it's discoverable but doesn't fight with
+       * the rest of the chunky language. */}
       <button
         onClick={() => setOpen((v) => !v)}
         title={open ? "close admin panel" : "open admin panel"}
-        style={{
-          position: "fixed",
-          top: 14,
-          right: 14,
-          zIndex: 9000,
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          background: "rgba(251,191,36,0.25)",
-          border: "1.5px solid rgba(251,191,36,0.7)",
-          color: "#fbbf24",
-          fontFamily: "monospace",
-          fontWeight: 900,
-          fontSize: 13,
-          letterSpacing: "0.08em",
-          cursor: "pointer",
-          boxShadow: "0 0 14px rgba(251,191,36,0.35)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}
+        className={[
+          "fixed top-3.5 right-3.5 z-[9000]",
+          "w-9 h-9 rounded-full",
+          "inline-flex items-center justify-center",
+          "font-display text-base text-grvd-base",
+          "bg-grvd-gold border-2 border-grvd-gold/60",
+          "shadow-chunky shadow-glow-gold",
+          "active:translate-y-[1px] active:scale-95",
+          "transition-all duration-150 select-none",
+        ].join(" ")}
       >
         A
       </button>
@@ -163,127 +152,69 @@ export function AdminPanel() {
       {open && (
         <div
           onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed",
-            top: 54,
-            right: 14,
-            zIndex: 9001,
-            width: 260,
-            maxHeight: "80vh",
-            overflowY: "auto",
-            background: "#13111d",
-            border: "1px solid rgba(251,191,36,0.45)",
-            borderRadius: 14,
-            padding: "14px 14px 12px",
-            fontFamily: "monospace",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.6), 0 0 24px rgba(251,191,36,0.15)",
-            color: "#fff",
-          }}
+          className={[
+            "fixed top-14 right-3.5 z-[9001]",
+            "w-[280px] max-h-[80vh] overflow-y-auto",
+            "rounded-3xl border-2 border-grvd-gold/45 bg-[#13111d]",
+            "shadow-chunky shadow-[0_0_28px_rgba(251,191,36,0.18)]",
+            "px-4 pt-4 pb-3 text-white",
+          ].join(" ")}
         >
-          <div style={{
-            fontSize: 10, fontWeight: 900, letterSpacing: "0.16em",
-            color: "#fbbf24", textTransform: "uppercase",
-            marginBottom: 2,
-          }}>
+          {/* Header */}
+          <div className="font-mono text-[10px] font-bold tracking-[0.18em] uppercase text-grvd-gold">
             admin debug
           </div>
-          <div style={{
-            fontSize: 9, color: "rgba(255,255,255,0.45)",
-            marginBottom: 12, wordBreak: "break-all",
-          }}>
+          <div className="font-mono text-[9px] text-white/45 mb-3 break-all">
             {user?.email}
           </div>
 
           {/* MOOD FORCE */}
-          <div style={{
-            fontSize: 9, letterSpacing: "0.12em",
-            color: "rgba(255,255,255,0.6)", textTransform: "uppercase",
-            marginBottom: 6,
-          }}>
-            force mood
+          <SectionLabel>force mood</SectionLabel>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {MOODS.map((m) => {
+              const active = moodOverride === m;
+              return (
+                <button
+                  key={m}
+                  onClick={() => setMoodOverride(m)}
+                  className={[
+                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full",
+                    "font-mono text-[10px] font-bold uppercase",
+                    "border-2 transition-all shadow-chunky-press",
+                    active
+                      ? "bg-grvd-gold/30 border-grvd-gold text-grvd-gold"
+                      : "bg-white/4 border-white/10 text-white/80 hover:border-white/25",
+                  ].join(" ")}
+                >
+                  <span>{MOOD_GLYPH[m]}</span>
+                  <span>{m}</span>
+                </button>
+              );
+            })}
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-            {MOODS.map((m) => (
-              <button
-                key={m}
-                onClick={() => setMoodOverride(m)}
-                style={{
-                  flex: "1 0 calc(50% - 6px)",
-                  padding: "6px 8px",
-                  background: moodOverride === m ? "rgba(251,191,36,0.35)" : "rgba(255,255,255,0.04)",
-                  border: `1px solid ${moodOverride === m ? "rgba(251,191,36,0.7)" : "rgba(255,255,255,0.1)"}`,
-                  borderRadius: 6,
-                  color: moodOverride === m ? "#fbbf24" : "rgba(255,255,255,0.8)",
-                  fontFamily: "monospace",
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <span style={{ opacity: 0.6, marginRight: 4 }}>{MOOD_EMOJI[m]}</span>
-                {m}
-              </button>
-            ))}
-          </div>
-
-          <button
+          <ChunkyPill
+            variant="ghost"
+            size="sm"
             onClick={() => setMoodOverride(null)}
             disabled={moodOverride === null}
-            style={{
-              width: "100%",
-              padding: "7px 0",
-              background: "transparent",
-              border: "1px dashed rgba(255,255,255,0.2)",
-              borderRadius: 6,
-              color: moodOverride ? "#fff" : "rgba(255,255,255,0.3)",
-              fontFamily: "monospace",
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              cursor: moodOverride ? "pointer" : "not-allowed",
-              marginBottom: 14,
-            }}
+            className="w-full mb-4"
           >
             clear override
-          </button>
+          </ChunkyPill>
 
           {/* GAME CONFIG — live tuning for Slice 2 thresholds */}
           <GameConfigEditor />
 
           {/* RESETS */}
-          <div style={{
-            fontSize: 9, letterSpacing: "0.12em",
-            color: "rgba(239,68,68,0.75)", textTransform: "uppercase",
-            marginBottom: 6,
-          }}>
-            resets (tap twice)
+          <div className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase text-red-400/85 mb-2">
+            resets · tap twice
           </div>
-          <div style={{
-            display: "flex", flexDirection: "column", gap: 6,
-            marginBottom: 14,
-          }}>
-            <ConfirmButton
-              label="reset xp / level"
-              onConfirm={adminResetXP}
-            />
-            <ConfirmButton
-              label="reset achievements"
-              onConfirm={adminResetAchievements}
-            />
-            <ConfirmButton
-              label="reset lifetime stats"
-              onConfirm={adminResetLifetimeStats}
-            />
-            <ConfirmButton
-              label="delete all songs"
-              onConfirm={adminResetInventory}
-            />
-            <ConfirmButton
-              label="reset tamagotchi"
-              onConfirm={adminResetTamagotchi}
-            />
+          <div className="flex flex-col gap-1.5 mb-4">
+            <ConfirmButton label="reset xp / level"        onConfirm={adminResetXP} />
+            <ConfirmButton label="reset achievements"      onConfirm={adminResetAchievements} />
+            <ConfirmButton label="reset lifetime stats"    onConfirm={adminResetLifetimeStats} />
+            <ConfirmButton label="delete all songs"        onConfirm={adminResetInventory} />
+            <ConfirmButton label="reset tamagotchi"        onConfirm={adminResetTamagotchi} />
             <ConfirmButton
               label="✦ wipe everything"
               confirmLabel="tap again — wipes ALL progress"
@@ -292,26 +223,14 @@ export function AdminPanel() {
             />
           </div>
 
-          {/* Reminder of how to promote */}
-          <div style={{
-            fontSize: 9, letterSpacing: "0.12em",
-            color: "rgba(255,255,255,0.6)", textTransform: "uppercase",
-            marginBottom: 4,
-          }}>
-            status
-          </div>
-          <div style={{
-            fontSize: 10, color: "#4ade80",
-            marginBottom: 4,
-          }}>
+          {/* Status footer */}
+          <SectionLabel>status</SectionLabel>
+          <div className="font-mono text-[10px] text-grvd-lime mb-1">
             admin role active
           </div>
-          <div style={{
-            fontSize: 9, color: "rgba(255,255,255,0.35)",
-            lineHeight: 1.5,
-          }}>
-            Current override:{" "}
-            <span style={{ color: moodOverride ? "#fbbf24" : "rgba(255,255,255,0.5)" }}>
+          <div className="font-mono text-[9px] text-white/35 leading-relaxed">
+            current override:{" "}
+            <span className={moodOverride ? "text-grvd-gold" : "text-white/55"}>
               {moodOverride ?? "none (auto)"}
             </span>
           </div>
@@ -323,28 +242,14 @@ export function AdminPanel() {
 
 /* -------------------------------------------------------------------------- */
 /* GameConfigEditor — read + write game_config rows from inside the panel.     */
-/*                                                                             */
-/* Two rows today:                                                              */
-/*   early_ear_threshold  — when a song trips the retroactive XP bonus for    */
-/*                          early-ear tastemakers.                             */
-/*   artist_boost         — how much energy an artist gets per endorsement,   */
-/*                          and the daily cap.                                 */
-/*                                                                             */
-/* Reads use the public game_config table. Writes go through                  */
-/* admin_set_game_config RPC (app_metadata.role = 'admin' check server-side). */
 /* -------------------------------------------------------------------------- */
 
 function GameConfigEditor() {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{
-        fontSize: 9, letterSpacing: "0.12em",
-        color: "rgba(250,204,21,0.75)", textTransform: "uppercase",
-        marginBottom: 6,
-      }}>
+    <div className="mb-4">
+      <div className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase text-grvd-gold/80 mb-2">
         game config (live)
       </div>
-
       <EarlyEarEditor />
       <ArtistBoostEditor />
     </div>
@@ -373,36 +278,15 @@ function EarlyEarEditor() {
     }
   }
 
-  if (!value) return <div style={cfgLoading}>loading early-ear threshold…</div>;
+  if (!value) return <div className={cfgLoadingCx}>loading early-ear threshold…</div>;
 
   return (
-    <div style={cfgBlock}>
-      <div style={cfgTitle}>early-ear bonus threshold</div>
-      <ConfigNumberField
-        label="min ratings"
-        hint="how many 1–5★ ratings before a song is 'popular'"
-        value={value.min_ratings}
-        onChange={(n) => setValue({ ...value, min_ratings: n })}
-      />
-      <ConfigNumberField
-        label="min avg stars"
-        hint="and the average stars must be at least this"
-        step={0.1}
-        value={value.min_avg_stars}
-        onChange={(n) => setValue({ ...value, min_avg_stars: n })}
-      />
-      <ConfigNumberField
-        label="min endorsements"
-        hint="OR this many pushes, whichever trips first"
-        value={value.min_endorsements}
-        onChange={(n) => setValue({ ...value, min_endorsements: n })}
-      />
-      <ConfigNumberField
-        label="bonus xp"
-        hint="xp awarded to each early-ear when the song trips"
-        value={value.bonus_xp}
-        onChange={(n) => setValue({ ...value, bonus_xp: n })}
-      />
+    <div className={cfgBlockCx}>
+      <div className={cfgTitleCx}>early-ear bonus threshold</div>
+      <ConfigNumberField label="min ratings"      hint="how many 1–5★ ratings before a song is 'popular'"   value={value.min_ratings}     onChange={(n) => setValue({ ...value, min_ratings: n })} />
+      <ConfigNumberField label="min avg stars"    hint="and the average stars must be at least this"          step={0.1} value={value.min_avg_stars}   onChange={(n) => setValue({ ...value, min_avg_stars: n })} />
+      <ConfigNumberField label="min endorsements" hint="OR this many pushes, whichever trips first"           value={value.min_endorsements} onChange={(n) => setValue({ ...value, min_endorsements: n })} />
+      <ConfigNumberField label="bonus xp"         hint="xp awarded to each early-ear when the song trips"     value={value.bonus_xp}        onChange={(n) => setValue({ ...value, bonus_xp: n })} />
       <SaveRow saving={saving} justSaved={justSaved} onSave={save} />
     </div>
   );
@@ -430,29 +314,27 @@ function ArtistBoostEditor() {
     }
   }
 
-  if (!value) return <div style={cfgLoading}>loading artist boost…</div>;
+  if (!value) return <div className={cfgLoadingCx}>loading artist boost…</div>;
 
   return (
-    <div style={cfgBlock}>
-      <div style={cfgTitle}>artist boost (on being endorsed)</div>
-      <ConfigNumberField
-        label="energy / push"
-        hint="⚡ the artist gains each time a fan pushes their song"
-        value={value.energy_per_endorsement}
-        onChange={(n) => setValue({ ...value, energy_per_endorsement: n })}
-      />
-      <ConfigNumberField
-        label="daily cap ⚡"
-        hint="max energy an artist can gain from endorsements per UTC day"
-        value={value.daily_cap_energy}
-        onChange={(n) => setValue({ ...value, daily_cap_energy: n })}
-      />
+    <div className={cfgBlockCx}>
+      <div className={cfgTitleCx}>artist boost (on being endorsed)</div>
+      <ConfigNumberField label="energy / push" hint="⚡ the artist gains each time a fan pushes their song" value={value.energy_per_endorsement} onChange={(n) => setValue({ ...value, energy_per_endorsement: n })} />
+      <ConfigNumberField label="daily cap ⚡"  hint="max energy an artist can gain from endorsements per UTC day" value={value.daily_cap_energy}      onChange={(n) => setValue({ ...value, daily_cap_energy: n })} />
       <SaveRow saving={saving} justSaved={justSaved} onSave={save} />
     </div>
   );
 }
 
 /* ---- Shared pieces ---- */
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase text-white/55 mb-2">
+      {children}
+    </div>
+  );
+}
 
 function ConfigNumberField({
   label, hint, value, onChange, step = 1,
@@ -464,32 +346,19 @@ function ConfigNumberField({
   step?: number;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
-          {label}
-        </span>
+    <label className="flex flex-col gap-1 mb-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] tracking-wide text-white/75">{label}</span>
         <input
           type="number"
           value={value}
           step={step}
           onChange={(e) => onChange(Number(e.target.value))}
-          style={{
-            width: 68,
-            padding: "3px 6px",
-            background: "rgba(0,0,0,0.4)",
-            border: "1px solid rgba(250,204,21,0.4)",
-            borderRadius: 4,
-            color: "#fff",
-            fontFamily: "monospace",
-            fontSize: 11,
-            fontVariantNumeric: "tabular-nums",
-            textAlign: "right",
-          }}
+          className="w-[68px] px-2 py-0.5 rounded-md bg-black/40 border border-grvd-gold/40 text-white font-mono text-[11px] tabular-nums text-right outline-none focus:border-grvd-gold/70"
         />
       </div>
       {hint && (
-        <span style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", lineHeight: 1.3 }}>
+        <span className="font-mono text-[9px] text-white/35 leading-snug">
           {hint}
         </span>
       )}
@@ -508,48 +377,32 @@ function SaveRow({
     <button
       onClick={onSave}
       disabled={saving}
-      style={{
-        width: "100%",
-        padding: "6px 0",
-        marginTop: 4,
-        background: justSaved ? "rgba(74,222,128,0.2)" : "rgba(250,204,21,0.18)",
-        border: `1px solid ${justSaved ? "rgba(74,222,128,0.6)" : "rgba(250,204,21,0.5)"}`,
-        borderRadius: 5,
-        color: justSaved ? "#4ade80" : "#facc15",
-        fontFamily: "monospace",
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-        cursor: saving ? "wait" : "pointer",
-      }}
+      className={[
+        "w-full mt-1 px-3 py-1.5 rounded-lg",
+        "border-2 transition-all shadow-chunky-press",
+        "font-mono text-[10px] font-bold tracking-[0.1em] uppercase",
+        justSaved
+          ? "bg-grvd-lime/15 border-grvd-lime/55 text-grvd-lime"
+          : "bg-grvd-gold/15 border-grvd-gold/50 text-grvd-gold",
+        saving ? "cursor-wait opacity-70" : "cursor-pointer",
+      ].join(" ")}
     >
       {saving ? "saving…" : justSaved ? "saved ✓" : "save"}
     </button>
   );
 }
 
-const cfgBlock: React.CSSProperties = {
-  padding: 8,
-  marginBottom: 8,
-  background: "rgba(0,0,0,0.2)",
-  border: "1px solid rgba(255,255,255,0.06)",
-  borderRadius: 6,
-};
+const cfgBlockCx = [
+  "rounded-xl p-2 mb-2",
+  "bg-black/25 border border-white/8",
+  "shadow-chunky-press",
+].join(" ");
 
-const cfgTitle: React.CSSProperties = {
-  fontSize: 10,
-  color: "rgba(250,204,21,0.85)",
-  fontFamily: "monospace",
-  letterSpacing: "0.06em",
-  marginBottom: 6,
-  textTransform: "uppercase",
-};
+const cfgTitleCx = [
+  "font-mono text-[10px] uppercase tracking-wide",
+  "text-grvd-gold/85 mb-1.5",
+].join(" ");
 
-const cfgLoading: React.CSSProperties = {
-  padding: 8,
-  fontSize: 9,
-  color: "rgba(255,255,255,0.3)",
-  fontFamily: "monospace",
-  fontStyle: "italic",
-};
+const cfgLoadingCx = [
+  "p-2 font-mono text-[9px] italic text-white/30",
+].join(" ");
