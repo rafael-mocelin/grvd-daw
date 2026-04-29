@@ -14,6 +14,7 @@ import { playSong, renderSongToWav, stopSong, downloadWavBlob } from "../audio/e
 import { SAVE_SONG_XP } from "../data/achievements";
 import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 import { Modal } from "../ui/Modal";
+import { CreationToolbar } from "../ui/burst/CreationToolbar";
 
 export function NameAndSave() {
   const {
@@ -165,45 +166,11 @@ export function NameAndSave() {
           </div>
         </div>
 
-        {/* Sweeten row: ARRANGE + MIX before saving.
-         *
-         * Mid-creation, activeTemplate + layers are already live in the
-         * store, so arrange/mixer can read them directly. We set the
-         * editor return stage to "name" so the back button drops the
-         * player back here to save instead of routing to Done (which
-         * has no song yet at this point). */}
-        {layers.length > 0 && (
-          <div className="grid grid-cols-2 gap-2">
-            <ChunkyPill
-              variant="cyan"
-              size="md"
-              icon="🎚️"
-              onClick={() => {
-                stopSong();
-                setPlaying(false);
-                useStore.setState({ editorReturnStage: "name" });
-                setStage("arrange");
-              }}
-              className="w-full"
-            >
-              arrange
-            </ChunkyPill>
-            <ChunkyPill
-              variant="magenta"
-              size="md"
-              icon="🎛️"
-              onClick={() => {
-                stopSong();
-                setPlaying(false);
-                useStore.setState({ editorReturnStage: "name" });
-                setStage("mixer");
-              }}
-              className="w-full"
-            >
-              mix
-            </ChunkyPill>
-          </div>
-        )}
+        {/* Persistent creation toolbar — same component used in
+         *  StackingView/ArrangeView/MixerView (cook, arrange, mix).
+         *  Mid-creation activeTemplate + layers are already in the
+         *  store, so the buttons just route. Audio persists. */}
+        <CreationToolbar />
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2 items-center">
