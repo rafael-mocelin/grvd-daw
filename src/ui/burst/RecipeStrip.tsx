@@ -11,6 +11,7 @@
  * directly to the save page or back to any recipe step at any time.
  */
 
+import { useEffect, useRef } from "react";
 import { useStore } from "../../store/useStore";
 import { KIND_LABEL } from "../../data/types";
 import { getSound } from "../../data/sounds";
@@ -23,6 +24,23 @@ export function RecipeStrip() {
   const recipeIndex    = useStore((s) => s.recipeIndex);
   const layers         = useStore((s) => s.layers);
   const activeTemplate = useStore((s) => s.activeTemplate);
+
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const activeRef   = useRef<HTMLButtonElement | null>(null);
+
+  // Auto-scroll the active pill into the horizontal center of the
+  // strip whenever the active step changes. So if the user is on the
+  // SAVE step the strip auto-pans right to bring SAVE into view; on
+  // a mid-recipe step it pans to center that step. Keeps the
+  // currently-active surface visible without the user having to swipe.
+  useEffect(() => {
+    const sc = scrollerRef.current;
+    const el = activeRef.current;
+    if (!sc || !el) return;
+    const elCenter = el.offsetLeft + el.offsetWidth / 2;
+    const target = elCenter - sc.clientWidth / 2;
+    sc.scrollTo({ left: target, behavior: "smooth" });
+  }, [stage, recipeIndex]);
 
   if (!activeTemplate) return null;
 
@@ -43,6 +61,7 @@ export function RecipeStrip() {
 
   return (
     <div
+      ref={scrollerRef}
       className="sticky z-20 -mx-3 px-3 py-2 bg-grvd-base/95 backdrop-blur-sm border-y border-white/6 overflow-x-auto"
       style={{ top: "var(--hud-h, 64px)", scrollbarWidth: "none" }}
     >
@@ -55,6 +74,7 @@ export function RecipeStrip() {
           return (
             <button
               key={kind + i}
+              ref={active ? activeRef : undefined}
               onClick={clickable ? () => jumpToStep(i) : undefined}
               disabled={!clickable}
               className={[
@@ -81,6 +101,7 @@ export function RecipeStrip() {
          *  NameAndSave page; on that page the pill is highlighted and
          *  non-interactive. */}
         <button
+          ref={isOnSave ? activeRef : undefined}
           onClick={isOnSave ? undefined : jumpToSave}
           disabled={isOnSave}
           className={[
