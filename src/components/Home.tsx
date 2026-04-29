@@ -33,6 +33,8 @@ import { CookCTA }      from "../ui/burst/CookCTA";
 import { GhostPill }    from "../ui/burst/GhostPill";
 import { Icon }         from "../ui/burst/Icon";
 import { C, chrome }    from "../ui/burst/tokens";
+import { CharacterFace } from "../ui/CharacterFace";
+import { NeedsMeters }   from "./NeedsMeters";
 import type { Mood } from "../data/types";
 
 const TALK_LINES: Record<Mood, string> = {
@@ -94,9 +96,35 @@ export function Home() {
           {dawTalk && <SpeechBubble text={dawTalk} />}
         </StudioScene>
 
-        {/* Corner nav buttons */}
+        {/* Top strip — pet (left) + 3 needs bars inline next to it.
+         *  Sits above the StudioScene at z-8 so it lands on top of the
+         *  back wall but under the speech bubble. */}
+        <div
+          style={{
+            position: "absolute",
+            top: 12,
+            left: 12,
+            right: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            zIndex: 8,
+          }}
+        >
+          <div style={{ flexShrink: 0 }}>
+            <CharacterFace size={64} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <NeedsMeters tam={tamagotchi} compact />
+          </div>
+        </div>
+
+        {/* Nav buttons — BOOTH stacks on top of STUDIO (left column),
+         *  FRIENDS stacks on top of CHARTS (right column). STUDIO and
+         *  CHARTS stay pinned to the bottom corners; BOOTH and FRIENDS
+         *  sit just above them with a 12px gap. */}
         <NavButton
-          pos="tl"
+          style={{ left: 12, bottom: 100 }}
           gradFrom={C.pink}
           gradTo={C.coral}
           halo={`${C.pink}88`}
@@ -105,7 +133,7 @@ export function Home() {
           onPress={() => setStage("booth")}
         />
         <NavButton
-          pos="tr"
+          style={{ right: 12, bottom: 100 }}
           gradFrom="#ff7a8e"
           gradTo={C.coralDeep}
           halo={`${C.coral}88`}
