@@ -44,7 +44,11 @@ export function EnergyOrb() {
   return (
     <div
       className={[
-        "relative h-9 min-w-[88px] grow",
+        // grow so the orb fills available space, but cap so it doesn't
+        // overrun the row when xp/coins shrink. The HUD is only ever this
+        // wide — the bar feeling "narrower" is intentional, leaves room
+        // for the talk bubble that drops below the puck.
+        "relative h-9 min-w-[80px] grow max-w-[180px]",
         "rounded-full bg-grvd-base/80",
         "border border-grvd-line",
         "shadow-chunky-press",

@@ -89,31 +89,15 @@ export function CharacterFace({
   // travel 1.6 SVG units; a 240px face should travel proportionally.
   const effectiveTrackRange = trackRange ?? Math.max(1.6, size / 35);
 
+  // Mouth amplitude RAF loop — pupils stay centered (cursor tracking
+  // removed because the pupils were sliding past the eye-socket bounds
+  // at every size, which broke the chunky cartoon look).
   useEffect(() => {
     let raf = 0;
     let cancelled = false;
-    let cursorX = 0, cursorY = 0;
-    const onMove = (e: PointerEvent) => { cursorX = e.clientX; cursorY = e.clientY; };
-    window.addEventListener("pointermove", onMove, { passive: true });
 
     const tick = () => {
       if (cancelled) return;
-      const wrapper = wrapperRef.current;
-      if (wrapper) {
-        const rect = wrapper.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top  + rect.height / 2;
-        let dx = cursorX - cx;
-        let dy = cursorY - cy;
-        const dist = Math.hypot(dx, dy) || 1;
-        const r = Math.min(effectiveTrackRange, dist / Math.max(60, size * 0.6));
-        dx = (dx / dist) * r;
-        dy = (dy / dist) * r;
-        leftPupilRef.current?.setAttribute( "transform", `translate(${dx} ${dy})`);
-        rightPupilRef.current?.setAttribute("transform", `translate(${dx} ${dy})`);
-      }
-
-      // Mouth amplitude from audio level — same algorithm as AvatarPuck.
       const level = audioLevelRef.current;
       const m     = mouthRef.current;
       if (m) {
@@ -128,7 +112,6 @@ export function CharacterFace({
           m.setAttribute("d", adjusted);
         }
       }
-
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -136,9 +119,14 @@ export function CharacterFace({
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
-      window.removeEventListener("pointermove", onMove);
     };
-  }, [mood, size, effectiveTrackRange, audioLevelRef]);
+  }, [mood, audioLevelRef]);
+  // Reference unused params to keep the API stable for future re-enables.
+  void wrapperRef;
+  void effectiveTrackRange;
+  void size;
+  void leftPupilRef;
+  void rightPupilRef;
 
   const eyeOpen = EYE_OPEN[mood];
 

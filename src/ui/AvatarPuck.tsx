@@ -94,63 +94,24 @@ export function AvatarPuck({ size = 56, onClick }: AvatarPuckProps) {
 
   const audioLevelRef = useAudioLevel();
 
-  // ── Cursor tracking + audio-driven mouth amplitude ──
-  // One rAF loop drives both. Eyes translate their pupils toward the
-  // cursor (clamped to a small radius inside each socket). Mouth path
-  // gets its `d` swapped each frame to a level-modulated version of the
-  // mood baseline.
+  // ── Audio-driven mouth amplitude only ──
+  // Cursor-tracking eyes were removed: the pupils were translating past
+  // the eye-socket bounds at the puck's small 56px scale, breaking the
+  // chunky cartoon look. Mouth still pulses with audio level so the
+  // companion feels alive when the DAW is playing.
   useEffect(() => {
     let raf = 0;
     let cancelled = false;
 
-    let cursorX = 0;
-    let cursorY = 0;
-    const onMove = (e: PointerEvent) => {
-      cursorX = e.clientX;
-      cursorY = e.clientY;
-    };
-    window.addEventListener("pointermove", onMove, { passive: true });
-
     const tick = () => {
       if (cancelled) return;
 
-      const wrapper = wrapperRef.current;
-      if (wrapper) {
-        const rect = wrapper.getBoundingClientRect();
-        const cx   = rect.left + rect.width  / 2;
-        const cy   = rect.top  + rect.height / 2;
-
-        // Vector from puck center to cursor, normalized + clamped to a
-        // short radius (2px max) so the eyes feel alive without going
-        // wall-eyed.
-        let dx = cursorX - cx;
-        let dy = cursorY - cy;
-        const dist = Math.hypot(dx, dy) || 1;
-        const r = Math.min(1.6, dist / 240);  // saturates after 240px
-        dx = (dx / dist) * r;
-        dy = (dy / dist) * r;
-
-        const lp = leftPupilRef.current;
-        const rp = rightPupilRef.current;
-        if (lp) lp.setAttribute("transform", `translate(${dx} ${dy})`);
-        if (rp) rp.setAttribute("transform", `translate(${dx} ${dy})`);
-      }
-
-      // Mouth amplitude from audio level (or a small idle wobble when silent
-      // and the mood permits). Scales the y-coordinate of the bezier control
-      // point.
       const level = audioLevelRef.current;
       const m     = mouthRef.current;
       if (m) {
         const base = MOUTH_PATH[mood];
-        // Mood-keyed baseline + audio-driven amplitude on top.
-        // Strategy: parse the mid-control-point y from the path, adjust by
-        // ±2px scaled by level, write back. Simple regex on Q paths:
         const ampPx = level * 2.5;
         const adjusted = base.replace(/Q\s+(\d+)\s+(\d+(?:\.\d+)?)/, (_match, x, y) => {
-          // Mood mouths that curve UP (smiles) get more curve when amped.
-          // Mood mouths that curve DOWN (frowns) get less when amped (less
-          // miserable). Heuristic: mouths whose Q-y < 16 are smiles.
           const yNum = parseFloat(y);
           const direction = yNum >= 16 ? +1 : -1;
           return `Q ${x} ${(yNum + direction * ampPx).toFixed(2)}`;
@@ -167,9 +128,13 @@ export function AvatarPuck({ size = 56, onClick }: AvatarPuckProps) {
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
-      window.removeEventListener("pointermove", onMove);
     };
   }, [mood, audioLevelRef]);
+  // Refs left in place to keep the future option of re-enabling eye
+  // tracking without an API change.
+  void wrapperRef;
+  void leftPupilRef;
+  void rightPupilRef;
 
   // ── Level ring as a conic gradient ──
   // Renders a 2px-thick gold ring around the puck. The number badge

@@ -43,9 +43,9 @@ export function TalkBubble() {
     <div
       className={[
         "pointer-events-none",
-        "max-w-[200px] sm:max-w-[260px]",
+        "max-w-[180px] sm:max-w-[240px]",
         "px-3 py-2",
-        "rounded-2xl rounded-bl-sm",  // pointed bottom-left toward puck
+        "rounded-2xl rounded-tl-sm",  // pointed top-left toward puck above
         "bg-white text-grvd-base",
         "font-sans font-semibold text-[12px] leading-snug",
         "shadow-chunky",

@@ -6,12 +6,14 @@
  *
  * Layout (left → right at mobile width 375-414px):
  *
- *   [AvatarPuck + TalkBubble]   [EnergyOrb]   [XpRibbon]   [CoinSlot]
+ *   [AvatarPuck]   [EnergyOrb]   [XpRibbon]   [CoinSlot]
  *
- * The TalkBubble is positioned to the right of the puck and floats over
- * the orb when present (it's purely decorative for the companion line).
- * Energy orb gets the most growth room (flex-grow) since the value
- * matters most.
+ *   [    TalkBubble (drops below the puck when present)    ]
+ *
+ * The TalkBubble used to anchor immediately right of the puck, but at
+ * mobile width that put it on top of the EnergyOrb. It now drops
+ * BELOW the puck — pointer-up so it still feels like the companion is
+ * speaking — leaving the HUD row clean for the orb / xp / coins.
  *
  * Safe-area padding for iPhone notches via env(safe-area-inset-top).
  */
@@ -31,22 +33,20 @@ export function Hud() {
         "pb-3 px-3",
       ].join(" ")}
     >
-      <div className="flex items-center gap-2 max-w-[480px] mx-auto">
-        {/* Left cluster — puck + companion bubble.
-         *  The puck is a fixed-size button; the bubble floats next to it. */}
-        <div className="relative flex items-center shrink-0">
+      <div className="relative max-w-[480px] mx-auto">
+        {/* Top row — fixed-height HUD: puck + currency-shape readouts. */}
+        <div className="flex items-center gap-2">
           <AvatarPuck />
-          <div className="absolute left-[64px] top-1 z-10">
-            <TalkBubble />
-          </div>
+          <EnergyOrb />
+          <XpRibbon />
+          <CoinSlot />
         </div>
 
-        {/* Center — energy (gets flex-grow to absorb extra width) */}
-        <EnergyOrb />
-
-        {/* Right — XP + coins */}
-        <XpRibbon />
-        <CoinSlot />
+        {/* TalkBubble — drops below the puck (anchored to its left edge)
+         *  so it stops colliding with the EnergyOrb at mobile widths. */}
+        <div className="absolute left-2 top-[60px] z-20 pointer-events-none">
+          <TalkBubble />
+        </div>
       </div>
     </header>
   );
