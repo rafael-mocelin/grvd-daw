@@ -30,7 +30,6 @@ import {
   fetchPublishedCatalog,
   type PublishedSong,
 } from "../lib/game-db";
-import { CharacterFace } from "../ui/CharacterFace";
 import { ChunkyButton, ChunkyPill, ChunkyBadge } from "../ui/Chunky";
 
 /* -------------------------------------------------------------------------- */
@@ -84,11 +83,14 @@ function TastemakerProfile({ userId, onBack }: { userId: string; onBack: () => v
 
   return (
     <Wrapper onBack={onBack}>
-      {/* Hero: live character face — the user IS the pet. */}
+      {/* Hero: same gradient avatar disc the ArtistProfile uses, just
+       *  tinted cyan so self vs. artist reads at a glance. The pet/
+       *  mascot is its own surface (HUD anchor opens this profile;
+       *  the home stage shows the live mascot in the top strip). */}
       <div className="flex flex-col items-center gap-3 pt-2">
         <div className="relative">
-          <CharacterFace size={180} />
-          {/* Level badge orbiting the face */}
+          <SelfAvatarDisc emoji={profile?.avatar ?? "🧢"} size={180} />
+          {/* Level badge orbiting the avatar */}
           <div className="absolute -bottom-1 -right-1">
             <ChunkyBadge variant="gold" size="md" icon="⭐">
               L{level}
@@ -287,6 +289,38 @@ function ArtistAvatarDisc({ emoji, size }: { emoji: string; size: number }) {
         {emoji}
       </span>
       {/* Glossy highlight */}
+      <div
+        aria-hidden
+        className="absolute inset-x-3 top-3 h-[40%] rounded-full bg-white/15 blur-md pointer-events-none"
+      />
+    </div>
+  );
+}
+
+/** Self-profile avatar disc — same shape as ArtistAvatarDisc but tinted
+ *  cyan-purple so the player can tell at a glance whether they're on
+ *  their own profile or someone else's. */
+function SelfAvatarDisc({ emoji, size }: { emoji: string; size: number }) {
+  return (
+    <div
+      className={[
+        "relative shrink-0 select-none rounded-full",
+        "bg-gradient-to-br from-grvd-cyan to-grvd-purple",
+        "shadow-chunky animate-puck-bob",
+        "flex items-center justify-center",
+      ].join(" ")}
+      style={{ width: size, height: size }}
+      aria-hidden
+    >
+      <span
+        className="leading-none"
+        style={{
+          fontSize: size * 0.55,
+          filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.4))",
+        }}
+      >
+        {emoji}
+      </span>
       <div
         aria-hidden
         className="absolute inset-x-3 top-3 h-[40%] rounded-full bg-white/15 blur-md pointer-events-none"
