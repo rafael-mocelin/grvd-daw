@@ -71,11 +71,11 @@ export function NeedsMeters({ tam, compact, bare }: Props) {
               style={{
                 flex: "1 1 0",
                 minWidth: 0,
-                height: 22,
+                height: 28,
                 display: "flex",
                 alignItems: "center",
-                gap: 4,
-                padding: "0 4px 0 5px",
+                gap: 5,
+                padding: bare ? "0 2px" : "0 4px 0 5px",
                 borderRadius: 999,
                 background: bare ? "transparent"     : "rgba(10,8,20,0.78)",
                 border:     bare ? "none"            : "1.5px solid rgba(0,0,0,0.7)",
@@ -84,9 +84,9 @@ export function NeedsMeters({ tam, compact, bare }: Props) {
             >
               <span
                 style={{
-                  fontSize: 11,
+                  fontSize: 14,
                   lineHeight: 1,
-                  filter: showGlow ? `drop-shadow(0 0 4px ${glow})` : "none",
+                  filter: showGlow ? `drop-shadow(0 0 5px ${glow})` : "none",
                   flexShrink: 0,
                 }}
               >
@@ -95,12 +95,12 @@ export function NeedsMeters({ tam, compact, bare }: Props) {
               <span
                 style={{
                   flex: 1,
-                  height: 8,
+                  height: 14,
                   borderRadius: 999,
-                  background: "rgba(0,0,0,0.5)",
-                  border: "1px solid rgba(0,0,0,0.6)",
+                  background: "rgba(0,0,0,0.55)",
+                  border: "1.5px solid rgba(0,0,0,0.7)",
                   overflow: "hidden",
-                  boxShadow: "inset 0 1px 1px rgba(0,0,0,0.6)",
+                  boxShadow: "inset 0 1px 2px rgba(0,0,0,0.65)",
                 }}
               >
                 <span
@@ -109,7 +109,9 @@ export function NeedsMeters({ tam, compact, bare }: Props) {
                     height: "100%",
                     width: `${v}%`,
                     background: fill,
-                    boxShadow: showGlow ? `0 0 4px ${glow}, inset 0 1px 0 rgba(255,255,255,0.4)` : "inset 0 1px 0 rgba(255,255,255,0.4)",
+                    boxShadow: showGlow
+                      ? `0 0 6px ${glow}, inset 0 1.5px 0 rgba(255,255,255,0.5), inset 0 -1.5px 0 rgba(0,0,0,0.25)`
+                      : "inset 0 1.5px 0 rgba(255,255,255,0.5), inset 0 -1.5px 0 rgba(0,0,0,0.25)",
                     transition: "width 500ms ease",
                   }}
                 />
