@@ -223,6 +223,48 @@ export function StackingView() {
             {recipeIndex}/{activeTemplate.recipe.length}
           </span>
         </div>
+
+        {/* Quick-access ARRANGE + MIX buttons during creation.
+         *
+         * Surfaces them in the player's eye-line while they're still
+         * stacking, without making them leave the recipe flow. Sets
+         * editorReturnStage to "stack" so the back button drops them
+         * back here to keep cooking.
+         *
+         * Only renders once at least one layer has been picked — these
+         * views are useless on an empty session. */}
+        {layers.length > 0 && (
+          <div className="flex items-center gap-1.5 pt-0.5">
+            <ChunkyPill
+              variant="cyan"
+              size="sm"
+              icon="🎚️"
+              onClick={() => {
+                stopSong();
+                setPlaying(false);
+                useStore.setState({ editorReturnStage: "stack" });
+                setStage("arrange");
+              }}
+              className="flex-1"
+            >
+              arrange
+            </ChunkyPill>
+            <ChunkyPill
+              variant="magenta"
+              size="sm"
+              icon="🎛️"
+              onClick={() => {
+                stopSong();
+                setPlaying(false);
+                useStore.setState({ editorReturnStage: "stack" });
+                setStage("mixer");
+              }}
+              className="flex-1"
+            >
+              mix
+            </ChunkyPill>
+          </div>
+        )}
       </div>
 
       {/* ── Recipe strip: sticky chunky pills below the HUD ── */}
