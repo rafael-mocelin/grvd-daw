@@ -31,6 +31,7 @@ import {
   updateMuteState,
   getTransportSeconds,
   seekTransport,
+  resyncLoopingPlayersToTransport,
 } from "../audio/engine";
 import { ChunkyPill } from "../ui/Chunky";
 import { CreationToolbar } from "../ui/burst/CreationToolbar";
@@ -233,7 +234,14 @@ export function ArrangeView() {
     seekFromClientX(e.clientX);
   }
   function onRulerPointerUp() {
+    if (!isSeekingRef.current) return;
     isSeekingRef.current = false;
+    // Commit the seek by jumping every file-backed loop player to the
+    // offset matching the new transport position. Doing this once on
+    // pointerup (instead of on every pointermove) keeps the drag
+    // glitch-free — each move just nudges the transport clock; only
+    // the release actually re-stitches the audio.
+    if (isPlaying) resyncLoopingPlayersToTransport();
   }
 
   function toggleSectionMute(layerKind: string, sectionId: string) {
@@ -517,8 +525,18 @@ export function ArrangeView() {
                 if (!isSeekingRef.current) return;
                 seekFromClientX(e.clientX);
               }}
-              onPointerUp={() => { isSeekingRef.current = false; }}
-              onPointerCancel={() => { isSeekingRef.current = false; }}
+              onPointerUp={() => {
+                if (!isSeekingRef.current) return;
+                isSeekingRef.current = false;
+                // Same single commit pattern as the ruler — see comment
+                // in onRulerPointerUp.
+                if (isPlaying) resyncLoopingPlayersToTransport();
+              }}
+              onPointerCancel={() => {
+                if (!isSeekingRef.current) return;
+                isSeekingRef.current = false;
+                if (isPlaying) resyncLoopingPlayersToTransport();
+              }}
               style={{
                 position: "absolute",
                 top: 0,

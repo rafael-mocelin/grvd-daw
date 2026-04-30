@@ -725,9 +725,59 @@ export function getTransportSeconds(): number {
   return Tone.getTransport().seconds;
 }
 
-/** Seek the transport to an absolute time in seconds. */
+/**
+ * Seek the transport clock — cheap, just sets Tone.Transport.seconds.
+ *
+ * IMPORTANT: this does NOT make the audio jump for file-backed loop
+ * layers. Those layers are Tone.Player instances with `loop: true` and
+ * loop on their OWN internal clock, independent of the transport. Use
+ * this during a drag (called on every pointermove) so headBars stays
+ * coherent between the drag input and the RAF readback, then call
+ * `resyncLoopingPlayersToTransport()` ONCE on pointerup to commit the
+ * audio jump.
+ */
 export function seekTransport(seconds: number) {
   Tone.getTransport().seconds = Math.max(0, seconds);
+}
+
+/**
+ * After a seek, restart every file-backed loop Player at the offset
+ * matching the current transport position so the audio jumps to where
+ * the playhead now is. Synth layers and the vocal Player loop via
+ * Tone.Part which is transport-aware, so they don't need this.
+ *
+ * Call this once after a drag completes (on pointerup), not on every
+ * pointermove — each call does a stop()/start() per looping player and
+ * doing that dozens of times per second sounds terrible.
+ */
+export function resyncLoopingPlayersToTransport() {
+  const transportSec = Tone.getTransport().seconds;
+  for (const nodes of layerSynths.values()) {
+    for (const n of nodes) {
+      // Only touch real loop-on-the-player Tone.Player instances. The
+      // vocal track uses Tone.Player too but its `loop` flag is false;
+      // its looping is handled by a Tone.Part above and is already
+      // transport-driven.
+      if (!(n instanceof Tone.Player)) continue;
+      if (!n.loop || !n.loaded || !n.buffer) continue;
+
+      const sourceDur = n.buffer.duration;
+      const rate      = n.playbackRate || 1;
+      const outputDur = sourceDur / rate; // loop length as the listener hears it
+      if (!isFinite(outputDur) || outputDur <= 0) continue;
+
+      const offsetInLoopOutput = ((transportSec % outputDur) + outputDur) % outputDur;
+      const sourceOffset       = offsetInLoopOutput * rate;
+
+      try {
+        // stop then start in the same tick so the resume is glitch-minimal.
+        n.stop();
+        n.start(Tone.now(), sourceOffset);
+      } catch (err) {
+        console.warn("[resyncLoopingPlayersToTransport] failed:", err);
+      }
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------- */
