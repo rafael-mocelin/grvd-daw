@@ -372,7 +372,18 @@ export function ArrangeView() {
             onPointerMove={onRulerPointerMove}
             onPointerUp={onRulerPointerUp}
             onPointerCancel={onRulerPointerUp}
-            style={{ display: "flex", paddingLeft: LABEL_W, marginBottom: 6, cursor: "col-resize" }}
+            style={{
+              display: "flex",
+              paddingLeft: LABEL_W,
+              marginBottom: 6,
+              cursor: "col-resize",
+              // touchAction:"none" tells mobile browsers that this element
+              // handles its own gestures — without it, after the user moves
+              // a few pixels horizontally the browser takes the gesture for
+              // panning the parent overflow-x-auto container, killing the
+              // scrub and replacing it with a sideways page-scroll.
+              touchAction: "none",
+            }}
           >
             {resolvedSections.map((s) => (
               <SectionRibbon key={s.id} section={s} width={s.bars * BAR_PX} headerH={HEADER_H} />
@@ -512,14 +523,21 @@ export function ArrangeView() {
                 position: "absolute",
                 top: 0,
                 left: LABEL_W + headScreenX,
-                width: 24,
-                marginLeft: -11,
+                width: 32,           // wider hitbox for fingers (was 24)
+                marginLeft: -15,     // re-center after the wider hitbox
                 height: "100%",
                 cursor: "col-resize",
                 zIndex: 10,
                 transition: isPlaying && !isSeekingRef.current ? "none" : "left 0.04s",
                 display: "flex",
                 justifyContent: "center",
+                // Prevent mobile browsers from claiming horizontal drag
+                // gestures for scrolling the overflow-x-auto parent — same
+                // reason as the ruler above. Without this, the playhead
+                // would drag a few pixels and then the page would start
+                // panning instead, forcing the user to repeat tap-and-drag
+                // to move it across the full song.
+                touchAction: "none",
               }}
             >
               <div
