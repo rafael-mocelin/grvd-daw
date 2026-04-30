@@ -135,8 +135,41 @@ export function samplesLoaded(): boolean {
   return samplesLoadAttempted;
 }
 
+/**
+ * iOS Safari gesture unlock — must run *synchronously* inside a user
+ * gesture handler (click/tap). Tone.start() is async and on cold start
+ * its worklet-loading chain can defer the actual context.resume() past
+ * the gesture boundary, leaving the AudioContext suspended forever and
+ * silent for the rest of the session.
+ *
+ * The fix: call rawContext.resume() AND fire a 1-sample silent buffer
+ * source synchronously, both inside the gesture call frame. After that
+ * Tone.start() can finish its own initialization at leisure — the
+ * context is already running so subsequent Player.start() calls will
+ * actually produce sound.
+ */
 export async function ensureAudio() {
   if (audioStarted) return;
+
+  // Synchronous portion — runs before any await, so still inside the
+  // user-gesture callstack on iOS.
+  try {
+    const ctx = Tone.getContext().rawContext as AudioContext;
+    if (ctx.state === "suspended") {
+      // resume() returns a promise but the underlying state flip
+      // happens immediately when called from a gesture.
+      void ctx.resume();
+    }
+    // Silent-buffer trick — iOS additionally requires that a real
+    // AudioBufferSource be started during the gesture for the context
+    // to remain unlocked across page lifecycle events.
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+  } catch { /* ignore — fall through to Tone.start() */ }
+
   await Tone.start();
   audioStarted = true;
 }
