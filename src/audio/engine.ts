@@ -639,7 +639,7 @@ export async function playSong(
     if (isPlayer) {
       const player = nodes[0] as Tone.Player;
       // Vocal: loop based on the actual recording duration, not song.bars.
-      // A 4-bar hook recording loops every 4 bars so it plays over both HOOK and CHORUS.
+      // A 4-bar hook recording loops every 4 bars so it tiles cleanly across the song.
       let loopBars = song.bars;
       if (isVocal && player.buffer?.duration) {
         loopBars = Math.max(1, Math.round(player.buffer.duration * (song.bpm / 60) / 4));

@@ -49,11 +49,17 @@ interface SectionDef {
   xpRequired: number;
 }
 
+/**
+ * Section list — note that "hook" and "chorus" describe the same musical
+ * idea (the repeating earworm), so they were merged into a single HOOK
+ * column. To keep two unlocked sections out of the gate, VERSE is also
+ * unlocked by default (was previously XP-gated). Net change vs. the
+ * earlier shape: CHORUS removed, VERSE.baseUnlocked → true, xpRequired → 0.
+ */
 const SECTIONS: SectionDef[] = [
   { id: "intro",  label: "INTRO",  bars: 4, color: "#22d3ee", baseUnlocked: false, xpRequired: 600  },
-  { id: "verse",  label: "VERSE",  bars: 8, color: "#a78bfa", baseUnlocked: false, xpRequired: 800  },
+  { id: "verse",  label: "VERSE",  bars: 8, color: "#a78bfa", baseUnlocked: true,  xpRequired: 0    },
   { id: "hook",   label: "HOOK",   bars: 4, color: "#ff4d9c", baseUnlocked: true,  xpRequired: 0    },
-  { id: "chorus", label: "CHORUS", bars: 4, color: "#fb923c", baseUnlocked: true,  xpRequired: 0    },
   { id: "bridge", label: "BRIDGE", bars: 4, color: "#4ade80", baseUnlocked: false, xpRequired: 1200 },
   { id: "outro",  label: "OUTRO",  bars: 4, color: "#fbbf24", baseUnlocked: false, xpRequired: 2000 },
 ];
@@ -588,11 +594,16 @@ function SectionRibbon({
         width,
         height: headerH,
         flexShrink: 0,
+        // One line — both locked and unlocked. The previous locked layout
+        // stacked 🔒 / LABEL / XP across three rows which clipped against
+        // the 32 px ribbon height; the lock glyph and XP text overflowed
+        // the frame on mobile. Single horizontal row keeps every glyph
+        // inside the box.
         display: "flex",
-        flexDirection: "column",
+        flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        gap: 1,
+        gap: 4,
         marginRight: 2,
         borderRadius: 8,
         background: locked
@@ -606,18 +617,29 @@ function SectionRibbon({
           : `0 2px 0 0 rgba(0,0,0,0.25), 0 0 10px ${section.color}33, inset 0 1px 0 rgba(255,255,255,0.25)`,
         cursor: locked ? "default" : "col-resize",
         position: "relative",
+        padding: "0 4px",
+        overflow: "hidden",
       }}
     >
       {locked ? (
+        // Compact single-line lock pill: 🔒 followed by required XP.
+        // The section label is dropped here because column position
+        // already implies which section it is, and we'd rather give
+        // the player the actionable info (how much XP to unlock) than
+        // the label they can't interact with anyway.
         <>
-          <span className="text-[10px] opacity-60">🔒</span>
-          <span className="font-display text-[8px] text-white/40 tracking-wider">{section.label}</span>
-          <span className="font-sans text-[7px] text-white/30 mt-0.5">{section.xpRequired} XP</span>
+          <span style={{ fontSize: 10, lineHeight: 1, opacity: 0.7 }}>🔒</span>
+          <span
+            className="font-sans text-white/45"
+            style={{ fontSize: 9, fontWeight: 600, lineHeight: 1, whiteSpace: "nowrap" }}
+          >
+            {section.xpRequired} XP
+          </span>
         </>
       ) : (
         <span
           className="font-display text-[10px] text-white tracking-widest"
-          style={{ textShadow: `0 0 6px ${section.color}cc` }}
+          style={{ textShadow: `0 0 6px ${section.color}cc`, lineHeight: 1 }}
         >
           {section.label}
         </span>
