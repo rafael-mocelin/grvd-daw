@@ -158,6 +158,11 @@ export function VocalRecorder() {
   const [isEditing,    setIsEditing]    = useState(false);
   /** Working copy of lyrics while the edit panel is open. */
   const [editLines,    setEditLines]    = useState<string[]>([]);
+  /** Whether the headphones advisory modal is open. Shown the first time
+   *  the user taps "start recording" each session — without wired
+   *  earphones, music played through the phone speaker bleeds into the
+   *  mic and the vocal comes out painfully quiet. */
+  const [showMicAdvisory, setShowMicAdvisory] = useState(false);
 
   const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   const micLevelRef = useRef(setMicLevel);
@@ -328,6 +333,19 @@ export function VocalRecorder() {
         </div>
       )}
 
+      {/* Headphones advisory — gates the actual record start. Without
+       *  wired earphones, music played from the phone speaker bleeds
+       *  into the mic and the vocal comes back painfully quiet. */}
+      {showMicAdvisory && (
+        <MicAdvisory
+          onConfirm={() => {
+            setShowMicAdvisory(false);
+            handleRecord();
+          }}
+          onCancel={() => setShowMicAdvisory(false)}
+        />
+      )}
+
       <div style={{ minWidth: 0 }}>
         {tab === "record" ? (
           <RecordTab
@@ -363,7 +381,7 @@ export function VocalRecorder() {
               setCustomLyrics(null);
               setIsEditing(false);
             }}
-            onRecord={handleRecord}
+            onRecord={() => setShowMicAdvisory(true)}
             onRedo={redo}
             onSkip={skip}
             onNext={() => setStage("name")}
@@ -850,6 +868,179 @@ function PitchBar({ contour, score }: { contour: number[]; score: number }) {
       <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
         <span>in-key 🟢</span><span>off-key 🔴</span><span>score: {score}/100</span>
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* MicAdvisory — gating modal before recording starts                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Shown right after the user taps "start recording", before the mic
+ * actually opens. The phone-speaker problem: when the beat plays out
+ * loud and the user sings into the mic, the speaker bleed competes
+ * with the voice and the recording comes back painfully quiet because
+ * the mic's auto-gain ducks against the loud beat.
+ *
+ * Wired earphones with a built-in mic solve this — the beat plays in
+ * the user's ear (zero bleed) and the mic only hears the voice.
+ *
+ * Two buttons: confirm proceeds with recording, cancel goes back to
+ * the ready state. Tapping the backdrop also cancels.
+ */
+interface MicAdvisoryProps {
+  onConfirm: () => void;
+  onCancel:  () => void;
+}
+
+function MicAdvisory({ onConfirm, onCancel }: MicAdvisoryProps) {
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 200,
+        background: "rgba(8, 10, 24, 0.78)",
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        animation: "micAdvisoryFade 0.18s ease-out both",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth: 340,
+          background: "linear-gradient(180deg, #1f2a44 0%, #131a2c 100%)",
+          border: "2.5px solid #0a0f1c",
+          borderRadius: 22,
+          padding: "22px 20px 18px",
+          boxShadow:
+            "0 12px 0 rgba(0,0,0,0.55), 0 24px 48px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)",
+          textAlign: "center",
+          animation: "micAdvisoryPop 0.32s cubic-bezier(.34,1.56,.64,1) both",
+        }}
+      >
+        <div style={{ fontSize: 56, lineHeight: 1, marginBottom: 10 }}>🎧</div>
+
+        <div
+          style={{
+            fontFamily: "'Lilita One', system-ui",
+            fontSize: 22,
+            color: "#fff",
+            letterSpacing: 0.5,
+            lineHeight: 1.1,
+            marginBottom: 8,
+          }}
+        >
+          USE WIRED EARPHONES
+        </div>
+
+        <p
+          style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 12,
+            color: "rgba(255,255,255,0.78)",
+            lineHeight: 1.5,
+            margin: "0 0 14px",
+          }}
+        >
+          best results with cabled earphones that have a built-in mic. the beat plays in your ear, your voice goes straight into the mic — zero bleed, zero ducking.
+        </p>
+
+        <div
+          style={{
+            background: "rgba(244, 63, 94, 0.10)",
+            border: "1.5px solid rgba(244, 63, 94, 0.35)",
+            borderRadius: 12,
+            padding: "8px 10px",
+            marginBottom: 16,
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 10.5,
+            color: "rgba(255, 200, 200, 0.85)",
+            lineHeight: 1.45,
+          }}
+        >
+          ⚠️ playing the beat from the phone speaker makes your vocal sound super quiet
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button
+            onClick={onConfirm}
+            style={{
+              appearance: "none",
+              border: "2.5px solid #0a0f1c",
+              borderRadius: 14,
+              padding: "11px 16px",
+              fontFamily: "'Lilita One', system-ui",
+              fontSize: 16,
+              letterSpacing: 0.6,
+              color: "#fff",
+              background: "linear-gradient(180deg, #ff6b8a 0%, #E94560 100%)",
+              boxShadow:
+                "0 5px 0 rgba(0,0,0,0.55), inset 0 2px 0 rgba(255,255,255,0.25), inset 0 -2px 1px rgba(0,0,0,0.3), 0 0 24px rgba(233,69,96,0.45)",
+              cursor: "pointer",
+              transform: "translateY(0)",
+              transition: "transform 0.06s, box-shadow 0.06s",
+            }}
+            onPointerDown={(e) => {
+              e.currentTarget.style.transform = "translateY(2px)";
+              e.currentTarget.style.boxShadow =
+                "0 3px 0 rgba(0,0,0,0.55), inset 0 2px 0 rgba(255,255,255,0.25), inset 0 -2px 1px rgba(0,0,0,0.3), 0 0 24px rgba(233,69,96,0.45)";
+            }}
+            onPointerUp={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow =
+                "0 5px 0 rgba(0,0,0,0.55), inset 0 2px 0 rgba(255,255,255,0.25), inset 0 -2px 1px rgba(0,0,0,0.3), 0 0 24px rgba(233,69,96,0.45)";
+            }}
+            onPointerLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow =
+                "0 5px 0 rgba(0,0,0,0.55), inset 0 2px 0 rgba(255,255,255,0.25), inset 0 -2px 1px rgba(0,0,0,0.3), 0 0 24px rgba(233,69,96,0.45)";
+            }}
+          >
+            GOT IT — RECORD NOW
+          </button>
+
+          <button
+            onClick={onCancel}
+            style={{
+              appearance: "none",
+              border: "1.5px solid rgba(255,255,255,0.18)",
+              borderRadius: 12,
+              padding: "8px 16px",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.4,
+              color: "rgba(255,255,255,0.55)",
+              background: "transparent",
+              cursor: "pointer",
+              textTransform: "uppercase",
+            }}
+          >
+            cancel
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes micAdvisoryFade {
+          0%   { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        @keyframes micAdvisoryPop {
+          0%   { transform: scale(0.8) translateY(20px); opacity: 0; }
+          60%  { transform: scale(1.04) translateY(-2px); opacity: 1; }
+          100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }
