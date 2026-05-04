@@ -13,6 +13,7 @@ import { Studio } from "./components/Studio";
 import { Coop } from "./components/Coop";
 import { Pet } from "./components/Pet";
 import { Achievements } from "./components/Achievements";
+import { DailyView } from "./components/daily/DailyView";
 import { PageShell } from "./ui/PageShell";
 import { StackingView } from "./components/StackingView";
 import { VocalRecorder } from "./components/VocalRecorder";
@@ -120,6 +121,7 @@ function AppCore() {
         {stage === "coop"         && <Coop />}
         {stage === "pet"          && <Pet />}
         {stage === "achievements" && <Achievements />}
+        {stage === "daily"        && <DailyView />}
 
         {showLogbook && <Logbook />}
       </PageShell>

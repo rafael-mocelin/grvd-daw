@@ -60,6 +60,7 @@ export type Stage =
   | "pet"      // UI v1: full-screen pet portal (the C in B+C from the AvatarPuck redesign)
   | "arrange"      // Slice 1: post-Done arrangement view (was a window in CanvasBoard)
   | "mixer"        // Slice 1: post-Done mixer view (was a window in CanvasBoard)
+  | "daily"        // Concept 1 prototype — Daily Drop, the Wordle-for-songs game mode
   | "achievements"; // BURST: tappable from the XP ribbon — unlocked + locked achievements browser
 
 /**
