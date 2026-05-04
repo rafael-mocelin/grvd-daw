@@ -13,6 +13,7 @@ import { Studio } from "./components/Studio";
 import { Coop } from "./components/Coop";
 import { Pet } from "./components/Pet";
 import { Achievements } from "./components/Achievements";
+import { JamView } from "./components/JamView";
 import { PageShell } from "./ui/PageShell";
 import { StackingView } from "./components/StackingView";
 import { VocalRecorder } from "./components/VocalRecorder";
@@ -89,6 +90,21 @@ function AppCore() {
   // Load + sync user data to/from Supabase. useSync no-ops when user is null
   // (guest mode), so calling it here unconditionally is safe.
   useSync();
+
+  // Jam stage owns its own full-screen 16:9 layout — render OUTSIDE the
+  // PageShell (which constrains everything to the 480 px mobile column)
+  // so the landscape stage can use the whole viewport.
+  if (stage === "jam") {
+    return (
+      <>
+        <JamView />
+        <XPFlash />
+        <AchievementToast />
+        <AdminPanel />
+        <NotificationToasts />
+      </>
+    );
+  }
 
   return (
     <>

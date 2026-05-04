@@ -60,7 +60,8 @@ export type Stage =
   | "pet"      // UI v1: full-screen pet portal (the C in B+C from the AvatarPuck redesign)
   | "arrange"      // Slice 1: post-Done arrangement view (was a window in CanvasBoard)
   | "mixer"        // Slice 1: post-Done mixer view (was a window in CanvasBoard)
-  | "achievements"; // BURST: tappable from the XP ribbon — unlocked + locked achievements browser
+  | "achievements" // BURST: tappable from the XP ribbon — unlocked + locked achievements browser
+  | "jam";          // Incredibox-style live mixing — landscape stage, drag sounds onto characters
 
 /**
  * Stages that belong to the song-creation pipeline. Used by setStage's

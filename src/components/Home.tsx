@@ -196,18 +196,21 @@ export function Home() {
       </div>
 
       {/* ── Tertiary row ──
-       * The "crib" pill was removed: tapping the LevelBadge in the HUD
-       * already opens the same pet/crib menu, so the pill was redundant.
-       * "logbook" was renamed to "musics" to match player vocabulary. */}
+       * "JAM (NEW)" launches the experimental Incredibox-style stage —
+       * lives next to YOUR SONGS for now while we test the mode. */}
       <div
         style={{
           display: "flex",
           justifyContent: "center",
           gap: 10,
+          flexWrap: "wrap",
         }}
       >
         <GhostPill onClick={toggleLogbook}>
           📓 YOUR SONGS{hasTracks && ` · ${inventory.length}`}
+        </GhostPill>
+        <GhostPill onClick={() => setStage("jam")}>
+          🎛️ JAM (NEW)
         </GhostPill>
       </div>
     </div>
