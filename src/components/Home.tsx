@@ -209,6 +209,9 @@ export function Home() {
         <GhostPill onClick={toggleLogbook}>
           📓 YOUR SONGS{hasTracks && ` · ${inventory.length}`}
         </GhostPill>
+        <GhostPill onClick={() => setStage("run")}>
+          🎲 STUDIO RUN
+        </GhostPill>
       </div>
     </div>
   );
