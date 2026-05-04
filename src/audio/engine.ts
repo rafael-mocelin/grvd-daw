@@ -990,32 +990,86 @@ export function stopPreview() {
 }
 
 /**
- * Returns the audio-clock time of the next 4n (quarter-note) boundary
- * on the master transport — so we can schedule a preview's first
- * sample to drop in on the beat instead of wherever the user happened
- * to tap.
+ * Splice-style preview phase-locking.
  *
- * If the transport is idle (the user is just previewing sounds in
- * isolation, no song-so-far playing), we start it silently at the
- * template BPM. The transport then ticks as a free metronome and every
- * subsequent preview quantizes against the same grid, so two previews
- * triggered seconds apart still phase-lock with each other.
+ * The user wants previews to land on-grid with whatever's already
+ * playing — but with ZERO wait. The trick (which Splice uses) is to
+ * not delay the new loop's start at all; instead, jump *into* the new
+ * loop at the offset that matches the master transport's current
+ * position. The new sample joins mid-flight on the same downbeat as
+ * the existing audio.
  *
- * If a song is already playing we DON'T touch the BPM or position —
- * previews quantize to the song's existing grid.
+ * Returns: the source-time offset (in seconds) to pass as the second
+ * argument of player.start(time, offset). 0 = play from the beginning.
  *
- * Worst-case wait at 150 BPM: 0.4 s (one beat). Typical wait ≤ 0.2 s,
- * which is perceived as the new sound "dropping in on the next beat"
- * rather than as latency.
+ * Logic:
+ *   - If nothing was playing when the user tapped, reset the master
+ *     transport to 0 and return 0 — we want the very first preview to
+ *     start at the loop's downbeat where the kick lives, not at some
+ *     arbitrary mid-bar offset.
+ *   - If something WAS playing, the transport has been ticking for
+ *     some time. The new loop's effective output duration after rate-
+ *     stretching is sourceDur / playbackRate. We compute (transport.s
+ *     mod outputDur) to get the output-time offset, then rate-scale it
+ *     into source-time for player.start().
+ *
+ * This relies on a singleton master transport that runs whenever a
+ * preview or song is in flight. We start it on the very first preview
+ * and never stop it, so subsequent previews quantize to the same grid.
+ * playSong/stopSong manage transport state on their own paths.
  */
-function nextBeatStart(bpm: number): number {
+function previewSourceOffset(
+  player: Tone.Player,
+  templateBpm: number,
+  somethingWasPlaying: boolean,
+): number {
   const transport = Tone.getTransport();
-  if (transport.state !== "started") {
-    setBpm(bpm);
+
+  if (!somethingWasPlaying) {
+    // Fresh start — reset the master clock so the preview begins at
+    // the loop's intended downbeat, and so future phase-align math is
+    // measured from this 0 reference.
+    if (transport.state === "started") transport.stop();
+    setBpm(templateBpm);
     transport.position = "0:0:0";
     transport.start();
+    return 0;
   }
-  return transport.nextSubdivision("4n");
+
+  // Something is already audible. Make sure the transport is running
+  // (it should be, but defend against state drift).
+  if (transport.state !== "started") {
+    setBpm(templateBpm);
+    transport.position = "0:0:0";
+    transport.start();
+    return 0;
+  }
+
+  // Phase-align: jump into the new loop at the offset that matches
+  // where the transport is. Buffer must be loaded for this — if not,
+  // fall back to offset 0 (will sound slightly off but won't error).
+  if (!player.loaded || !player.buffer) return 0;
+
+  const sourceDur = player.buffer.duration;
+  const rate      = player.playbackRate || 1;
+  const outputDur = sourceDur / rate;
+  if (!isFinite(outputDur) || outputDur <= 0) return 0;
+
+  const transportSec  = transport.seconds;
+  const outputOffset  = ((transportSec % outputDur) + outputDur) % outputDur;
+  return outputOffset * rate;
+}
+
+/**
+ * "Was something playing right before this call?" — checked BEFORE
+ * stopPreview() runs so we know whether the next preview should phase-
+ * align with the previous one. Considers both an active sound preview
+ * and an active song-so-far playback (driven by playSong → layerParts).
+ */
+function somethingIsPlaying(): boolean {
+  if (stopCurrentPreview !== null) return true;
+  if (layerParts.size > 0) return true;
+  return false;
 }
 
 export async function previewLayer(
@@ -1024,6 +1078,13 @@ export async function previewLayer(
   templateBpm = 140,
   onDone?: () => void,
 ) {
+  // Snapshot phase-align eligibility BEFORE stopPreview() clears the
+  // active-preview ref. If something was audible at the moment of tap
+  // (either another preview or a song-so-far playing), we want this
+  // new preview to drop in mid-loop at the matching offset rather
+  // than restarting from the loop's downbeat.
+  const somethingWasPlaying = somethingIsPlaying();
+
   // Interrupt any in-flight preview immediately
   stopPreview();
 
@@ -1076,12 +1137,13 @@ export async function previewLayer(
     };
 
     try {
-      // Beat-align the preview: drop it in on the next 4n boundary of
-      // the master transport so it phases with whatever's already
-      // playing. nextBeatStart() returns audio-clock seconds; the
-      // small wait (≤ one beat) happens against the existing audio so
-      // it feels like timing, not latency.
-      player.start(nextBeatStart(templateBpm));
+      // Splice-style phase lock: start the new loop NOW, but at the
+      // source-time offset that matches the master transport's current
+      // position. If nothing was playing the offset is 0 and the
+      // transport gets reset to 0 inside previewSourceOffset() so the
+      // very first preview lands on its own downbeat.
+      const sourceOffset = previewSourceOffset(player, templateBpm, somethingWasPlaying);
+      player.start(Tone.now(), sourceOffset);
     } catch (err) {
       console.error("[previewLayer] sample player failed to start:", err);
       cleanup();
@@ -1106,10 +1168,20 @@ export async function previewLayer(
   };
 
   try {
-    // Same beat-alignment trick for the synth-fallback preview: anchor
-    // the 4-hit sequence to the next 4n boundary so it phases with any
-    // file-loop preview / song that's already running.
-    const start = nextBeatStart(templateBpm);
+    // Synth-fallback preview — there's no buffer to offset into, so we
+    // just fire the 4 hits from now. We still touch the transport via
+    // the no-buffer branch of previewSourceOffset() (passing a dummy)
+    // so it boots / resets the master clock for any file-loop preview
+    // that follows. After the cleanup of synth-only sounds in the data
+    // layer, this path is rarely hit in practice.
+    const transport = Tone.getTransport();
+    if (!somethingWasPlaying || transport.state !== "started") {
+      if (transport.state === "started") transport.stop();
+      setBpm(templateBpm);
+      transport.position = "0:0:0";
+      transport.start();
+    }
+    const start = Tone.now();
     const notes = noteSequenceFor(layer.kind, keyRoot);
     for (let i = 0; i < 4; i++) {
       builder(start + i * 0.22, notes[i % notes.length]);
