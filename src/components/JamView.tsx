@@ -39,6 +39,7 @@ import { StudioScene } from "../ui/StudioScene";
 import { JamCharacter } from "./jam/JamCharacter";
 import { SoundPalette } from "./jam/SoundPalette";
 import { CharacterControls } from "./jam/CharacterControls";
+import { StagePulse } from "./jam/StagePulse";
 import {
   assignSlot,
   clearSlot,
@@ -358,6 +359,11 @@ export function JamView() {
               <div />
             </StudioScene>
           </div>
+
+          {/* Audio-reactive stage layer — floor glow on kick, corner
+           *  spotlights on hat, ambient tint on overall energy. Quiet
+           *  when nothing is playing or the master is paused. */}
+          <StagePulse active={playing && assignedIds.size > 0} />
 
           {/* Character row — three slots + a locked 4th tile, anchored
            *  ~30% up from the stage floor so the characters sit on the

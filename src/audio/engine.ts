@@ -187,6 +187,7 @@ export function isStarted() { return audioStarted; }
 /* -------------------------------------------------------------------------- */
 
 let masterAnalyser: Tone.Analyser | null = null;
+let masterFftAnalyser: Tone.Analyser | null = null;
 
 /**
  * Lazy-create a single Tone.Analyser hooked to the master output
@@ -204,6 +205,24 @@ export function getMasterAnalyser(): Tone.Analyser {
     Tone.getDestination().connect(masterAnalyser);
   }
   return masterAnalyser;
+}
+
+/**
+ * FFT-mode companion to getMasterAnalyser. Returns a Float32Array of
+ * decibel magnitudes per frequency bin (typically –100…0 dB, plus –Infinity
+ * for empty bins). Used by the Jam stage's band-energy hook to drive
+ * separate visual reactions to kick (low band) and hat (high band).
+ *
+ * Kept distinct from the waveform analyser because the existing consumers
+ * (CharacterFace pupil pump) are wired to read time-domain RMS, and we
+ * don't want to disturb their math.
+ */
+export function getMasterFftAnalyser(): Tone.Analyser {
+  if (!masterFftAnalyser) {
+    masterFftAnalyser = new Tone.Analyser("fft", 256);
+    Tone.getDestination().connect(masterFftAnalyser);
+  }
+  return masterFftAnalyser;
 }
 
 /* -------------------------------------------------------------------------- */

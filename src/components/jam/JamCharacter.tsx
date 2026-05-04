@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LayerKind, SoundOption } from "../../data/types";
 import { darken, lighten } from "../../ui/burst/tokens";
+import { useJamAudioFrame } from "../../hooks/useJamAudioFrame";
 
 interface JamCharacterProps {
   slotId:    string;
@@ -69,6 +70,68 @@ export function JamCharacter({
   const animDur   = sound ? bpmDurationFor(sound) : "2.6s";
   const loud      = volume > 1.2 && !muted;
 
+  // ── Audio-reactive plumbing ──
+  // The character "feels" the music via a shared FFT-band frame ref.
+  // Refs (not state) so we can write transforms in rAF without re-rendering.
+  // Empty / muted slots short-circuit the loop and freeze on identity transforms.
+  const audioFrame = useJamAudioFrame();
+  // null! — the older React types in this project want non-nullable
+  // RefObject<T>; the JSX `ref` callback writes the real value before
+  // any handler reads it.
+  const eyeLRef    = useRef<HTMLDivElement>(null!);
+  const eyeRRef    = useRef<HTMLDivElement>(null!);
+  const mouthRef   = useRef<HTMLDivElement>(null!);
+  const bodyRef    = useRef<HTMLDivElement>(null!);
+
+  useEffect(() => {
+    let raf = 0;
+    let cancelled = false;
+
+    // Vocal slots open the mouth on overall loudness; everyone else
+    // jolts the mouth on kick transients (the "yo!" reflex).
+    const isVocal = sound?.kind === "vocal";
+
+    const tick = () => {
+      if (cancelled) return;
+      const { overall, kick } = audioFrame.current;
+
+      // When the slot is empty or muted, render a still pose. Saves
+      // CPU on the offscreen-ish empty slot too.
+      const active = filled && !muted;
+      const o = active ? overall : 0;
+      const k = active ? kick    : 0;
+
+      // Eye pump — 1.0 idle → ~1.45 at peak. Same factor the home
+      // mascot uses; reads as "wow" without going googly.
+      const eyeScale = 1 + Math.min(o * 1.5, 0.45);
+      if (eyeLRef.current) eyeLRef.current.style.transform = `scale(${eyeScale.toFixed(3)})`;
+      if (eyeRRef.current) eyeRRef.current.style.transform = `scale(${eyeScale.toFixed(3)})`;
+
+      // Mouth pop — vocal slot opens up (taller + slightly wider) on
+      // loudness; drum-kind slots pop briefly on kick hits.
+      const mouthScaleY = 1 + (isVocal ? o * 1.4 : k * 0.7);
+      const mouthScaleX = 1 + (isVocal ? o * 0.4 : k * 0.2);
+      if (mouthRef.current) {
+        mouthRef.current.style.transform = `translateX(-50%) scale(${mouthScaleX.toFixed(3)}, ${mouthScaleY.toFixed(3)})`;
+      }
+
+      // Body breathe — entire torso scales by a hair on overall energy
+      // so even a quiet hat loop makes the character feel alive.
+      const bodyScale = 1 + o * 0.04;
+      if (bodyRef.current) {
+        bodyRef.current.style.transform = `translateX(-50%) scale(${bodyScale.toFixed(3)})`;
+      }
+
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [audioFrame, filled, muted, sound?.kind]);
+
   // HTML5 drag/drop wiring — we use the native dataTransfer string so
   // it works on desktop without us needing to wire a global drag state.
   function handleDragOver(e: React.DragEvent) {
@@ -110,6 +173,10 @@ export function JamCharacter({
         animation={animation}
         animDur={animDur}
         muted={muted}
+        eyeLRef={eyeLRef}
+        eyeRRef={eyeRRef}
+        mouthRef={mouthRef}
+        bodyRef={bodyRef}
       />
 
       {/* Empty-slot affordance — pulsing dotted ring + label */}
@@ -178,9 +245,15 @@ interface CharacterArtProps {
   animation: string;
   animDur:   string;
   muted:     boolean;
+  /** Refs provided by the parent so audio-frame transforms can write
+   *  directly to these elements without React re-renders. */
+  eyeLRef?:  React.RefObject<HTMLDivElement>;
+  eyeRRef?:  React.RefObject<HTMLDivElement>;
+  mouthRef?: React.RefObject<HTMLDivElement>;
+  bodyRef?:  React.RefObject<HTMLDivElement>;
 }
 
-function CharacterArt({ jacket, skin, animation, animDur, muted }: CharacterArtProps) {
+function CharacterArt({ jacket, skin, animation, animDur, muted, eyeLRef, eyeRRef, mouthRef, bodyRef }: CharacterArtProps) {
   const jacketDark = darken(jacket, 0.18);
   const skinLight  = lighten(skin, 0.15);
   const skinDark   = darken(skin, 0.18);
@@ -200,15 +273,19 @@ function CharacterArt({ jacket, skin, animation, animDur, muted }: CharacterArtP
         background: "radial-gradient(ellipse, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 70%)",
       }} />
 
-      {/* hoodie body */}
-      <div style={{
-        position: "absolute", bottom: 24, left: "50%", transform: "translateX(-50%)",
-        width: 88, height: 76,
-        background: `linear-gradient(180deg, ${jacket} 0%, ${jacketDark} 100%)`,
-        border: "2.5px solid #0a0f1c",
-        borderRadius: "18px 18px 12px 12px",
-        boxShadow: "inset 0 3px 0 rgba(255,255,255,0.25), inset 0 -4px 0 rgba(0,0,0,0.35)",
-      }}>
+      {/* hoodie body — bodyRef receives a body-breathe scale on the audio frame */}
+      <div
+        ref={bodyRef}
+        style={{
+          position: "absolute", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          width: 88, height: 76,
+          transformOrigin: "50% 100%",   // breathe from the floor up, not the center
+          background: `linear-gradient(180deg, ${jacket} 0%, ${jacketDark} 100%)`,
+          border: "2.5px solid #0a0f1c",
+          borderRadius: "18px 18px 12px 12px",
+          boxShadow: "inset 0 3px 0 rgba(255,255,255,0.25), inset 0 -4px 0 rgba(0,0,0,0.35)",
+        }}
+      >
         {/* hood collar */}
         <div style={{
           position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)",
@@ -271,29 +348,46 @@ function CharacterArt({ jacket, skin, animation, animDur, muted }: CharacterArtP
           boxShadow: "inset 0 -6px 0 rgba(0,0,0,0.18)",
         }} />
 
-        {/* eyes — almond. Hidden behind blindfold band when muted. */}
-        <div style={{
-          position: "absolute", top: 50, left: 28, width: 12, height: 14,
-          background: "#0a0f1c", borderRadius: "50%",
-          opacity: muted ? 0 : 1, transition: "opacity 0.2s",
-        }}>
+        {/* eyes — almond. Hidden behind blindfold band when muted.
+         *  eyeLRef / eyeRRef receive a per-frame scale transform from
+         *  the parent's audio loop (1.0 idle → ~1.45 at peak). */}
+        <div
+          ref={eyeLRef}
+          style={{
+            position: "absolute", top: 50, left: 28, width: 12, height: 14,
+            background: "#0a0f1c", borderRadius: "50%",
+            transformOrigin: "50% 50%",
+            opacity: muted ? 0 : 1, transition: "opacity 0.2s",
+          }}
+        >
           <div style={{ position: "absolute", top: 2, left: 2, width: 4, height: 4, borderRadius: "50%", background: "#fff" }} />
         </div>
-        <div style={{
-          position: "absolute", top: 50, right: 28, width: 12, height: 14,
-          background: "#0a0f1c", borderRadius: "50%",
-          opacity: muted ? 0 : 1, transition: "opacity 0.2s",
-        }}>
+        <div
+          ref={eyeRRef}
+          style={{
+            position: "absolute", top: 50, right: 28, width: 12, height: 14,
+            background: "#0a0f1c", borderRadius: "50%",
+            transformOrigin: "50% 50%",
+            opacity: muted ? 0 : 1, transition: "opacity 0.2s",
+          }}
+        >
           <div style={{ position: "absolute", top: 2, left: 2, width: 4, height: 4, borderRadius: "50%", background: "#fff" }} />
         </div>
 
-        {/* mouth */}
-        <div style={{
-          position: "absolute", top: 76, left: "50%", transform: "translateX(-50%)",
-          width: 8, height: 8, borderRadius: "50%",
-          background: "#3a1818",
-          border: "1.5px solid #0a0f1c",
-        }} />
+        {/* mouth — receives a per-frame scale from the parent's audio loop.
+         *  Vocal slots open it on overall energy, drum slots pop it on kick.
+         *  The translateX(-50%) is preserved by the inline transform written
+         *  imperatively, so this static value is just the initial paint. */}
+        <div
+          ref={mouthRef}
+          style={{
+            position: "absolute", top: 76, left: "50%", transform: "translateX(-50%)",
+            width: 8, height: 8, borderRadius: "50%",
+            transformOrigin: "50% 50%",
+            background: "#3a1818",
+            border: "1.5px solid #0a0f1c",
+          }}
+        />
 
         {/* Blindfold band — covers the eyes when muted.
          *
