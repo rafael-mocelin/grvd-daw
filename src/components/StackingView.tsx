@@ -223,7 +223,22 @@ export function StackingView() {
             >
               {playing ? "⏸ pause" : "▶ play"}
             </ChunkyPill>
-            <ChunkyPill variant="ghost" size="sm" onClick={abandon}>
+            <ChunkyPill
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                // Hard-stop ALL audio before tearing down recipe state.
+                // abandon() only resets the React/Zustand store flags
+                // (isPlaying:false, layers:[], etc.) — Tone.js doesn't
+                // know about Zustand, so without these calls the
+                // transport keeps ticking and any looping Player keeps
+                // playing while the user is back on the home screen.
+                stopSong();
+                stopPreview();
+                setIsPlaying(false);
+                abandon();
+              }}
+            >
               ✕ quit
             </ChunkyPill>
           </span>
