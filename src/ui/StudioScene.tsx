@@ -29,9 +29,20 @@ interface StudioSceneProps {
   children?: ReactNode;
   /** Optional className — keeps the wrapper compatible with the prior API. */
   className?: string;
+  /** Hide the back-wall speaker cabinets. Used by the Jam stage where
+   *  the wider viewport made the speakers clip into the character row. */
+  hideSpeakers?: boolean;
+  /** Hide the foreground desk + MPC + sampler. Same reason — on the
+   *  Jam stage the desk landed on top of the characters. */
+  hideDesk?: boolean;
 }
 
-export function StudioScene({ children, className = "" }: StudioSceneProps) {
+export function StudioScene({
+  children,
+  className = "",
+  hideSpeakers = false,
+  hideDesk = false,
+}: StudioSceneProps) {
   return (
     <div
       className={className}
@@ -159,10 +170,15 @@ export function StudioScene({ children, className = "" }: StudioSceneProps) {
       />
 
       {/* ── Speakers (back wall, both sides) ── */}
-      <Speaker style={{ left: 18,  top: 130 }} />
-      <Speaker style={{ right: 18, top: 130 }} />
+      {!hideSpeakers && (
+        <>
+          <Speaker style={{ left: 18,  top: 130 }} />
+          <Speaker style={{ right: 18, top: 130 }} />
+        </>
+      )}
 
       {/* ── Desk with MPC + sampler ── */}
+      {!hideDesk && (
       <div
         style={{
           position: "absolute", left: "50%", bottom: "24%",
@@ -243,6 +259,7 @@ export function StudioScene({ children, className = "" }: StudioSceneProps) {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Vinyl on wall ── */}
       <div

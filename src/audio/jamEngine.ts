@@ -178,3 +178,89 @@ export function getSlotState(slotId: string):
 export function getJamMasterTransportSeconds(): number {
   return Tone.getTransport().seconds;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Master play / pause — controls every slot at once                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Master pause for the whole jam. Stops every slot's player at the
+ * same audio-clock moment (so when we resume we can restart them
+ * phase-locked again). The Tone.Transport keeps running so the
+ * phase-lock math stays consistent — only the players stop.
+ */
+export function pauseJam(): void {
+  for (const slot of slots.values()) {
+    try { slot.player.stop(); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Master resume — starts every slot's player again, phase-aligned to
+ * the master transport's current position. Same offset math as the
+ * initial assignSlot.
+ */
+export function resumeJam(): void {
+  for (const slot of slots.values()) {
+    if (!slot.player.loaded) continue;
+    const offset = phaseAlignedOffset(slot.player);
+    try {
+      slot.player.start(Tone.now(), offset);
+    } catch (err) {
+      console.warn("[jamEngine] resume failed for slot:", err);
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Vocal slot — record from the mic, then loop the recording in this slot     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Replace a slot's audio with a freshly-recorded vocal buffer. The
+ * recording is treated like any other looping clip — phase-locked to
+ * the master transport, mute / volume / clear all work the same.
+ *
+ * The caller (UI layer) records the buffer via the existing
+ * recordVocal() in engine.ts, then hands the resulting AudioBuffer
+ * here for playback.
+ */
+export async function assignVocalSlot(
+  slotId: string,
+  buffer: AudioBuffer,
+  bpm: number,
+): Promise<void> {
+  await ensureAudio();
+  ensureJamTransport(bpm);
+
+  // Tear down whatever was there.
+  clearSlot(slotId);
+
+  const player = new Tone.Player(buffer).toDestination();
+  player.loop = true;
+  // Vocal recordings come from the user's mic — no rate-stretch.
+  player.playbackRate = 1;
+
+  // Wrap in a Gain so mute / volume work uniformly.
+  const gain = new Tone.Gain(1.0);
+  player.disconnect();
+  player.connect(gain);
+  gain.toDestination();
+
+  const offset = phaseAlignedOffset(player);
+  try {
+    player.start(Tone.now(), offset);
+  } catch (err) {
+    console.error("[jamEngine] vocal player start failed:", err);
+    try { player.dispose(); gain.dispose(); } catch { /* ignore */ }
+    return;
+  }
+
+  slots.set(slotId, {
+    player,
+    gain,
+    unmutedGain: 1.0,
+    muted:       false,
+    soundId:     "__vocal__",  // sentinel — the UI knows this is a recording, not a catalog sound
+  });
+}
