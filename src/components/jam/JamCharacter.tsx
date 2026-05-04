@@ -66,7 +66,17 @@ export function JamCharacter({
   onDragLeave,
 }: JamCharacterProps) {
   const filled = !!sound;
-  const animation = sound ? KIND_ANIMATION[sound.kind] ?? "jamDanceBob" : "jamIdle";
+  // Muted characters kill the dance entirely — no bob, no jitter, no
+  // wobble. Empty slots get the slow idle bob; only filled-and-unmuted
+  // characters perform their kind-specific dance. The audio-reactive
+  // pupil / mouth / body refs already short-circuit to identity on
+  // muted, so the whole figure freezes cleanly except the blindfold
+  // pop-in animation.
+  const animation = !filled
+    ? "jamIdle"
+    : muted
+      ? "none"
+      : KIND_ANIMATION[sound.kind] ?? "jamDanceBob";
   const animDur   = sound ? bpmDurationFor(sound) : "2.6s";
   const loud      = volume > 1.2 && !muted;
 
