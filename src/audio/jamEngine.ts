@@ -26,6 +26,7 @@
 import * as Tone from "tone";
 import { ensureAudio, setBpm } from "./engine";
 import { getSound } from "../data/sounds";
+import { playJamWhoosh, playJamThunk, playJamFwoop } from "./jamSfx";
 
 interface Slot {
   player:    Tone.Player;
@@ -133,6 +134,9 @@ export async function assignSlot(slotId: string, soundId: string, bpm: number): 
     muted:       false,
     soundId,
   });
+
+  // Drop-in SFX — fire-and-forget. Stays quiet under the mix via sfxBus.
+  void playJamWhoosh();
 }
 
 export function clearSlot(slotId: string): void {
@@ -163,8 +167,15 @@ export function setSlotVolume(slotId: string, gain: number): void {
 export function setSlotMuted(slotId: string, muted: boolean): void {
   const slot = slots.get(slotId);
   if (!slot) return;
+  // Only fire SFX when the mute state is actually changing — not on
+  // identity sets (defensive against double-toggle bugs in the UI).
+  const stateChanged = slot.muted !== muted;
   slot.muted = muted;
   slot.gain.gain.value = muted ? 0 : slot.unmutedGain;
+  if (stateChanged) {
+    if (muted) void playJamThunk();
+    else        void playJamFwoop();
+  }
 }
 
 export function getSlotState(slotId: string):
@@ -263,4 +274,7 @@ export async function assignVocalSlot(
     muted:       false,
     soundId:     "__vocal__",  // sentinel — the UI knows this is a recording, not a catalog sound
   });
+
+  // Vocal slot also gets the drop-in whoosh.
+  void playJamWhoosh();
 }
