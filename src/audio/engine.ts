@@ -1150,8 +1150,13 @@ export async function previewLayer(
       return;
     }
 
-    const timer = setTimeout(cleanup, 3500);
-    stopCurrentPreview = () => { clearTimeout(timer); cleanup(); };
+    // No auto-stop timer — Tone.Player has loop:true so the file
+    // repeats indefinitely. We previously cut it off at 3.5 s, but
+    // with phase-lock the entry offset can land near the end of the
+    // loop and the user would only hear a sliver before silence.
+    // Now the preview keeps looping until the UI calls stopPreview()
+    // (which it does on every new tap and on selection commit).
+    stopCurrentPreview = cleanup;
     return;
   }
 
