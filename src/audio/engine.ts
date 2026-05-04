@@ -989,6 +989,35 @@ export function stopPreview() {
   }
 }
 
+/**
+ * Returns the audio-clock time of the next 4n (quarter-note) boundary
+ * on the master transport — so we can schedule a preview's first
+ * sample to drop in on the beat instead of wherever the user happened
+ * to tap.
+ *
+ * If the transport is idle (the user is just previewing sounds in
+ * isolation, no song-so-far playing), we start it silently at the
+ * template BPM. The transport then ticks as a free metronome and every
+ * subsequent preview quantizes against the same grid, so two previews
+ * triggered seconds apart still phase-lock with each other.
+ *
+ * If a song is already playing we DON'T touch the BPM or position —
+ * previews quantize to the song's existing grid.
+ *
+ * Worst-case wait at 150 BPM: 0.4 s (one beat). Typical wait ≤ 0.2 s,
+ * which is perceived as the new sound "dropping in on the next beat"
+ * rather than as latency.
+ */
+function nextBeatStart(bpm: number): number {
+  const transport = Tone.getTransport();
+  if (transport.state !== "started") {
+    setBpm(bpm);
+    transport.position = "0:0:0";
+    transport.start();
+  }
+  return transport.nextSubdivision("4n");
+}
+
 export async function previewLayer(
   layer: Layer,
   keyRoot = "A",
@@ -1047,7 +1076,12 @@ export async function previewLayer(
     };
 
     try {
-      player.start(Tone.now());
+      // Beat-align the preview: drop it in on the next 4n boundary of
+      // the master transport so it phases with whatever's already
+      // playing. nextBeatStart() returns audio-clock seconds; the
+      // small wait (≤ one beat) happens against the existing audio so
+      // it feels like timing, not latency.
+      player.start(nextBeatStart(templateBpm));
     } catch (err) {
       console.error("[previewLayer] sample player failed to start:", err);
       cleanup();
@@ -1072,10 +1106,13 @@ export async function previewLayer(
   };
 
   try {
-    const now = Tone.now();
+    // Same beat-alignment trick for the synth-fallback preview: anchor
+    // the 4-hit sequence to the next 4n boundary so it phases with any
+    // file-loop preview / song that's already running.
+    const start = nextBeatStart(templateBpm);
     const notes = noteSequenceFor(layer.kind, keyRoot);
     for (let i = 0; i < 4; i++) {
-      builder(now + i * 0.22, notes[i % notes.length]);
+      builder(start + i * 0.22, notes[i % notes.length]);
     }
   } catch (err) {
     console.error("[previewLayer] synth preview failed to schedule:", err);
