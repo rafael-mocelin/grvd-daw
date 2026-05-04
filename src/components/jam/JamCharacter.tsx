@@ -295,29 +295,35 @@ function CharacterArt({ jacket, skin, animation, animDur, muted }: CharacterArtP
           border: "1.5px solid #0a0f1c",
         }} />
 
-        {/* Blindfold band — covers the eyes when muted. Slides in
-         *  from off-screen via CSS transition so toggling reads
-         *  clearly. */}
-        <div
-          style={{
-            position: "absolute",
-            top: 44, left: 0, right: 0, height: 24,
-            background: "linear-gradient(180deg, #1a1a22, #0a0f1c)",
-            border: "2px solid #0a0f1c",
-            boxShadow: "inset 0 2px 0 rgba(255,255,255,0.18), 0 2px 0 rgba(0,0,0,0.5)",
-            transform: muted ? "translateX(0)" : "translateX(-150%)",
-            transition: "transform 0.3s cubic-bezier(.34,1.56,.64,1)",
-          }}
-        >
-          {/* tiny knot dot at the back */}
-          <div style={{
-            position: "absolute", top: "50%", right: 6,
-            transform: "translateY(-50%)",
-            width: 6, height: 6, borderRadius: "50%",
-            background: "#0a0f1c",
-            boxShadow: "0 0 0 2px rgba(255,255,255,0.18)",
-          }} />
-        </div>
+        {/* Blindfold band — covers the eyes when muted.
+         *
+         * Previously this used translateX(-150%) to hide, but with no
+         * clipping ancestor the painted band stayed visible as a black
+         * rectangle to the LEFT of every character — which is what the
+         * user kept seeing as "black rectangles still there." Switched
+         * to a conditional render. The pop-in animation runs on mount
+         * when muted flips to true. */}
+        {muted && (
+          <div
+            style={{
+              position: "absolute",
+              top: 44, left: 0, right: 0, height: 24,
+              background: "linear-gradient(180deg, #1a1a22, #0a0f1c)",
+              border: "2px solid #0a0f1c",
+              boxShadow: "inset 0 2px 0 rgba(255,255,255,0.18), 0 2px 0 rgba(0,0,0,0.5)",
+              animation: "jamBlindfoldIn 0.3s cubic-bezier(.34,1.56,.64,1) both",
+            }}
+          >
+            {/* tiny knot dot at the back */}
+            <div style={{
+              position: "absolute", top: "50%", right: 6,
+              transform: "translateY(-50%)",
+              width: 6, height: 6, borderRadius: "50%",
+              background: "#0a0f1c",
+              boxShadow: "0 0 0 2px rgba(255,255,255,0.18)",
+            }} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -381,6 +387,11 @@ function SharedKeyframes() {
       @keyframes jamSlotPulse {
         0%, 100% { opacity: 0.4; transform: scale(1); }
         50%      { opacity: 0.8; transform: scale(1.02); }
+      }
+      @keyframes jamBlindfoldIn {
+        0%   { transform: translateX(-100%); opacity: 0; }
+        70%  { transform: translateX(8%);    opacity: 1; }
+        100% { transform: translateX(0);     opacity: 1; }
       }
       @keyframes jamSpark {
         0%   { transform: rotate(0deg)   scale(0.9); opacity: 0.9; }

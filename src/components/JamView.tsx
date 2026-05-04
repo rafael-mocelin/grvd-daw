@@ -359,16 +359,20 @@ export function JamView() {
             </StudioScene>
           </div>
 
-          {/* Character row — three slots in a row, vertically anchored
-           *  near the bottom-third where the stage floor lives. */}
+          {/* Character row — three slots + a locked 4th tile, anchored
+           *  ~30% up from the stage floor so the characters sit on the
+           *  perspective wood instead of pressing against the bottom
+           *  edge. (User requested: position 30 on a 0=bottom→100=top
+           *  scale.) */}
           <div
             style={{
               position: "absolute",
               left: "50%",
-              bottom: "8%",
+              bottom: "30%",
               transform: "translateX(-50%)",
               display: "flex",
               gap: 32,
+              alignItems: "flex-end",
               zIndex: 4,
             }}
           >
@@ -397,31 +401,11 @@ export function JamView() {
                 />
               );
             })}
-          </div>
 
-          {/* Progression hint — a small "more slots coming" pill at the
-           *  bottom-right corner of the stage. Replaces the inline
-           *  locked-slot tile, which was throwing the row off-center. */}
-          <div
-            style={{
-              position: "absolute",
-              right: 16,
-              bottom: 12,
-              padding: "6px 12px",
-              borderRadius: 999,
-              border: "1.5px dashed rgba(255,255,255,0.18)",
-              background: "rgba(0,0,0,0.45)",
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-              color: "rgba(255,255,255,0.5)",
-              pointerEvents: "none",
-              zIndex: 4,
-            }}
-          >
-            🔒 more slots @ lv 5
+            {/* Locked 4th slot — restored inline. The previous version
+             *  (corner pill) read as a footnote; the inline placeholder
+             *  makes the progression promise feel more tangible. */}
+            <LockedSlot />
           </div>
 
           {/* Empty-state hint — only shown when nothing is assigned yet */}
@@ -690,5 +674,45 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
   );
 }
 
-/* The inline LockedSlot tile was removed — replaced by the corner pill in the
- * stage area so the character row stays centered with just the active slots. */
+/* -------------------------------------------------------------------------- */
+/* LockedSlot — placeholder tile rendered at the end of the character row to  */
+/* hint at progression. Same width/height as a real character so the row     */
+/* maintains its rhythm; dashed border + lock glyph signal "not yet".        */
+/* -------------------------------------------------------------------------- */
+
+function LockedSlot() {
+  return (
+    <div
+      style={{
+        width: 130,
+        height: 220,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        border: "2.5px dashed rgba(255,255,255,0.18)",
+        borderRadius: 24,
+        background: "rgba(0, 0, 0, 0.3)",
+        opacity: 0.7,
+      }}
+      aria-label="locked slot — unlock more characters as you level up"
+    >
+      <div style={{ fontSize: 32, opacity: 0.6 }}>🔒</div>
+      <div
+        style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 9,
+          fontWeight: 700,
+          letterSpacing: "0.12em",
+          color: "rgba(255,255,255,0.45)",
+          textTransform: "uppercase",
+          textAlign: "center",
+          padding: "0 8px",
+        }}
+      >
+        unlock<br />at lv 5
+      </div>
+    </div>
+  );
+}
