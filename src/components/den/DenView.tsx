@@ -26,8 +26,16 @@ export function DenView() {
 
   useEffect(() => {
     hydrate();
-    return () => { resetDenAudio(); };
-  }, [hydrate]);
+    return () => {
+      // Hard cleanup on unmount: stop audio AND reset the active station
+      // back to the lobby. Without resetting currentStation, leaving the
+      // Den (e.g. via the home button or any other navigation) and then
+      // re-entering would drop the player back into whatever station
+      // they were last in instead of the lobby.
+      resetDenAudio();
+      exitStation();
+    };
+  }, [hydrate, exitStation]);
 
   function handleQuit() {
     resetDenAudio();
