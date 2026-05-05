@@ -6,9 +6,16 @@
  * station component.
  *
  * The library panel mounts as an overlay when toggled from the lobby.
+ *
+ * Renders via a React Portal directly to document.body so the Den
+ * UI escapes PageShell's `<main>` stacking context (which sits at z-10
+ * and contains anything we render inside, no matter how high its
+ * own z-index). Without the portal, the global Hud at z-30 paints over
+ * the Den's top bar even if the Den's wrapper is z-100+.
  */
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useStore } from "../../store/useStore";
 import { useDenStore } from "../../lib/denStore";
 import { resetDenAudio } from "../../audio/denEngine";
@@ -43,13 +50,16 @@ export function DenView() {
     setStage("home");
   }
 
-  return (
+  const content = (
     <div
       style={{
         position: "fixed",
         inset: 0,
         background: "#0a0f1c",
-        zIndex: 50,
+        // High enough to sit above any sticky header in the page shell.
+        // Combined with the portal-to-body below, this guarantees the
+        // Den UI fully takes over the screen.
+        zIndex: 1000,
         color: "#fff",
         display: "flex",
         flexDirection: "column",
@@ -91,4 +101,9 @@ export function DenView() {
       )}
     </div>
   );
+
+  // Portal to document.body so the Den escapes PageShell's <main>
+  // stacking context — otherwise the global HUD (sticky top-0 z-30)
+  // paints on top of the Den's own header even at very high z-index.
+  return createPortal(content, document.body);
 }
