@@ -95,9 +95,13 @@ interface BandSlotConfig {
 }
 
 const BAND_SLOTS: BandSlotConfig[] = [
-  { id: "slot-drums",  characterKind: "drum-guy",   pos: { x: 50, y: 49 } },  // back-center
-  { id: "slot-808",    characterKind: "beat-guy",   pos: { x: 60, y: 60 } },  // mid-right
-  { id: "slot-sample", characterKind: "guitar-guy", pos: { x: 33, y: 58 } },  // mid-left
+  // Symmetric arc around the player — drum-guy back-center, beat-guy
+  // and guitar-guy mirrored at the same y on either side. Tuned by
+  // eye against the iso room so the band reads centered with the
+  // wood floor and the player out front.
+  { id: "slot-drums",  characterKind: "drum-guy",   pos: { x: 53, y: 52 } },  // back-center
+  { id: "slot-808",    characterKind: "beat-guy",   pos: { x: 64, y: 63 } },  // mid-right
+  { id: "slot-sample", characterKind: "guitar-guy", pos: { x: 41, y: 63 } },  // mid-left
 ];
 
 /** Player slot id — distinct from band slots and special-cased in
@@ -105,9 +109,9 @@ const BAND_SLOTS: BandSlotConfig[] = [
  *  the audio engine and combo detector treat it uniformly. */
 const PLAYER_SLOT_ID = "slot-player";
 
-/** Player + mic stand position — front-center, closer to the viewer
- *  than any band member. */
-const PLAYER_POS = { x: 47, y: 73 };
+/** Player + mic stand position — front-center, on the same vertical
+ *  axis as drum-guy so the band-and-singer arc looks centered. */
+const PLAYER_POS = { x: 53, y: 74 };
 
 /** Lookup table mapping slot id → character kind for hype lines etc. */
 const SLOT_CHARACTER: Record<string, CharacterKind | "player"> = {
