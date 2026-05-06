@@ -69,18 +69,23 @@ import { C } from "../ui/burst/tokens";
 const VOCAL_DROP_ID = "__vocal__";
 
 /**
- * The four band slots map 1:1 to character configs in JAM_CHARACTERS.
- * Each slot has an iso position on the Crib floor expressed as a % of
- * the contained backdrop image (NOT of the stage area — see Crib.tsx
- * for how the bounds are computed). The 5th "slot" is the player at
- * the mic, rendered separately because it has no sound assignment.
+ * Band slots — characters standing on the Crib floor. Each has an iso
+ * position expressed as a % of the contained backdrop image (NOT of
+ * the stage area; see Crib.tsx for how the bounds are computed). The
+ * player + mic at PLAYER_POS is rendered separately because it has no
+ * sound assignment.
  *
- * Positions chosen by eye against the rendered iso room:
- *   - drums sit back-center (deepest into the room)
- *   - sampler/keys behind the right-wall desk where the MPC already lives
- *   - guitar mid-floor right of center
- *   - bass mid-floor left of center
- * Player + mic stand sits front-center, closer to the camera.
+ * Three-piece band positioned in a shallow arc behind the player:
+ *   - drums  back-center  (deepest into the room)
+ *   - bass   mid-right
+ *   - guitar mid-left
+ *
+ * NEEMA was previously in slot-b at (78, 52) "behind the right desk
+ * where the MPC sits" — but the chibi sprite paints over the desk
+ * geometry rather than tucking behind it, so visually she looked like
+ * she was standing ON the desk. Pulled out of the lineup; the
+ * character config still exists for future use (e.g., once the iso
+ * sprite art lands and depth-sorted placement becomes possible).
  */
 const DEFAULT_SLOTS: {
   id: string;
@@ -89,7 +94,6 @@ const DEFAULT_SLOTS: {
   pos: { x: number; y: number };
 }[] = [
   { id: "slot-a", characterId: "mochi", pos: { x: 50, y: 49 } },  // drums  — back-center
-  { id: "slot-b", characterId: "neema", pos: { x: 78, y: 52 } },  // sampler — behind right desk
   { id: "slot-c", characterId: "royal", pos: { x: 60, y: 60 } },  // bass   — mid-right
   { id: "slot-d", characterId: "blu",   pos: { x: 33, y: 58 } },  // guitar — mid-left
 ];
