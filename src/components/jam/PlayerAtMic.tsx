@@ -26,9 +26,10 @@ interface PlayerAtMicProps {
 
 /** How tall the player sprite renders, in px. The chibi proportions
  *  in the asset put the head about 50% of total height; we want the
- *  player slightly larger than the band slots (130x220) so the lead
- *  reads as the star, but not so big it dominates the room. */
-const PLAYER_HEIGHT = 200;
+ *  player visibly larger than the band slots (130x220) so the lead
+ *  reads as the star. Bumped from 200 → 250 (+25%) per playtest:
+ *  the previous size felt small against the rendered iso room. */
+const PLAYER_HEIGHT = 250;
 const PLAYER_WIDTH  = PLAYER_HEIGHT;   // square asset
 
 export function PlayerAtMic({ active }: PlayerAtMicProps) {
