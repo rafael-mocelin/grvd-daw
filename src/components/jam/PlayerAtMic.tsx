@@ -1,45 +1,61 @@
 /**
- * PlayerAtMic — the lead vocalist (the player) standing at the
- * microphone in the front-center of the Crib stage.
+ * PlayerAtMic — the lead vocalist (the player) at the microphone.
  *
- * Composition: rendered character sprite (PNG, transparent) above a
- * compact mic stand. The mic + sprite share a single anchor point so
- * JamView can position the whole unit by its feet via the standard
- * translate(-50%, -100%) pattern.
+ * Renders the player-character.png sprite over a compact mic stand and
+ * accepts mic / vocal drops. The actual recording-overlay flow is owned
+ * by JamView (this component just signals the parent on drop).
  *
- * Asset: public/characters/player-character.png — 2000x2000 RGBA, the
- * 3D-rendered chibi the user dropped in.
+ * The player slot accepts only the VOCAL_DROP_ID sentinel from the
+ * SoundPalette's MIC tile. Any other dropped soundId is silently
+ * ignored. Once the player has a recorded vocal:
+ *   - tap toggles mute
+ *   - long-press opens the existing CharacterControls popover
  *
- * If you swap the asset, keep the same proportions (full-body, feet at
- * bottom of the frame, transparent background) so the anchor + mic
- * stand placement underneath the chin still line up.
+ * Asset path: /characters/player-guy/player-character.png (2000x2000 RGBA).
  */
 
 import { useEffect, useRef } from "react";
 import { useJamAudioFrame } from "../../hooks/useJamAudioFrame";
 
 interface PlayerAtMicProps {
-  /** When true, the player slot reacts to audio (subtle bob + pulse).
-   *  When false (paused / nothing playing) the player holds still. */
-  active: boolean;
+  /** When true, the player slot reacts to audio (subtle bob + pulse). */
+  active:        boolean;
+  /** True if a vocal recording is currently assigned to the player slot. */
+  filled:        boolean;
+  /** True while a draggable is hovered over the player. */
+  dragOver:      boolean;
+  /** Drop handler — receives the dragged soundId. Parent validates that
+   *  it's the VOCAL_DROP_ID sentinel before opening the recorder. */
+  onDropSound:   (soundId: string) => void;
+  onDragEnter:   () => void;
+  onDragLeave:   () => void;
+  /** Tap = mute toggle (when filled). No-op when empty. */
+  onTap:         () => void;
+  /** Long-press = open the CharacterControls popover (when filled). */
+  onLongPress:   () => void;
 }
 
-/** How tall the player sprite renders, in px. The chibi proportions
- *  in the asset put the head about 50% of total height; we want the
- *  player visibly larger than the band slots (130x220) so the lead
- *  reads as the star. Bumped from 200 → 250 (+25%) per playtest:
- *  the previous size felt small against the rendered iso room. */
+/** Sprite render size in px. The player should read as the star, so
+ *  it sits visibly larger than the band slots (they default to 200). */
 const PLAYER_HEIGHT = 250;
-const PLAYER_WIDTH  = PLAYER_HEIGHT;   // square asset
+const PLAYER_WIDTH  = PLAYER_HEIGHT;
 
-export function PlayerAtMic({ active }: PlayerAtMicProps) {
+const LONG_PRESS_MS = 320;
+
+export function PlayerAtMic({
+  active,
+  filled,
+  dragOver,
+  onDropSound,
+  onDragEnter,
+  onDragLeave,
+  onTap,
+  onLongPress,
+}: PlayerAtMicProps) {
   const audioFrame = useJamAudioFrame();
   const spriteRef  = useRef<HTMLImageElement>(null!);
 
-  // Subtle audio-reactive bob — head nods up & down on overall energy
-  // with a slight scale on kick. Never huge: the player is a static
-  // sprite for now (no animation frames yet), so we want movement that
-  // sells "alive" without giving away the lack of frames.
+  // Subtle audio-reactive bob. Same imperative-rAF pattern as BandSlot.
   useEffect(() => {
     let raf = 0;
     let cancelled = false;
@@ -50,8 +66,8 @@ export function PlayerAtMic({ active }: PlayerAtMicProps) {
         const { overall, kick } = audioFrame.current;
         const o = active ? overall : 0;
         const k = active ? kick    : 0;
-        const dy = -o * 4;                  // up to 4px lift
-        const scale = 1 + k * 0.04;          // tiny punch on kick
+        const dy    = -o * 4;
+        const scale = 1 + k * 0.04;
         node.style.transform = `translate(0, ${dy.toFixed(2)}px) scale(${scale.toFixed(3)})`;
       }
       raf = requestAnimationFrame(tick);
@@ -63,28 +79,81 @@ export function PlayerAtMic({ active }: PlayerAtMicProps) {
     };
   }, [audioFrame, active]);
 
+  // ── Tap vs long-press — only relevant when a vocal is assigned. ──
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressFiredRef = useRef(false);
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+  function handlePointerDown() {
+    if (!filled) return;
+    longPressFiredRef.current = false;
+    clearLongPressTimer();
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressFiredRef.current = true;
+      onLongPress();
+    }, LONG_PRESS_MS);
+  }
+  function handlePointerUp() {
+    if (!filled) return;
+    clearLongPressTimer();
+    if (!longPressFiredRef.current) onTap();
+  }
+  function handlePointerCancel() {
+    clearLongPressTimer();
+  }
+
+  // ── Drag-drop wiring — accept any dataTransfer; JamView filters by
+  //    sentinel id so only the MIC tile actually triggers a drop. ──
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const id = e.dataTransfer.getData("text/jam-sound-id");
+    onDragLeave();
+    if (id) onDropSound(id);
+  }
+
   return (
     <div
+      onDragOver={handleDragOver}
+      onDragEnter={(e) => { e.preventDefault(); onDragEnter(); }}
+      onDragLeave={onDragLeave}
+      onDrop={handleDrop}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerCancel}
+      onPointerCancel={handlePointerCancel}
       style={{
         position: "relative",
         width:  PLAYER_WIDTH,
-        // A little extra height below the sprite for the mic stand
-        // base + the YOU label.
+        // Extra height for the mic stand base + 'YOU' label below.
         height: PLAYER_HEIGHT + 28,
-        pointerEvents: "none",
+        // Drop-target halo when something's hovering over this slot.
+        // JamView sets dragOver only when the dragged tile is the MIC,
+        // so the halo also doubles as "yes this is the right slot."
+        filter: dragOver
+          ? "drop-shadow(0 0 18px rgba(255, 77, 156, 0.95)) drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))"
+          : "drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))",
+        cursor: filled ? "pointer" : "default",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        touchAction: "manipulation",
       }}
-      aria-label="player — the lead at the mic"
+      aria-label="player — drop the mic to record your voice"
     >
-      {/* Mic stand — a compact version of the placeholder, rendered IN
-       *  FRONT of the character so the silhouette of "person at mic"
-       *  reads. zIndex above the sprite. */}
+      {/* Mic stand — small, sits in front of the player sprite. */}
       <Mic />
 
-      {/* Player sprite — anchored bottom-center of the inner box, image
-       *  fills the box. */}
+      {/* Player sprite */}
       <img
         ref={spriteRef}
-        src="/characters/player-character.png"
+        src="/characters/player-guy/player-character.png"
         alt=""
         draggable={false}
         style={{
@@ -94,27 +163,22 @@ export function PlayerAtMic({ active }: PlayerAtMicProps) {
           width:   PLAYER_WIDTH,
           height:  PLAYER_HEIGHT,
           objectFit: "contain",
-          // Soft drop shadow so the sprite reads as "in the room"
-          // instead of "stuck on top of the render."
-          filter: "drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))",
           willChange: "transform",
-          // Initial transform (overwritten by rAF on first frame).
           transform: "translate(0, 0) scale(1)",
-          // No selection / drag affordances — sprite is decorative.
           userSelect: "none",
           WebkitUserSelect: "none",
           pointerEvents: "none",
         }}
       />
 
-      {/* "YOU" label below the unit so the player's slot is unambiguous. */}
+      {/* "YOU" label */}
       <div
         style={{
           position: "absolute",
-          bottom:  6,
-          left:    "50%",
+          bottom: 6,
+          left: "50%",
           marginLeft: -28,
-          width:   56,
+          width: 56,
           textAlign: "center",
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: 9,
@@ -132,7 +196,7 @@ export function PlayerAtMic({ active }: PlayerAtMicProps) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Mic — a small CSS mic stand placed in front of the player.                 */
+/* Mic — compact CSS mic stand placed in front of the player sprite.          */
 /* -------------------------------------------------------------------------- */
 
 function Mic() {
@@ -140,92 +204,50 @@ function Mic() {
     <div
       style={{
         position: "absolute",
-        // Centered under the sprite's chin: the chibi's mouth is
-        // around 30% from the top of the asset, so we want the mic
-        // head at around the same height. Render the stand from the
-        // floor up to that point.
         bottom: 28,
         left:   "50%",
         marginLeft: -16,
         width:  32,
         height: 130,
-        zIndex: 2,    // in front of the sprite
+        zIndex: 2,
         filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.6))",
         pointerEvents: "none",
       }}
     >
-      {/* Floor base — flat ellipse */}
-      <div
-        style={{
-          position: "absolute",
-          bottom:  0,
-          left:    "50%",
-          marginLeft: -14,
-          width:   28,
-          height:  10,
-          borderRadius: "50%",
-          background: "linear-gradient(180deg, #4a4a4a, #1a1a22)",
-          border: "1.5px solid #0a0f1c",
-          boxShadow: "inset 0 2px 0 rgba(255,255,255,0.18)",
-        }}
-      />
-      {/* Pole */}
-      <div
-        style={{
-          position: "absolute",
-          bottom:  6,
-          left:    "50%",
-          marginLeft: -1.5,
-          width:   3,
-          height:  100,
-          background: "linear-gradient(90deg, #0a0a14 0%, #2a2a32 50%, #0a0a14 100%)",
-          borderRadius: 1.5,
-          boxShadow: "0 0 0 1px rgba(0,0,0,0.6)",
-        }}
-      />
-      {/* Mic head — capsule at top */}
-      <div
-        style={{
-          position: "absolute",
-          top:     0,
-          left:    "50%",
-          marginLeft: -10,
-          width:   20,
-          height:  26,
-          background: "linear-gradient(180deg, #4a4a4a, #1a1a22)",
-          border: "2px solid #0a0f1c",
-          borderRadius: "11px 11px 50% 50% / 13px 13px 80% 80%",
-          boxShadow: "inset 0 2px 0 rgba(255,255,255,0.25), 0 2px 0 rgba(0,0,0,0.4)",
-        }}
-      >
-        {/* foam highlight */}
-        <div
-          style={{
-            position: "absolute",
-            top:    2,
-            left:   2,
-            right:  2,
-            height: 12,
-            background:
-              "radial-gradient(ellipse at 35% 30%, rgba(255,255,255,0.28), rgba(255,255,255,0) 70%)",
-            borderRadius: "10px 10px 50% 50% / 10px 10px 60% 60%",
-          }}
-        />
-        {/* on-air dot */}
-        <div
-          style={{
-            position: "absolute",
-            bottom:  4,
-            left:    "50%",
-            marginLeft: -2,
-            width:   4,
-            height:  4,
-            borderRadius: "50%",
-            background: "#E94560",
-            boxShadow: "0 0 6px rgba(233, 69, 96, 0.85)",
-            animation: "playerMicPulse 1.6s ease-in-out infinite",
-          }}
-        />
+      <div style={{
+        position: "absolute", bottom: 0, left: "50%", marginLeft: -14,
+        width: 28, height: 10, borderRadius: "50%",
+        background: "linear-gradient(180deg, #4a4a4a, #1a1a22)",
+        border: "1.5px solid #0a0f1c",
+        boxShadow: "inset 0 2px 0 rgba(255,255,255,0.18)",
+      }} />
+      <div style={{
+        position: "absolute", bottom: 6, left: "50%", marginLeft: -1.5,
+        width: 3, height: 100,
+        background: "linear-gradient(90deg, #0a0a14 0%, #2a2a32 50%, #0a0a14 100%)",
+        borderRadius: 1.5,
+        boxShadow: "0 0 0 1px rgba(0,0,0,0.6)",
+      }} />
+      <div style={{
+        position: "absolute", top: 0, left: "50%", marginLeft: -10,
+        width: 20, height: 26,
+        background: "linear-gradient(180deg, #4a4a4a, #1a1a22)",
+        border: "2px solid #0a0f1c",
+        borderRadius: "11px 11px 50% 50% / 13px 13px 80% 80%",
+        boxShadow: "inset 0 2px 0 rgba(255,255,255,0.25), 0 2px 0 rgba(0,0,0,0.4)",
+      }}>
+        <div style={{
+          position: "absolute", top: 2, left: 2, right: 2, height: 12,
+          background: "radial-gradient(ellipse at 35% 30%, rgba(255,255,255,0.28), rgba(255,255,255,0) 70%)",
+          borderRadius: "10px 10px 50% 50% / 10px 10px 60% 60%",
+        }} />
+        <div style={{
+          position: "absolute", bottom: 4, left: "50%", marginLeft: -2,
+          width: 4, height: 4, borderRadius: "50%",
+          background: "#E94560",
+          boxShadow: "0 0 6px rgba(233, 69, 96, 0.85)",
+          animation: "playerMicPulse 1.6s ease-in-out infinite",
+        }} />
       </div>
 
       <style>{`

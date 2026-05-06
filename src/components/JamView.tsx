@@ -34,9 +34,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store/useStore";
 import { REAL_SOUNDS } from "../data/sounds";
-import type { SoundOption } from "../data/types";
+import type { LayerKind, SoundOption } from "../data/types";
 import { Crib } from "./jam/Crib";
-import { JamCharacter } from "./jam/JamCharacter";
+import { BandSlot } from "./jam/BandSlot";
 import { SoundPalette } from "./jam/SoundPalette";
 import { CharacterControls } from "./jam/CharacterControls";
 import { StageSpot } from "./jam/StageSpot";
@@ -44,7 +44,11 @@ import { PlayerAtMic } from "./jam/PlayerAtMic";
 import { ComboBanner } from "./jam/ComboBanner";
 import { ComboBurst } from "./jam/ComboBurst";
 import { COMBOS, detectCombo, type JamCombo } from "../data/jamCombos";
-import { JAM_CHARACTERS } from "../data/jamCharacters";
+import {
+  ACCEPTED_KIND,
+  HYPE_POOL,
+  type CharacterKind,
+} from "../data/characterSkins";
 import { useJamAudioFrame } from "../hooks/useJamAudioFrame";
 import { ComboCodex } from "./jam/ComboCodex";
 import {
@@ -69,54 +73,61 @@ import { C } from "../ui/burst/tokens";
 const VOCAL_DROP_ID = "__vocal__";
 
 /**
- * Band slots — characters standing on the Crib floor. Each has an iso
- * position expressed as a % of the contained backdrop image (NOT of
- * the stage area; see Crib.tsx for how the bounds are computed). The
- * player + mic at PLAYER_POS is rendered separately because it has no
- * sound assignment.
+ * Slots on the Crib stage. Each slot is bound to ONE character kind
+ * and ONE accepted LayerKind — drum-guy only takes drums, beat-guy
+ * only takes 808s, guitar-guy only takes samples, and the player
+ * (slot-player) only takes the VOCAL_DROP_ID sentinel from the MIC
+ * tile. Mismatched drops are silently rejected by the slot.
  *
- * Three-piece band positioned in a shallow arc behind the player:
- *   - drums  back-center  (deepest into the room)
- *   - bass   mid-right
- *   - guitar mid-left
+ * Each slot has an iso position expressed as a %% of the contained
+ * backdrop image (see Crib.tsx for how the bounds are computed). The
+ * player slot is rendered separately (PlayerAtMic) because it has
+ * different visuals + drop semantics.
  *
- * NEEMA was previously in slot-b at (78, 52) "behind the right desk
- * where the MPC sits" — but the chibi sprite paints over the desk
- * geometry rather than tucking behind it, so visually she looked like
- * she was standing ON the desk. Pulled out of the lineup; the
- * character config still exists for future use (e.g., once the iso
- * sprite art lands and depth-sorted placement becomes possible).
+ * Hi-hat slot was removed from the band — no character for that
+ * section yet. r-bells-Fm (paradise) is also hidden in the palette
+ * because guitar-guy has no skin for it.
  */
-const DEFAULT_SLOTS: {
-  id: string;
-  characterId: string;
-  /** % of the contained image. (50, 50) is image center. */
-  pos: { x: number; y: number };
-}[] = [
-  { id: "slot-a", characterId: "mochi", pos: { x: 50, y: 49 } },  // drums  — back-center
-  { id: "slot-c", characterId: "royal", pos: { x: 60, y: 60 } },  // bass   — mid-right
-  { id: "slot-d", characterId: "blu",   pos: { x: 33, y: 58 } },  // guitar — mid-left
+interface BandSlotConfig {
+  id:            string;
+  characterKind: CharacterKind;
+  pos:           { x: number; y: number };  // %% of the contained image
+}
+
+const BAND_SLOTS: BandSlotConfig[] = [
+  { id: "slot-drums",  characterKind: "drum-guy",   pos: { x: 50, y: 49 } },  // back-center
+  { id: "slot-808",    characterKind: "beat-guy",   pos: { x: 60, y: 60 } },  // mid-right
+  { id: "slot-sample", characterKind: "guitar-guy", pos: { x: 33, y: 58 } },  // mid-left
 ];
 
-/** Player + mic stand position — front-center of the floor, closer to
- *  the viewer than any band member. */
+/** Player slot id — distinct from band slots and special-cased in
+ *  drop / render logic. Held in slotState alongside band entries so
+ *  the audio engine and combo detector treat it uniformly. */
+const PLAYER_SLOT_ID = "slot-player";
+
+/** Player + mic stand position — front-center, closer to the viewer
+ *  than any band member. */
 const PLAYER_POS = { x: 47, y: 73 };
 
-/**
- * Look up the character config for a slot. Throws if the id is unknown
- * because that's a bug in the static config (caught at boot, not at
- * runtime).
- */
-function characterFor(slotCharacterId: string) {
-  const c = JAM_CHARACTERS.find((c) => c.id === slotCharacterId);
-  if (!c) throw new Error(`unknown character id: ${slotCharacterId}`);
-  return c;
+/** Lookup table mapping slot id → character kind for hype lines etc. */
+const SLOT_CHARACTER: Record<string, CharacterKind | "player"> = {
+  ...Object.fromEntries(BAND_SLOTS.map((s) => [s.id, s.characterKind])),
+  [PLAYER_SLOT_ID]: "player",
+};
+
+/** Pick a random hype line for a band slot. Player slot has no pool
+ *  in v1 — they're the lead, they let the band hype them. */
+function randomHypeForSlot(slotId: string): string | null {
+  const ck = SLOT_CHARACTER[slotId];
+  if (ck === "player" || !ck) return null;
+  const pool = HYPE_POOL[ck];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
-/** Pick a random line from a character's hype pool. */
-function randomHypeFor(lines: string[]): string {
-  return lines[Math.floor(Math.random() * lines.length)];
-}
+/** Sound-id → LayerKind lookup, used by drop validation. */
+const SOUND_KIND: Record<string, LayerKind> = Object.fromEntries(
+  REAL_SOUNDS.map((s) => [s.id, s.kind]),
+);
 
 /** Master BPM for the jam — drives all rate-stretching of the file loops. */
 const JAM_BPM = 140;
@@ -136,10 +147,13 @@ const EMPTY_SLOT: SlotState = { soundId: null, muted: false, volume: 1.0 };
 export function JamView() {
   const setStage = useStore((s) => s.setStage);
 
-  // Per-slot state, keyed by the slot id.
-  const [slotState, setSlotState] = useState<Record<string, SlotState>>(
-    () => Object.fromEntries(DEFAULT_SLOTS.map((s) => [s.id, { ...EMPTY_SLOT }])),
-  );
+  // Per-slot state, keyed by the slot id. Includes both the band
+  // slots and the player slot so the audio engine, combo detector,
+  // and hype-line interval all treat the player uniformly.
+  const [slotState, setSlotState] = useState<Record<string, SlotState>>(() => {
+    const bands = Object.fromEntries(BAND_SLOTS.map((s) => [s.id, { ...EMPTY_SLOT }]));
+    return { ...bands, [PLAYER_SLOT_ID]: { ...EMPTY_SLOT } };
+  });
 
   // Which slot has its control panel open (null = none).
   const [openControls, setOpenControls] = useState<string | null>(null);
@@ -240,14 +254,16 @@ export function JamView() {
           } catch { /* ignore */ }
           return next;
         });
-        // Combo activation also fires a hype line on every filled slot
-        // — every character celebrates simultaneously.
+        // Combo activation also fires a hype line on every filled
+        // band slot — every character celebrates simultaneously. The
+        // player slot doesn't run hype lines (the lead lets the band
+        // hype them).
         const next: Record<string, string | null> = {};
-        for (const slot of DEFAULT_SLOTS) {
+        for (const slot of BAND_SLOTS) {
           const st = slotState[slot.id];
           if (!st?.soundId) continue;
-          const character = characterFor(slot.characterId);
-          next[slot.id] = randomHypeFor(character.hypeLines);
+          const line = randomHypeForSlot(slot.id);
+          if (line) next[slot.id] = line;
         }
         setHypeLines((prev) => ({ ...prev, ...next }));
         window.setTimeout(() => {
@@ -302,14 +318,14 @@ export function JamView() {
     if (!playing) return;
     const tick = () => {
       const current = slotStateRef.current;
-      const filledSlots = DEFAULT_SLOTS.filter((s) => {
+      const filledSlots = BAND_SLOTS.filter((s) => {
         const st = current[s.id];
         return st?.soundId && !st.muted;
       });
       if (filledSlots.length === 0) return;
       const slot = filledSlots[Math.floor(Math.random() * filledSlots.length)];
-      const character = characterFor(slot.characterId);
-      const line = randomHypeFor(character.hypeLines);
+      const line = randomHypeForSlot(slot.id);
+      if (!line) return;
       setHypeLines((prev) => ({ ...prev, [slot.id]: line }));
       window.setTimeout(() => {
         setHypeLines((prev) =>
@@ -325,11 +341,27 @@ export function JamView() {
   async function handleDrop(slotId: string, soundId: string) {
     setDragOverSlot(null);
 
-    // Special-case the mic drop: open the recorder instead of trying
-    // to play a non-existent catalog entry. The recorder closes the
-    // overlay and assigns the resulting buffer to this slot.
+    // ── Vocal / mic drops ──
+    // Only the player slot accepts the VOCAL_DROP_ID sentinel. Band
+    // slots silently reject it (they're locked to their own kind).
     if (soundId === VOCAL_DROP_ID) {
+      if (slotId !== PLAYER_SLOT_ID) return;
       setRecordingForSlot(slotId);
+      return;
+    }
+
+    // ── Catalog sound drops ──
+    // The player slot does not accept any catalog sound — only the
+    // mic. Band slots accept ONLY their bound LayerKind.
+    if (slotId === PLAYER_SLOT_ID) return;
+
+    const droppedKind = SOUND_KIND[soundId];
+    const slotConfig = BAND_SLOTS.find((s) => s.id === slotId);
+    if (!slotConfig) return;
+    const expectedKind = ACCEPTED_KIND[slotConfig.characterKind];
+    if (droppedKind !== expectedKind) {
+      // Wrong kind for this band slot — silently reject. (Future:
+      // wire an onRejectDrop callback so the slot can shake.)
       return;
     }
 
@@ -337,13 +369,8 @@ export function JamView() {
       ...prev,
       [slotId]: { soundId, muted: false, volume: 1.0 },
     }));
-    // Make sure audio is unlocked (drag isn't a tap, but this mirrors
-    // the click-to-play unlock; on iOS the drop event still counts as
-    // user activation).
     try { await ensureAudio(); } catch { /* ignore */ }
     await assignSlot(slotId, soundId, JAM_BPM);
-    // Auto-resume if we're currently paused — dropping a sound
-    // implies the user wants to hear it.
     if (!playing) {
       resumeJam();
       setPlaying(true);
@@ -566,11 +593,9 @@ export function JamView() {
            *  rendered image bounds, so the iso character positions
            *  below stay locked to the floor when the viewport changes. */}
           <Crib>
-            {/* Per-character stage spots — soft circular spotlights on
-             *  the floor under each character, brightening with audio.
-             *  Rendered behind the characters so the chibis paint over
-             *  the glow rather than the other way around. */}
-            {DEFAULT_SLOTS.map((slot) => {
+            {/* Per-band-slot stage spots — soft circular spotlights on
+             *  the floor under each character, brightening with audio. */}
+            {BAND_SLOTS.map((slot) => {
               const state = slotState[slot.id];
               return (
                 <StageSpot
@@ -580,17 +605,21 @@ export function JamView() {
                 />
               );
             })}
-            {/* Player spot — slightly bigger so the lead reads as the
-             *  star, even when the band is hot. */}
-            <StageSpot pos={PLAYER_POS} active={playing} size="large" accent="#facc15" />
+            {/* Player spot — gold accent + larger so the lead reads as
+             *  the star even when the band is hot. */}
+            <StageSpot
+              pos={PLAYER_POS}
+              active={playing && !!slotState[PLAYER_SLOT_ID].soundId && !slotState[PLAYER_SLOT_ID].muted}
+              size="large"
+              accent="#facc15"
+            />
 
-            {/* Band — 4 iso-positioned characters on the room floor. */}
-            {DEFAULT_SLOTS.map((slot, slotIndex) => {
+            {/* Band — 3 sprite-based slots, each bound to one kind. */}
+            {BAND_SLOTS.map((slot) => {
               const state = slotState[slot.id];
-              const character = characterFor(slot.characterId);
-              const sound = state.soundId === VOCAL_DROP_ID
-                ? VOCAL_PSEUDO_SOUND
-                : (state.soundId ? soundsById.get(state.soundId) ?? null : null);
+              const sound = state.soundId
+                ? soundsById.get(state.soundId) ?? null
+                : null;
               return (
                 <div
                   key={slot.id}
@@ -598,20 +627,22 @@ export function JamView() {
                     position: "absolute",
                     left: `${slot.pos.x}%`,
                     top:  `${slot.pos.y}%`,
-                    // Anchor the character's feet at (x, y) — the chibi
-                    // is 130x220, so shift up-left by half-width and
-                    // full-height to land on the floor at the position.
+                    // Anchor the sprite's feet at (x, y) — sprite is
+                    // square (200x200), so shift up-left by half-width
+                    // and full-height to land on the floor.
                     transform: "translate(-50%, -100%)",
                     zIndex: 4,
                   }}
                 >
-                  <JamCharacter
+                  <BandSlot
                     slotId={slot.id}
-                    slotIndex={slotIndex}
-                    character={character}
+                    characterKind={slot.characterKind}
+                    acceptKind={ACCEPTED_KIND[slot.characterKind]}
                     sound={sound}
                     muted={state.muted}
                     volume={state.volume}
+                    playing={playing}
+                    bpm={JAM_BPM}
                     hypeLine={hypeLines[slot.id] ?? null}
                     onDropSound={(soundId) => handleDrop(slot.id, soundId)}
                     onTap={() => state.soundId && handleMuteToggle(slot.id)}
@@ -619,27 +650,34 @@ export function JamView() {
                     dragOver={dragOverSlot === slot.id}
                     onDragEnter={() => setDragOverSlot(slot.id)}
                     onDragLeave={() => setDragOverSlot((s) => (s === slot.id ? null : s))}
-                    accessory={activeCombo?.accessory ?? null}
                   />
                 </div>
               );
             })}
 
-            {/* Player + mic stand — the lead vocalist. Renders the
-             *  player-character.png sprite over a compact mic stand.
-             *  Slightly larger than the band slots so the lead reads
-             *  as the star. Audio-reactive bob driven by the master
-             *  audio frame. */}
+            {/* Player + mic stand. Drop a vocal recording here (the
+             *  MIC tile from the palette); other dropped sounds are
+             *  silently rejected. */}
             <div
               style={{
                 position: "absolute",
                 left: `${PLAYER_POS.x}%`,
                 top:  `${PLAYER_POS.y}%`,
                 transform: "translate(-50%, -100%)",
-                zIndex: 5,   // in front of the band
+                zIndex: 5,
               }}
+              data-slot-id={PLAYER_SLOT_ID}
             >
-              <PlayerAtMic active={playing} />
+              <PlayerAtMic
+                active={playing}
+                filled={!!slotState[PLAYER_SLOT_ID].soundId}
+                dragOver={dragOverSlot === PLAYER_SLOT_ID}
+                onDropSound={(soundId) => handleDrop(PLAYER_SLOT_ID, soundId)}
+                onDragEnter={() => setDragOverSlot(PLAYER_SLOT_ID)}
+                onDragLeave={() => setDragOverSlot((s) => (s === PLAYER_SLOT_ID ? null : s))}
+                onTap={() => slotState[PLAYER_SLOT_ID].soundId && handleMuteToggle(PLAYER_SLOT_ID)}
+                onLongPress={() => slotState[PLAYER_SLOT_ID].soundId && handleSlotTap(PLAYER_SLOT_ID)}
+              />
             </div>
           </Crib>
 

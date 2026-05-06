@@ -17,7 +17,24 @@ import type { LayerKind, SoundOption } from "../../data/types";
 import { REAL_SOUNDS } from "../../data/sounds";
 import { C } from "../../ui/burst/tokens";
 
-const ORDER: LayerKind[] = ["drums", "hat", "808", "sample"];
+/**
+ * Visible sections in the palette. The hi-hat section was removed
+ * because the new sprite-based band has no character for it (drum-guy
+ * does drums, beat-guy does 808s, guitar-guy does samples). Hat sounds
+ * still exist in REAL_SOUNDS so combos can reference them in future
+ * updates, but they don't surface in the UI.
+ */
+const ORDER: LayerKind[] = ["drums", "808", "sample"];
+
+/**
+ * Specific soundIds to hide from the palette even when their kind is
+ * visible. r-bells-Fm (paradise) is excluded because guitar-guy has no
+ * skin for it; showing it would let the user drag a sound with no
+ * character to land on.
+ */
+const HIDDEN_SOUND_IDS = new Set<string>([
+  "r-bells-Fm",
+]);
 
 const KIND_LABEL: Record<LayerKind, string> = {
   drums:  "DRUMS",
@@ -96,7 +113,7 @@ export function SoundPalette({ assignedIds }: SoundPaletteProps) {
       </div>
 
       {ORDER.map((kind) => {
-        const sounds = REAL_SOUNDS.filter((s) => s.kind === kind);
+        const sounds = REAL_SOUNDS.filter((s) => s.kind === kind && !HIDDEN_SOUND_IDS.has(s.id));
         if (sounds.length === 0) return null;
         return (
           <div key={kind}>
