@@ -40,7 +40,7 @@ import { JamCharacter } from "./jam/JamCharacter";
 import { SoundPalette } from "./jam/SoundPalette";
 import { CharacterControls } from "./jam/CharacterControls";
 import { StageSpot } from "./jam/StageSpot";
-import { MicStand } from "./jam/MicStand";
+import { PlayerAtMic } from "./jam/PlayerAtMic";
 import { ComboBanner } from "./jam/ComboBanner";
 import { ComboBurst } from "./jam/ComboBurst";
 import { COMBOS, detectCombo, type JamCombo } from "../data/jamCombos";
@@ -625,8 +625,11 @@ export function JamView() {
               );
             })}
 
-            {/* Player + mic stand — placeholder for now. A real iso
-             *  player avatar sprite will replace MicStand when it lands. */}
+            {/* Player + mic stand — the lead vocalist. Renders the
+             *  player-character.png sprite over a compact mic stand.
+             *  Slightly larger than the band slots so the lead reads
+             *  as the star. Audio-reactive bob driven by the master
+             *  audio frame. */}
             <div
               style={{
                 position: "absolute",
@@ -636,7 +639,7 @@ export function JamView() {
                 zIndex: 5,   // in front of the band
               }}
             >
-              <MicStand />
+              <PlayerAtMic active={playing} />
             </div>
           </Crib>
 
