@@ -35,11 +35,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store/useStore";
 import { REAL_SOUNDS } from "../data/sounds";
 import type { SoundOption } from "../data/types";
-import { StudioScene } from "../ui/StudioScene";
+import { Crib } from "./jam/Crib";
 import { JamCharacter } from "./jam/JamCharacter";
 import { SoundPalette } from "./jam/SoundPalette";
 import { CharacterControls } from "./jam/CharacterControls";
-import { StagePulse } from "./jam/StagePulse";
+import { StageSpot } from "./jam/StageSpot";
+import { MicStand } from "./jam/MicStand";
 import { ComboBanner } from "./jam/ComboBanner";
 import { ComboBurst } from "./jam/ComboBurst";
 import { COMBOS, detectCombo, type JamCombo } from "../data/jamCombos";
@@ -68,15 +69,34 @@ import { C } from "../ui/burst/tokens";
 const VOCAL_DROP_ID = "__vocal__";
 
 /**
- * The three starter slots map 1:1 to the three character configs in
- * JAM_CHARACTERS. Slot id stays stable across sessions so the engine's
- * per-slot audio chain doesn't have to be torn down on a config swap.
+ * The four band slots map 1:1 to character configs in JAM_CHARACTERS.
+ * Each slot has an iso position on the Crib floor expressed as a % of
+ * the contained backdrop image (NOT of the stage area — see Crib.tsx
+ * for how the bounds are computed). The 5th "slot" is the player at
+ * the mic, rendered separately because it has no sound assignment.
+ *
+ * Positions chosen by eye against the rendered iso room:
+ *   - drums sit back-center (deepest into the room)
+ *   - sampler/keys behind the right-wall desk where the MPC already lives
+ *   - guitar mid-floor right of center
+ *   - bass mid-floor left of center
+ * Player + mic stand sits front-center, closer to the camera.
  */
-const DEFAULT_SLOTS: { id: string; characterId: string }[] = [
-  { id: "slot-a", characterId: "mochi" },
-  { id: "slot-b", characterId: "neema" },
-  { id: "slot-c", characterId: "royal" },
+const DEFAULT_SLOTS: {
+  id: string;
+  characterId: string;
+  /** % of the contained image. (50, 50) is image center. */
+  pos: { x: number; y: number };
+}[] = [
+  { id: "slot-a", characterId: "mochi", pos: { x: 50, y: 49 } },  // drums  — back-center
+  { id: "slot-b", characterId: "neema", pos: { x: 78, y: 52 } },  // sampler — behind right desk
+  { id: "slot-c", characterId: "royal", pos: { x: 60, y: 60 } },  // bass   — mid-right
+  { id: "slot-d", characterId: "blu",   pos: { x: 33, y: 58 } },  // guitar — mid-left
 ];
+
+/** Player + mic stand position — front-center of the floor, closer to
+ *  the viewer than any band member. */
+const PLAYER_POS = { x: 47, y: 73 };
 
 /**
  * Look up the character config for a slot. Throws if the id is unknown
@@ -535,83 +555,86 @@ export function JamView() {
             overflow: "hidden",
           }}
         >
-          {/* Studio backdrop — same scene used on the home stage but
-           *  with the speakers and desk hidden. They were clipping the
-           *  character row on this wider viewport and adding clutter
-           *  the player can't interact with. */}
-          <div style={{ position: "absolute", inset: 0 }}>
-            <StudioScene hideSpeakers hideDesk>
-              {/* Don't render the home mascot — characters are placed
-               *  manually below as a row on the stage floor. */}
-              <div />
-            </StudioScene>
-          </div>
+          {/* Crib backdrop — pre-rendered iso room PNG, contained inside
+           *  the stage area so the whole room is visible regardless of
+           *  viewport aspect (dark bars fill the leftover space). The
+           *  Crib also provides a child-overlay box that matches the
+           *  rendered image bounds, so the iso character positions
+           *  below stay locked to the floor when the viewport changes. */}
+          <Crib>
+            {/* Per-character stage spots — soft circular spotlights on
+             *  the floor under each character, brightening with audio.
+             *  Rendered behind the characters so the chibis paint over
+             *  the glow rather than the other way around. */}
+            {DEFAULT_SLOTS.map((slot) => {
+              const state = slotState[slot.id];
+              return (
+                <StageSpot
+                  key={`spot-${slot.id}`}
+                  pos={slot.pos}
+                  active={playing && !!state.soundId && !state.muted}
+                />
+              );
+            })}
+            {/* Player spot — slightly bigger so the lead reads as the
+             *  star, even when the band is hot. */}
+            <StageSpot pos={PLAYER_POS} active={playing} size="large" accent="#facc15" />
 
-          {/* Audio-reactive stage layer — floor glow on kick, corner
-           *  spotlights on hat, ambient tint on overall energy, crowd
-           *  appears at 3 filled slots. Quiet when nothing is playing
-           *  or the master is paused; baseline brightness scales with
-           *  assignedCount so the stage builds with the mix. */}
-          <StagePulse
-            active={playing && assignedIds.size > 0}
-            assignedCount={assignedIds.size}
-          />
-
-          {/* Character row — three slots + a locked 4th tile, anchored
-           *  ~30% up from the stage floor so the characters sit on the
-           *  perspective wood instead of pressing against the bottom
-           *  edge. (User requested: position 30 on a 0=bottom→100=top
-           *  scale.) */}
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              bottom: "30%",
-              transform: "translateX(-50%)",
-              display: "flex",
-              gap: 32,
-              alignItems: "flex-end",
-              zIndex: 4,
-            }}
-          >
+            {/* Band — 4 iso-positioned characters on the room floor. */}
             {DEFAULT_SLOTS.map((slot, slotIndex) => {
               const state = slotState[slot.id];
               const character = characterFor(slot.characterId);
-              // The vocal sentinel id ("__vocal__") doesn't exist in the
-              // catalog map — render a synthetic SoundOption so the
-              // character UI shows "MIC" instead of "—".
               const sound = state.soundId === VOCAL_DROP_ID
                 ? VOCAL_PSEUDO_SOUND
                 : (state.soundId ? soundsById.get(state.soundId) ?? null : null);
               return (
-                <JamCharacter
+                <div
                   key={slot.id}
-                  slotId={slot.id}
-                  slotIndex={slotIndex}
-                  character={character}
-                  sound={sound}
-                  muted={state.muted}
-                  volume={state.volume}
-                  hypeLine={hypeLines[slot.id] ?? null}
-                  onDropSound={(soundId) => handleDrop(slot.id, soundId)}
-                  // Tap = instant mute toggle (Incredibox-style — keeps
-                  // mute usable as a rhythm tool). Long-press opens the
-                  // floating control popover for volume / clear.
-                  onTap={() => state.soundId && handleMuteToggle(slot.id)}
-                  onLongPress={() => state.soundId && handleSlotTap(slot.id)}
-                  dragOver={dragOverSlot === slot.id}
-                  onDragEnter={() => setDragOverSlot(slot.id)}
-                  onDragLeave={() => setDragOverSlot((s) => (s === slot.id ? null : s))}
-                  accessory={activeCombo?.accessory ?? null}
-                />
+                  style={{
+                    position: "absolute",
+                    left: `${slot.pos.x}%`,
+                    top:  `${slot.pos.y}%`,
+                    // Anchor the character's feet at (x, y) — the chibi
+                    // is 130x220, so shift up-left by half-width and
+                    // full-height to land on the floor at the position.
+                    transform: "translate(-50%, -100%)",
+                    zIndex: 4,
+                  }}
+                >
+                  <JamCharacter
+                    slotId={slot.id}
+                    slotIndex={slotIndex}
+                    character={character}
+                    sound={sound}
+                    muted={state.muted}
+                    volume={state.volume}
+                    hypeLine={hypeLines[slot.id] ?? null}
+                    onDropSound={(soundId) => handleDrop(slot.id, soundId)}
+                    onTap={() => state.soundId && handleMuteToggle(slot.id)}
+                    onLongPress={() => state.soundId && handleSlotTap(slot.id)}
+                    dragOver={dragOverSlot === slot.id}
+                    onDragEnter={() => setDragOverSlot(slot.id)}
+                    onDragLeave={() => setDragOverSlot((s) => (s === slot.id ? null : s))}
+                    accessory={activeCombo?.accessory ?? null}
+                  />
+                </div>
               );
             })}
 
-            {/* Locked 4th slot — restored inline. The previous version
-             *  (corner pill) read as a footnote; the inline placeholder
-             *  makes the progression promise feel more tangible. */}
-            <LockedSlot />
-          </div>
+            {/* Player + mic stand — placeholder for now. A real iso
+             *  player avatar sprite will replace MicStand when it lands. */}
+            <div
+              style={{
+                position: "absolute",
+                left: `${PLAYER_POS.x}%`,
+                top:  `${PLAYER_POS.y}%`,
+                transform: "translate(-50%, -100%)",
+                zIndex: 5,   // in front of the band
+              }}
+            >
+              <MicStand />
+            </div>
+          </Crib>
 
           {/* Empty-state hint — only shown when nothing is assigned yet */}
           {assignedIds.size === 0 && (
@@ -905,106 +928,8 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* LockedSlot — placeholder tile rendered at the end of the character row to  */
-/* hint at progression. Same width/height as a real character so the row     */
-/* maintains its rhythm; dashed border + lock glyph signal "not yet".        */
-/* -------------------------------------------------------------------------- */
-
-function LockedSlot() {
-  return (
-    <div
-      style={{
-        position: "relative",
-        width: 130,
-        height: 220,
-        border: "2.5px dashed rgba(255,255,255,0.18)",
-        borderRadius: 24,
-        background: "rgba(0, 0, 0, 0.3)",
-        opacity: 0.85,
-        overflow: "hidden",
-        animation: "jamLockedGentlePulse 4.6s ease-in-out infinite",
-      }}
-      aria-label="locked slot — unlock more characters as you level up"
-    >
-      {/* Silhouette tease — a generic chibi shape that fades in/out
-       *  periodically to hint at what's coming. Pure CSS, no animation
-       *  while not visible. */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          opacity: 0,
-          animation: "jamLockedTease 22s ease-in-out infinite",
-          pointerEvents: "none",
-        }}
-      >
-        {/* shoulder block */}
-        <div style={{
-          position: "absolute",
-          bottom: 30, left: "50%", marginLeft: -36,
-          width: 72, height: 60,
-          background: "rgba(255,255,255,0.08)",
-          borderRadius: "16px 16px 10px 10px",
-        }} />
-        {/* head */}
-        <div style={{
-          position: "absolute",
-          top: 36, left: "50%", marginLeft: -34,
-          width: 68, height: 68,
-          background: "rgba(255,255,255,0.10)",
-          borderRadius: "50%",
-        }} />
-        {/* shoes */}
-        <div style={{
-          position: "absolute",
-          bottom: 8, left: "50%", marginLeft: -28,
-          width: 56, height: 12,
-          background: "rgba(255,255,255,0.06)",
-          borderRadius: 4,
-        }} />
-      </div>
-
-      {/* Lock + label sit centered on top of the silhouette */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
-        }}
-      >
-        <div style={{ fontSize: 32, opacity: 0.6 }}>🔒</div>
-        <div
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 9,
-            fontWeight: 700,
-            letterSpacing: "0.12em",
-            color: "rgba(255,255,255,0.45)",
-            textTransform: "uppercase",
-            textAlign: "center",
-            padding: "0 8px",
-          }}
-        >
-          unlock<br />at lv 5
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes jamLockedGentlePulse {
-          0%, 100% { box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
-          50%      { box-shadow: 0 0 18px rgba(255, 255, 255, 0.10); }
-        }
-        @keyframes jamLockedTease {
-          0%, 80%, 100% { opacity: 0; }
-          88%           { opacity: 0.7; }
-          92%           { opacity: 0.5; }
-        }
-      `}</style>
-    </div>
-  );
-}
+/* LockedSlot was removed when the band became 4-of-4 in the Crib layout.
+ * Future progression (additional characters / unlocks) will use a
+ * different visual treatment that fits the iso room — likely a fade-in
+ * silhouette pre-spawning at its floor position rather than a separate
+ * placeholder tile. */
