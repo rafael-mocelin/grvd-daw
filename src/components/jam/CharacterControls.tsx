@@ -17,6 +17,11 @@ interface CharacterControlsProps {
   sound:    SoundOption | null;
   muted:    boolean;
   volume:   number;
+  /** Vocal slots only: whether the recording follows the master BPM
+   *  (true) or stays at its recorded tempo (false). The toggle is
+   *  rendered only when sound.kind === "vocal". */
+  syncToBpm?:    boolean;
+  onSyncToggle?: () => void;
   onMuteToggle: () => void;
   onVolume:     (v: number) => void;
   onClear:      () => void;
@@ -27,10 +32,11 @@ interface CharacterControlsProps {
 }
 
 export function CharacterControls({
-  sound, muted, volume,
-  onMuteToggle, onVolume, onClear, onClose,
+  sound, muted, volume, syncToBpm,
+  onMuteToggle, onVolume, onSyncToggle, onClear, onClose,
   anchorLeft, anchorTop,
 }: CharacterControlsProps) {
+  const isVocal = sound?.kind === "vocal";
   return (
     <>
       {/* Backdrop — captures outside-clicks to dismiss. Transparent so
@@ -171,6 +177,38 @@ export function CharacterControls({
             }}
           />
         </div>
+
+        {/* Sync to BPM — vocal slots only. Toggles whether the
+         *  recording rate-stretches with the master BPM (ON, pitch
+         *  shifts) or stays at its recorded tempo (OFF). Default off
+         *  so existing recordings don't change unexpectedly when the
+         *  player nudges the master BPM. */}
+        {isVocal && onSyncToggle && (
+          <button
+            onClick={onSyncToggle}
+            style={{
+              width: "100%",
+              padding: "9px 10px",
+              marginBottom: 8,
+              borderRadius: 12,
+              border: "2px solid #0a0f1c",
+              background: syncToBpm
+                ? "linear-gradient(180deg, #6bf395, #16a34a)"
+                : "linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04))",
+              color: syncToBpm ? "#0a0f1c" : "rgba(255,255,255,0.85)",
+              fontFamily: "'Lilita One', system-ui",
+              fontSize: 12,
+              letterSpacing: 0.5,
+              cursor: "pointer",
+              boxShadow: syncToBpm
+                ? "inset 0 2px 0 rgba(255,255,255,0.45), inset 0 -2px 0 rgba(0,0,0,0.25), 0 3px 0 rgba(0,0,0,0.45)"
+                : "inset 0 2px 0 rgba(255,255,255,0.06), 0 3px 0 rgba(0,0,0,0.35)",
+            }}
+            aria-pressed={syncToBpm}
+          >
+            {syncToBpm ? "🔗 SYNC TO BPM — ON" : "🔓 SYNC TO BPM — OFF"}
+          </button>
+        )}
 
         {/* Clear slot */}
         <button

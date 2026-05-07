@@ -57,6 +57,7 @@ import {
   setSlotVolume,
   setSlotMuted,
   setMasterBpm,
+  setVocalSync,
   clearAllSlots,
   pauseJam,
   resumeJam,
@@ -147,12 +148,17 @@ const MAX_BPM = 200;
 const DISCOVERED_KEY = "grvd:jam:discovered-combos:v1";
 
 interface SlotState {
-  soundId: string | null;
-  muted:   boolean;
-  volume:  number;
+  soundId:   string | null;
+  muted:     boolean;
+  volume:    number;
+  /** Vocal-slot only: whether this slot's player rate-stretches to
+   *  match the master BPM (true) or stays at its recorded tempo
+   *  (false). Default false so changing master BPM doesn't break
+   *  existing recordings. The popover surfaces this as a toggle. */
+  syncToBpm: boolean;
 }
 
-const EMPTY_SLOT: SlotState = { soundId: null, muted: false, volume: 1.0 };
+const EMPTY_SLOT: SlotState = { soundId: null, muted: false, volume: 1.0, syncToBpm: false };
 
 export function JamView() {
   const setStage = useStore((s) => s.setStage);
@@ -464,6 +470,19 @@ export function JamView() {
     setOpenControls(null);
   }
 
+  /** Toggle vocal-slot sync to master BPM. No-op for non-vocal slots. */
+  function handleSyncToggle(slotId: string) {
+    setSlotState((prev) => {
+      const cur  = prev[slotId];
+      if (!cur) return prev;
+      const next = { ...cur, syncToBpm: !cur.syncToBpm };
+      // Engine-side: flip nativeBpm between recordedBpm and null and
+      // immediately rewrite the player's playbackRate.
+      setVocalSync(slotId, next.syncToBpm, bpm);
+      return { ...prev, [slotId]: next };
+    });
+  }
+
   return (
     <div
       style={{
@@ -758,10 +777,12 @@ export function JamView() {
                 sound={sound}
                 muted={state.muted}
                 volume={state.volume}
+                syncToBpm={state.syncToBpm}
                 anchorLeft={controlAnchor.left}
                 anchorTop={controlAnchor.top}
                 onMuteToggle={() => handleMuteToggle(openControls)}
                 onVolume={(v) => handleVolume(openControls, v)}
+                onSyncToggle={() => handleSyncToggle(openControls)}
                 onClear={() => handleClear(openControls)}
                 onClose={() => setOpenControls(null)}
               />

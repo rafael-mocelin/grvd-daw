@@ -36,9 +36,16 @@ interface Slot {
   muted:       boolean;
   soundId:     string;
   /** The sound's native BPM — used by setMasterBpm to recompute the
-   *  player's rate when the master changes. null for vocal slots
-   *  (recordings stay at rate 1 regardless of master BPM). */
+   *  player's rate when the master changes. null for vocal slots that
+   *  are NOT syncing to BPM; for catalog slots this is the file's
+   *  authored tempo. */
   nativeBpm:   number | null;
+  /** For vocal slots only: the master BPM at record time. Stored on
+   *  the side so the sync toggle can flip nativeBpm between this value
+   *  (sync ON, vocal rate-stretches with master BPM) and null (sync
+   *  OFF, vocal stays at its recorded tempo regardless). undefined
+   *  for non-vocal slots. */
+  recordedBpm?: number;
 }
 
 const slots = new Map<string, Slot>();
@@ -196,13 +203,37 @@ export function getJamMasterTransportSeconds(): number {
 }
 
 /**
+ * Toggle whether a vocal slot follows the master BPM.
+ *
+ * - sync = true   → nativeBpm becomes the recordedBpm, so subsequent
+ *   setMasterBpm calls (and this call too) rate-stretch the player to
+ *   match. Pitch shifts with rate, same as catalog loops.
+ * - sync = false  → nativeBpm goes back to null, player rate goes back
+ *   to 1. Vocal plays at its recorded tempo regardless of master BPM.
+ *
+ * No-op for non-vocal slots (no recordedBpm to anchor against).
+ */
+export function setVocalSync(slotId: string, sync: boolean, masterBpm: number): void {
+  const slot = slots.get(slotId);
+  if (!slot || slot.recordedBpm == null) return;
+  if (sync) {
+    slot.nativeBpm = slot.recordedBpm;
+    const rate = masterBpm / slot.recordedBpm;
+    if (isFinite(rate) && rate > 0) slot.player.playbackRate = rate;
+  } else {
+    slot.nativeBpm = null;
+    slot.player.playbackRate = 1;
+  }
+}
+
+/**
  * Live BPM change — updates the master Tone.Transport AND adjusts every
  * active loop's playbackRate so they stay in time with the new tempo.
  *
  * Rate-changes shift pitch (no time-stretching). That's the standard
  * behaviour in DAWs without a stretching algorithm and matches what
  * the recipe-flow engine does. Slots with null nativeBpm (vocal
- * recordings) are left at rate 1.
+ * recordings without sync ON) are left at rate 1.
  */
 export function setMasterBpm(bpm: number): void {
   setBpm(bpm);
@@ -298,9 +329,11 @@ export async function assignVocalSlot(
     unmutedGain: 1.0,
     muted:       false,
     soundId:     "__vocal__",  // sentinel — the UI knows this is a recording, not a catalog sound
-    // Vocal recordings stay at rate 1 regardless of master BPM —
-    // setMasterBpm skips slots with null nativeBpm.
+    // Default: sync OFF — vocal stays at rate 1 regardless of master
+    // BPM. Toggle on via setVocalSync to make the vocal rate-stretch
+    // with the band.
     nativeBpm:   null,
+    recordedBpm: bpm,
   });
 
   // Vocal slot also gets the drop-in whoosh.
