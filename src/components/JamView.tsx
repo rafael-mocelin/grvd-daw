@@ -397,7 +397,7 @@ export function JamView() {
 
     setSlotState((prev) => ({
       ...prev,
-      [slotId]: { soundId, muted: false, volume: 1.0 },
+      [slotId]: { soundId, muted: false, volume: 1.0, syncToBpm: false },
     }));
     try { await ensureAudio(); } catch { /* ignore */ }
     await assignSlot(slotId, soundId, bpm);
@@ -425,7 +425,10 @@ export function JamView() {
   async function handleVocalRecorded(slotId: string, buffer: AudioBuffer) {
     setSlotState((prev) => ({
       ...prev,
-      [slotId]: { soundId: VOCAL_DROP_ID, muted: false, volume: 1.0 },
+      // syncToBpm: false — fresh recordings start unsynced; the player
+      // can flip the toggle in the popover to lock the vocal to the
+      // master BPM if they want.
+      [slotId]: { soundId: VOCAL_DROP_ID, muted: false, volume: 1.0, syncToBpm: false },
     }));
     setRecordingForSlot(null);
     await assignVocalSlot(slotId, buffer, bpm);
