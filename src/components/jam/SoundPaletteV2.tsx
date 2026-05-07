@@ -9,8 +9,9 @@
  * Drag a character → land them on any free slot. The drag payload is
  * the underlying soundId so the audio engine wiring is unchanged.
  *
- * Voice / mic tile is kept up top as a single full-width card. Only
- * target is the player slot, same as v1.
+ * VOICE section follows the same grid: tile 1 is the player character
+ * (drag → player slot to record), tile 2 is a locked "+" that teases
+ * inviting a friend to collab.
  */
 
 import { useState } from "react";
@@ -75,10 +76,26 @@ export function SoundPaletteV2({ assignedSoundIds }: SoundPaletteV2Props) {
         boxShadow: "inset -2px 0 0 rgba(255, 255, 255, 0.05)",
       }}
     >
-      {/* VOICE — single tile, full width */}
+      {/* VOICE — same 2-col grid rhythm as the buddy sections.
+       *  Tile 1 is the player character (drag → player slot triggers
+       *  the recorder via the VOCAL_DROP_ID sentinel). Tile 2 is a
+       *  locked "+" that teases the invite-a-friend collab feature. */}
       <div>
         <SectionLabel color={C.pink}>VOICE</SectionLabel>
-        <MicCard />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 8,
+          }}
+        >
+          <PlayerCharTile accent={C.pink} />
+          <LockedBuddyTile
+            accent={C.pink}
+            caption="invite"
+            onClick={() => showToast("invite a friend to collab on your song")}
+          />
+        </div>
       </div>
 
       {/* CHARACTER SECTIONS — one 2×2 grid each */}
@@ -110,6 +127,7 @@ export function SoundPaletteV2({ assignedSoundIds }: SoundPaletteV2Props) {
                 <LockedBuddyTile
                   key={`locked-${section.kind}-${i}`}
                   accent={section.accent}
+                  caption="find one"
                   onClick={() =>
                     showToast("go out in the world to find more buddies")
                   }
@@ -201,34 +219,43 @@ function SectionLabel({ color, children }: { color: string; children: React.Reac
 }
 
 /* -------------------------------------------------------------------------- */
-/* MicCard — single full-width tile up top. Drag → player slot.               */
+/* PlayerCharTile — first tile in the VOICE section. Same shape as CharTile   */
+/* but the icon is the player-character portrait and the drag payload is the  */
+/* VOCAL_DROP_ID sentinel so JamView routes it to the mic-recording flow on   */
+/* the player slot.                                                            */
 /* -------------------------------------------------------------------------- */
 
-function MicCard() {
+const PLAYER_PORTRAIT = "/characters/player-guy/player-character.png";
+
+function PlayerCharTile({ accent }: { accent: string }) {
   const [dragging, setDragging] = useState(false);
+
+  function onDragStart(e: React.DragEvent<HTMLDivElement>) {
+    e.dataTransfer.setData("text/jam-sound-id", VOCAL_DROP_ID);
+    e.dataTransfer.effectAllowed = "copy";
+    setDragging(true);
+  }
+  function onDragEnd() { setDragging(false); }
+
   return (
     <div
       draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/jam-sound-id", VOCAL_DROP_ID);
-        e.dataTransfer.effectAllowed = "copy";
-        setDragging(true);
-      }}
-      onDragEnd={() => setDragging(false)}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       role="button"
       title="drag onto the player to record your voice"
       style={{
-        position: "relative",
         display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 10px",
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: 4,
+        padding: 6,
         borderRadius: 12,
         background: dragging
           ? "rgba(255,255,255,0.10)"
-          : `linear-gradient(180deg, ${C.pink}33 0%, rgba(15, 24, 40, 0.6) 100%)`,
-        border: `2px solid ${C.pink}88`,
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 3px 0 rgba(0,0,0,0.35), 0 0 14px ${C.pink}55`,
+          : "linear-gradient(180deg, rgba(36, 51, 88, 0.6) 0%, rgba(15, 24, 40, 0.6) 100%)",
+        border: `2px solid ${accent}88`,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 3px 0 rgba(0,0,0,0.35), 0 0 12px ${accent}44`,
         cursor: "grab",
         userSelect: "none",
         opacity: dragging ? 0.6 : 1,
@@ -237,32 +264,47 @@ function MicCard() {
     >
       <div
         style={{
-          width: 36, height: 36,
+          width: "100%",
+          aspectRatio: "1 / 1",
           borderRadius: 10,
-          background: `linear-gradient(180deg, ${C.pink} 0%, rgba(0,0,0,0.4) 100%)`,
+          background: `radial-gradient(ellipse at 50% 110%, ${accent}55, rgba(15, 24, 40, 0.7) 70%)`,
           border: "1.5px solid #0a0f1c",
-          display: "grid", placeItems: "center",
-          fontSize: 20, flexShrink: 0,
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -1px 0 rgba(0,0,0,0.3)",
+          overflow: "hidden",
+          display: "grid",
+          placeItems: "center",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
         }}
       >
-        🎤
+        <img
+          src={PLAYER_PORTRAIT}
+          alt=""
+          draggable={false}
+          style={{
+            width:  "120%",
+            height: "120%",
+            objectFit: "contain",
+            objectPosition: "center 65%",
+            pointerEvents: "none",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+          }}
+        />
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
+
+      <div
+        style={{
           fontFamily: "'Lilita One', system-ui",
-          fontSize: 13, color: "#fff", letterSpacing: 0.3, lineHeight: 1.1,
+          fontSize: 11,
+          color: "#fff",
+          letterSpacing: 0.3,
+          textAlign: "center",
           whiteSpace: "nowrap",
-        }}>
-          your voice
-        </div>
-        <div style={{
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 9, color: "rgba(255,255,255,0.55)",
-          marginTop: 2, letterSpacing: "0.08em",
-        }}>
-          drop on the lead
-        </div>
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          textShadow: "0 1px 0 rgba(0,0,0,0.55)",
+        }}
+      >
+        YOU
       </div>
     </div>
   );
@@ -370,14 +412,17 @@ function CharTile({ char, inUse, accent }: CharTileProps) {
 
 /* -------------------------------------------------------------------------- */
 /* LockedBuddyTile — grey + dashed, shows a "+" and pops a toast on click.    */
+/* Caption text is configurable so the VOICE section's invite-a-friend tile   */
+/* can reuse the same component with a different sub-label.                   */
 /* -------------------------------------------------------------------------- */
 
 interface LockedBuddyTileProps {
   accent:  string;
+  caption: string;
   onClick: () => void;
 }
 
-function LockedBuddyTile({ accent, onClick }: LockedBuddyTileProps) {
+function LockedBuddyTile({ accent, caption, onClick }: LockedBuddyTileProps) {
   return (
     <button
       onClick={onClick}
@@ -396,7 +441,7 @@ function LockedBuddyTile({ accent, onClick }: LockedBuddyTileProps) {
         color: "inherit",
         userSelect: "none",
       }}
-      aria-label="locked — find more buddies in the world"
+      aria-label={`locked — ${caption}`}
     >
       <div
         style={{
@@ -427,7 +472,7 @@ function LockedBuddyTile({ accent, onClick }: LockedBuddyTileProps) {
           whiteSpace: "nowrap",
         }}
       >
-        find one
+        {caption}
       </div>
     </button>
   );
