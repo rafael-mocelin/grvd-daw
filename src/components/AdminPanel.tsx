@@ -107,6 +107,76 @@ function ConfirmButton({
 }
 
 /* -------------------------------------------------------------------------- */
+/* Draggable launcher position — persisted to localStorage so the admin's     */
+/* preferred parking spot survives reloads.                                    */
+/* -------------------------------------------------------------------------- */
+
+const ADMIN_POS_KEY = "grvd:admin-button-pos:v1";
+const BUTTON_SIZE   = 36;
+/** Default position — top-right, matching the original `top-3.5 right-3.5`
+ *  Tailwind classes (~14 px from each edge). Computed against the
+ *  current viewport size at first load. */
+function defaultAdminPos(): { x: number; y: number } {
+  const w = typeof window !== "undefined" ? window.innerWidth : 1024;
+  return { x: w - BUTTON_SIZE - 14, y: 14 };
+}
+
+function loadAdminPos(): { x: number; y: number } {
+  try {
+    const raw = window.localStorage.getItem(ADMIN_POS_KEY);
+    if (!raw) return defaultAdminPos();
+    const parsed = JSON.parse(raw) as { x: number; y: number };
+    if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
+      return clampToViewport(parsed);
+    }
+  } catch { /* ignore — corrupt or unavailable storage */ }
+  return defaultAdminPos();
+}
+
+function saveAdminPos(pos: { x: number; y: number }) {
+  try {
+    window.localStorage.setItem(ADMIN_POS_KEY, JSON.stringify(pos));
+  } catch { /* ignore */ }
+}
+
+function clampToViewport(pos: { x: number; y: number }): { x: number; y: number } {
+  const w = typeof window !== "undefined" ? window.innerWidth : 1024;
+  const h = typeof window !== "undefined" ? window.innerHeight : 768;
+  return {
+    x: Math.max(0, Math.min(w - BUTTON_SIZE, pos.x)),
+    y: Math.max(0, Math.min(h - BUTTON_SIZE, pos.y)),
+  };
+}
+
+/** Where the panel should anchor relative to the button's current
+ *  position. Picks an unfolding direction so the panel never falls
+ *  off the edge of the viewport. */
+const PANEL_W       = 280;
+const PANEL_H_GUESS = 480;     // approx — panel can scroll if taller
+const PANEL_GAP     = 8;
+
+function computePanelPos(button: { x: number; y: number }): { x: number; y: number } {
+  const w = typeof window !== "undefined" ? window.innerWidth : 1024;
+  const h = typeof window !== "undefined" ? window.innerHeight : 768;
+
+  // Vertical: open below the button if there's room; otherwise above.
+  let y = button.y + BUTTON_SIZE + PANEL_GAP;
+  if (y + PANEL_H_GUESS > h) {
+    y = button.y - PANEL_H_GUESS - PANEL_GAP;
+    if (y < 0) y = 0;
+  }
+
+  // Horizontal: align the panel's right edge to the button's right
+  // edge by default (panel hangs left). If that puts it offscreen on
+  // the left, flip to align left edges instead.
+  let x = button.x + BUTTON_SIZE - PANEL_W;
+  if (x < 0) x = button.x;
+  if (x + PANEL_W > w) x = Math.max(0, w - PANEL_W);
+
+  return { x, y };
+}
+
+/* -------------------------------------------------------------------------- */
 /* AdminPanel                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -123,28 +193,104 @@ export function AdminPanel() {
   } = useStore();
   const [open, setOpen] = useState(false);
 
+  // Position of the floating "A" launcher. Drag to move, persists in
+  // localStorage so it survives reloads. Default: top-right (the
+  // historical fixed position).
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => loadAdminPos());
+  const dragRef = useRef({
+    active: false,
+    moved:  false,        // crossed the click-vs-drag threshold?
+    startX: 0,
+    startY: 0,
+    startPosX: 0,
+    startPosY: 0,
+  });
+
+  // Re-anchor the button to top-right when the viewport resizes (so
+  // it doesn't end up off-screen if the window shrinks).
+  useEffect(() => {
+    const onResize = () => {
+      setPos((cur) => clampToViewport(cur));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   if (!isAdmin) return null;
+
+  function handlePointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    dragRef.current = {
+      active: true,
+      moved:  false,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPosX: pos.x,
+      startPosY: pos.y,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    const ref = dragRef.current;
+    if (!ref.active) return;
+    const dx = e.clientX - ref.startX;
+    const dy = e.clientY - ref.startY;
+    // 5 px threshold before we count it as a drag — keeps simple taps
+    // from being interpreted as drags by jittery pointers.
+    if (!ref.moved && Math.hypot(dx, dy) <= 5) return;
+    ref.moved = true;
+    setPos(clampToViewport({
+      x: ref.startPosX + dx,
+      y: ref.startPosY + dy,
+    }));
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLButtonElement>) {
+    const wasDrag = dragRef.current.moved;
+    dragRef.current.active = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (wasDrag) {
+      saveAdminPos(pos);
+    } else {
+      setOpen((v) => !v);
+    }
+  }
+
+  // Panel anchors near the button: opens to its lower-left if the
+  // button is in the top half of the viewport, otherwise upper-left.
+  // Clamps to viewport so it never goes offscreen.
+  const panelPos = computePanelPos(pos);
 
   return (
     <>
-      {/* Floating launcher — always visible for admins, top-right corner.
+      {/* Floating launcher — always visible for admins, draggable.
        *
        * Sits ABOVE the HUD (z-9000) so it's reachable from any screen.
        * Gold disc with halo so it's discoverable but doesn't fight with
        * the rest of the chunky language. */}
       <button
-        onClick={() => setOpen((v) => !v)}
-        title={open ? "close admin panel" : "open admin panel"}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onContextMenu={(e) => e.preventDefault()}
+        title={open ? "close admin panel · drag to move" : "open admin panel · drag to move"}
         className={[
-          "fixed top-3.5 right-3.5 z-[9000]",
+          "fixed z-[9000]",
           "w-9 h-9 rounded-full",
           "inline-flex items-center justify-center",
           "font-display text-base text-grvd-base",
           "bg-grvd-gold border-2 border-grvd-gold/60",
           "shadow-chunky shadow-glow-gold",
           "active:translate-y-[1px] active:scale-95",
-          "transition-all duration-150 select-none",
+          "transition-shadow duration-150 select-none",
         ].join(" ")}
+        style={{
+          left:  pos.x,
+          top:   pos.y,
+          // Cursor cue — grab when idle, grabbing while pressed.
+          cursor: dragRef.current.active && dragRef.current.moved ? "grabbing" : "grab",
+          touchAction: "none",  // prevent the browser from hijacking touch-drags
+        }}
       >
         A
       </button>
@@ -153,12 +299,16 @@ export function AdminPanel() {
         <div
           onClick={(e) => e.stopPropagation()}
           className={[
-            "fixed top-14 right-3.5 z-[9001]",
+            "fixed z-[9001]",
             "w-[280px] max-h-[80vh] overflow-y-auto",
             "rounded-3xl border-2 border-grvd-gold/45 bg-[#13111d]",
             "shadow-chunky shadow-[0_0_28px_rgba(251,191,36,0.18)]",
             "px-4 pt-4 pb-3 text-white",
           ].join(" ")}
+          style={{
+            left: panelPos.x,
+            top:  panelPos.y,
+          }}
         >
           {/* Header */}
           <div className="font-mono text-[10px] font-bold tracking-[0.18em] uppercase text-grvd-gold">
