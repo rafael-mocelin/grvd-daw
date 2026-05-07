@@ -56,13 +56,14 @@ import {
   clearSlot,
   setSlotVolume,
   setSlotMuted,
+  setMasterBpm,
   clearAllSlots,
   pauseJam,
   resumeJam,
   assignVocalSlot,
 } from "../audio/jamEngine";
 import { ensureAudio, recordVocal } from "../audio/engine";
-import { playJamComboSting } from "../audio/jamSfx";
+import { playJamComboSting, playMetronomeTick } from "../audio/jamSfx";
 import { C } from "../ui/burst/tokens";
 
 /**
@@ -133,8 +134,13 @@ const SOUND_KIND: Record<string, LayerKind> = Object.fromEntries(
   REAL_SOUNDS.map((s) => [s.id, s.kind]),
 );
 
-/** Master BPM for the jam — drives all rate-stretching of the file loops. */
-const JAM_BPM = 140;
+/** Master BPM defaults — chosen so the most common loops (140 / 144 /
+ *  150) only need a small rate stretch. The user can dial this live
+ *  via the top-bar control; setMasterBpm() updates Tone.Transport AND
+ *  recomputes every active player's rate so the music stays in sync. */
+const DEFAULT_BPM = 140;
+const MIN_BPM = 70;
+const MAX_BPM = 200;
 
 /** localStorage key for combo-discovery persistence. Bumping the suffix
  *  is a clean way to wipe stored discoveries during a schema migration. */
@@ -170,6 +176,20 @@ export function JamView() {
   // so the audio reacts the moment the first sound is dropped — same
   // behaviour as before, just now with an explicit toggle.
   const [playing, setPlaying] = useState(true);
+
+  // ── Master BPM ──
+  // Live-editable from the top-bar BPM control. Changing it propagates
+  // immediately to the jam engine (recomputes every active player's
+  // rate) AND to BandSlot's L↔R flip cadence. Vocal slots pin at
+  // rate 1 in the engine.
+  const [bpm, setBpm] = useState(DEFAULT_BPM);
+  function nudgeBpm(delta: number) {
+    setBpm((cur) => {
+      const next = Math.max(MIN_BPM, Math.min(MAX_BPM, cur + delta));
+      setMasterBpm(next);
+      return next;
+    });
+  }
 
   // Recording state — when truthy, an in-line record overlay covers the
   // stage with a 4-bar countdown. On finish, the buffer is handed off
@@ -374,7 +394,7 @@ export function JamView() {
       [slotId]: { soundId, muted: false, volume: 1.0 },
     }));
     try { await ensureAudio(); } catch { /* ignore */ }
-    await assignSlot(slotId, soundId, JAM_BPM);
+    await assignSlot(slotId, soundId, bpm);
     if (!playing) {
       resumeJam();
       setPlaying(true);
@@ -402,7 +422,7 @@ export function JamView() {
       [slotId]: { soundId: VOCAL_DROP_ID, muted: false, volume: 1.0 },
     }));
     setRecordingForSlot(null);
-    await assignVocalSlot(slotId, buffer, JAM_BPM);
+    await assignVocalSlot(slotId, buffer, bpm);
     if (!playing) {
       resumeJam();
       setPlaying(true);
@@ -554,25 +574,23 @@ export function JamView() {
           {playing ? "❚❚" : "▶"}
         </button>
 
-        <div
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11,
-            fontWeight: 700,
-            color: "rgba(255,255,255,0.6)",
-            letterSpacing: "0.16em",
-          }}
-        >
-          {JAM_BPM} BPM
-        </div>
+        {/* Live BPM control — − / number / +. Click to nudge by 1,
+         *  hold to repeat for fast dial-in. Pushes through to
+         *  setMasterBpm() which updates Tone.Transport AND every
+         *  active player's playbackRate, so the music tempo follows
+         *  in real time (pitch shifts with rate; standard DAW
+         *  behaviour without time-stretching). */}
+        <BpmControl bpm={bpm} onNudge={nudgeBpm} />
       </div>
 
       {/* Main area — palette on left, stage on right */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* Sound palette */}
+        {/* Sound palette — sized to fit the tile (icon + name) and not
+         *  much else. Was 200 px when each tile carried a BPM subline;
+         *  the BPM is now in the top bar so the sidebar can shrink. */}
         <div
           style={{
-            width: 200,
+            width: 160,
             flexShrink: 0,
             minHeight: 0,
             zIndex: 5,
@@ -646,7 +664,7 @@ export function JamView() {
                     muted={state.muted}
                     volume={state.volume}
                     playing={playing}
-                    bpm={JAM_BPM}
+                    bpm={bpm}
                     hypeLine={hypeLines[slot.id] ?? null}
                     onDropSound={(soundId) => handleDrop(slot.id, soundId)}
                     onTap={() => state.soundId && handleMuteToggle(slot.id)}
@@ -675,6 +693,7 @@ export function JamView() {
               <PlayerAtMic
                 active={playing}
                 filled={!!slotState[PLAYER_SLOT_ID].soundId}
+                muted={slotState[PLAYER_SLOT_ID].muted}
                 dragOver={dragOverSlot === PLAYER_SLOT_ID}
                 onDropSound={(soundId) => handleDrop(PLAYER_SLOT_ID, soundId)}
                 onDragEnter={() => setDragOverSlot(PLAYER_SLOT_ID)}
@@ -756,7 +775,7 @@ export function JamView() {
        *  handed off to the slot via assignVocalSlot. */}
       {recordingForSlot && (
         <VocalRecordingOverlay
-          bpm={JAM_BPM}
+          bpm={bpm}
           onCancel={() => setRecordingForSlot(null)}
           onRecorded={(buffer) => handleVocalRecorded(recordingForSlot, buffer)}
         />
@@ -803,36 +822,94 @@ interface VocalRecordingOverlayProps {
 }
 
 function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOverlayProps) {
-  const [phase,   setPhase]   = useState<"ready" | "recording" | "scoring" | "error">("ready");
-  const [error,   setError]   = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
+  type Phase = "ready" | "countdown" | "recording" | "scoring" | "error";
+  const [phase,         setPhase]         = useState<Phase>("ready");
+  const [error,         setError]         = useState<string | null>(null);
+  const [elapsed,       setElapsed]       = useState(0);
+  const [countdownTick, setCountdownTick] = useState<3 | 2 | 1>(3);
 
-  // 4 bars at the master BPM = recordSecs. Quick capture; long enough
-  // to phrase a hook, short enough to feel snappy.
-  const recordSecs = (60 / bpm) * 4 * 4; // beats × bars
+  // 4 bars at the master BPM = recordSecs. Long enough to phrase a
+  // hook, short enough to feel snappy.
+  const recordSecs = (60 / bpm) * 4 * 4;
+  const beatSecs   = 60 / bpm;
 
-  async function handleStart() {
-    setError(null);
+  // ── Countdown phase ──
+  // 3 → 2 → 1 → recording starts. Each step plays one metronome click
+  // (downbeat-accented on "1") so the singer can lock the tempo before
+  // they have to perform.
+  useEffect(() => {
+    if (phase !== "countdown") return;
+    let cancelled = false;
+    void playMetronomeTick(false);            // click on "3"
+    setCountdownTick(3);
+    const t1 = window.setTimeout(() => {
+      if (cancelled) return;
+      setCountdownTick(2);
+      void playMetronomeTick(false);          // click on "2"
+    }, 1000);
+    const t2 = window.setTimeout(() => {
+      if (cancelled) return;
+      setCountdownTick(1);
+      void playMetronomeTick(true);           // accented click on "1"
+    }, 2000);
+    const t3 = window.setTimeout(() => {
+      if (cancelled) return;
+      void beginRecording();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  // ── Beat clicks during recording ──
+  // setInterval at one beat per master BPM. Beats 1/5/9/13 are accented
+  // so the bar boundaries are audible.
+  useEffect(() => {
+    if (phase !== "recording") return;
+    let beatIdx = 0;
+    void playMetronomeTick(true);             // beat 1, accented
+    const id = window.setInterval(() => {
+      beatIdx += 1;
+      void playMetronomeTick(beatIdx % 4 === 0);
+    }, beatSecs * 1000);
+    return () => window.clearInterval(id);
+  }, [phase, beatSecs]);
+
+  async function beginRecording() {
     setPhase("recording");
     setElapsed(0);
     const startMs = Date.now();
-    const tick = setInterval(() => {
+    const tick = window.setInterval(() => {
       const s = (Date.now() - startMs) / 1000;
       setElapsed(s);
-      if (s >= recordSecs) clearInterval(tick);
+      if (s >= recordSecs) window.clearInterval(tick);
     }, 50);
 
     try {
       const { buffer } = await recordVocal(recordSecs, () => { /* no VU for now */ });
-      clearInterval(tick);
+      window.clearInterval(tick);
       setPhase("scoring");
       onRecorded(buffer);
     } catch (e) {
-      clearInterval(tick);
+      window.clearInterval(tick);
       setPhase("error");
       setError(e instanceof Error ? e.message : "recording failed");
     }
   }
+
+  function handleStart() {
+    setError(null);
+    setPhase("countdown");
+  }
+
+  // Which beat dot of the bar is currently lit (0..3).
+  const beatIdx = phase === "recording"
+    ? Math.floor(elapsed / beatSecs) % 4
+    : -1;
 
   return (
     <div
@@ -859,122 +936,256 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
           textAlign: "center",
         }}
       >
-        <div style={{ fontSize: 48, marginBottom: 8 }}>🎤</div>
-        <div
-          style={{
-            fontFamily: "'Lilita One', system-ui",
-            fontSize: 22,
-            color: "#fff",
-            letterSpacing: 0.5,
-            marginBottom: 6,
-          }}
-        >
-          {phase === "ready"     ? "RECORD YOUR VOICE"
-            : phase === "recording" ? "RECORDING…"
-            : phase === "scoring"   ? "DONE!"
-            : "OOPS"}
-        </div>
-        <p
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11,
-            color: "rgba(255,255,255,0.65)",
-            margin: "0 0 16px",
-            lineHeight: 1.5,
-          }}
-        >
-          {phase === "ready"
-            ? `we'll capture ${recordSecs.toFixed(1)}s @ ${bpm} bpm — sing or rap, then it loops on your character`
-            : phase === "recording"
-              ? `${Math.max(0, recordSecs - elapsed).toFixed(1)}s left`
-              : phase === "scoring"
-                ? "looping it onto the character now…"
-                : (error ?? "couldn't access the microphone")}
-        </p>
-
-        {phase === "recording" && (
-          <div
-            style={{
-              height: 4,
-              background: "rgba(255,255,255,0.08)",
-              borderRadius: 2,
-              overflow: "hidden",
-              margin: "0 0 16px",
-            }}
-          >
+        {/* READY phase — minimal copy: title, headphone hint, buttons. */}
+        {phase === "ready" && (
+          <>
+            <div style={{ fontSize: 48, marginBottom: 8 }}>🎤</div>
             <div
               style={{
-                height: "100%",
-                width: `${Math.min(100, (elapsed / recordSecs) * 100)}%`,
-                background: "linear-gradient(90deg, #E94560, #ff7a8e)",
-                transition: "width 0.05s linear",
-              }}
-            />
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-          {phase === "ready" && (
-            <>
-              <button
-                onClick={handleStart}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: 14,
-                  border: "2px solid #0a0f1c",
-                  background: "linear-gradient(180deg, #ff7a8e, #b8253a)",
-                  color: "#fff",
-                  fontFamily: "'Lilita One', system-ui",
-                  fontSize: 14,
-                  letterSpacing: 0.5,
-                  cursor: "pointer",
-                  boxShadow: "inset 0 2px 0 rgba(255,255,255,0.35), 0 4px 0 rgba(0,0,0,0.45)",
-                }}
-              >
-                START RECORDING
-              </button>
-              <button
-                onClick={onCancel}
-                style={{
-                  padding: "10px 16px",
-                  borderRadius: 12,
-                  border: "1.5px solid rgba(255,255,255,0.2)",
-                  background: "transparent",
-                  color: "rgba(255,255,255,0.7)",
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  cursor: "pointer",
-                }}
-              >
-                cancel
-              </button>
-            </>
-          )}
-          {phase === "error" && (
-            <button
-              onClick={onCancel}
-              style={{
-                padding: "10px 18px",
-                borderRadius: 14,
-                border: "2px solid #0a0f1c",
-                background: "linear-gradient(180deg, #4a4a4a, #2a2a2a)",
-                color: "#fff",
                 fontFamily: "'Lilita One', system-ui",
-                fontSize: 14,
+                fontSize: 22,
+                color: "#fff",
                 letterSpacing: 0.5,
-                cursor: "pointer",
+                marginBottom: 8,
               }}
             >
-              CLOSE
-            </button>
-          )}
-        </div>
+              RECORD YOUR VOICE
+            </div>
+            <p
+              style={{
+                fontFamily: "'Plus Jakarta Sans', system-ui",
+                fontSize: 12,
+                color: "rgba(255,255,255,0.65)",
+                fontStyle: "italic",
+                margin: "0 0 18px",
+                lineHeight: 1.5,
+              }}
+            >
+              use wired headphones for high-quality results
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              <button onClick={handleStart}    style={primaryBtn()}>START</button>
+              <button onClick={onCancel}        style={secondaryBtn()}>CANCEL</button>
+            </div>
+          </>
+        )}
+
+        {/* COUNTDOWN phase — huge 3, 2, 1 with click on each. */}
+        {phase === "countdown" && (
+          <>
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.32em",
+                color: "rgba(255,255,255,0.5)",
+                textTransform: "uppercase",
+                marginBottom: 10,
+              }}
+            >
+              get ready
+            </div>
+            <div
+              key={countdownTick}
+              style={{
+                fontFamily: "'Lilita One', system-ui",
+                fontSize: 110,
+                color: "#fff",
+                lineHeight: 1,
+                textShadow: "0 4px 0 rgba(0,0,0,0.55), 0 0 28px rgba(233, 69, 96, 0.7)",
+                animation: "vocalCountdownPop 1s ease-out both",
+              }}
+            >
+              {countdownTick}
+            </div>
+          </>
+        )}
+
+        {/* RECORDING phase — beat dots, progress bar. Minimal text. */}
+        {phase === "recording" && (
+          <>
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.32em",
+                color: "#E94560",
+                textTransform: "uppercase",
+                marginBottom: 10,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
+            >
+              <span style={{
+                display: "inline-block",
+                width: 10, height: 10,
+                borderRadius: "50%",
+                background: "#E94560",
+                boxShadow: "0 0 10px rgba(233, 69, 96, 0.85)",
+                animation: "vocalRecPulse 1.2s ease-in-out infinite",
+              }} />
+              RECORDING
+            </div>
+
+            <div style={{
+              fontFamily: "'Lilita One', system-ui",
+              fontSize: 24,
+              color: "#fff",
+              letterSpacing: 0.5,
+              marginBottom: 14,
+            }}>
+              SING IT
+            </div>
+
+            {/* 4 beat dots — light up in sequence with the bar. Reads
+             *  like a visual metronome the singer can follow. */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: 12,
+                marginBottom: 14,
+              }}
+            >
+              {[0, 1, 2, 3].map((i) => {
+                const lit = i === beatIdx;
+                const accent = i === 0;
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: "50%",
+                      background: lit
+                        ? (accent ? "#facc15" : "#E94560")
+                        : "rgba(255, 255, 255, 0.10)",
+                      border: `2px solid ${lit ? "#0a0f1c" : "rgba(255,255,255,0.18)"}`,
+                      boxShadow: lit
+                        ? (accent ? "0 0 14px rgba(250, 204, 21, 0.85)" : "0 0 12px rgba(233, 69, 96, 0.85)")
+                        : undefined,
+                      transform: lit ? "scale(1.18)" : "scale(1)",
+                      transition: "transform 0.08s ease-out, background 0.08s ease-out, box-shadow 0.08s ease-out",
+                    }}
+                  />
+                );
+              })}
+            </div>
+
+            <div
+              style={{
+                height: 4,
+                background: "rgba(255,255,255,0.08)",
+                borderRadius: 2,
+                overflow: "hidden",
+                margin: "0 0 4px",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.min(100, (elapsed / recordSecs) * 100)}%`,
+                  background: "linear-gradient(90deg, #E94560, #ff7a8e)",
+                  transition: "width 0.05s linear",
+                }}
+              />
+            </div>
+          </>
+        )}
+
+        {phase === "scoring" && (
+          <>
+            <div style={{ fontSize: 48, marginBottom: 8 }}>✅</div>
+            <div
+              style={{
+                fontFamily: "'Lilita One', system-ui",
+                fontSize: 22,
+                color: "#fff",
+                letterSpacing: 0.5,
+              }}
+            >
+              DONE
+            </div>
+          </>
+        )}
+
+        {phase === "error" && (
+          <>
+            <div style={{ fontSize: 48, marginBottom: 8 }}>⚠️</div>
+            <div
+              style={{
+                fontFamily: "'Lilita One', system-ui",
+                fontSize: 22,
+                color: "#fff",
+                letterSpacing: 0.5,
+                marginBottom: 6,
+              }}
+            >
+              OOPS
+            </div>
+            <p
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 11,
+                color: "rgba(255,255,255,0.65)",
+                margin: "0 0 16px",
+                lineHeight: 1.5,
+              }}
+            >
+              {error ?? "couldn't access the microphone"}
+            </p>
+            <button onClick={onCancel} style={secondaryBtn()}>CLOSE</button>
+          </>
+        )}
+
+        <style>{`
+          @keyframes vocalCountdownPop {
+            0%   { transform: scale(0.6);  opacity: 0; }
+            30%  { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(1);    opacity: 1; }
+          }
+          @keyframes vocalRecPulse {
+            0%, 100% { opacity: 0.55; }
+            50%      { opacity: 1;    }
+          }
+        `}</style>
       </div>
     </div>
   );
+}
+
+function primaryBtn(): React.CSSProperties {
+  return {
+    padding: "10px 22px",
+    borderRadius: 14,
+    border: "2px solid #0a0f1c",
+    background: "linear-gradient(180deg, #ff7a8e, #b8253a)",
+    color: "#fff",
+    fontFamily: "'Lilita One', system-ui",
+    fontSize: 14,
+    letterSpacing: 0.5,
+    cursor: "pointer",
+    boxShadow: "inset 0 2px 0 rgba(255,255,255,0.35), 0 4px 0 rgba(0,0,0,0.45)",
+  };
+}
+function secondaryBtn(): React.CSSProperties {
+  return {
+    padding: "10px 18px",
+    borderRadius: 12,
+    border: "1.5px solid rgba(255,255,255,0.2)",
+    background: "transparent",
+    color: "rgba(255,255,255,0.7)",
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+    cursor: "pointer",
+  };
 }
 
 /* LockedSlot was removed when the band became 4-of-4 in the Crib layout.
@@ -982,3 +1193,123 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
  * different visual treatment that fits the iso room — likely a fade-in
  * silhouette pre-spawning at its floor position rather than a separate
  * placeholder tile. */
+
+/* -------------------------------------------------------------------------- */
+/* BpmControl — live tempo widget in the top bar.                              */
+/* -------------------------------------------------------------------------- */
+
+interface BpmControlProps {
+  bpm:    number;
+  /** Called with a delta. Parent clamps to MIN_BPM..MAX_BPM. */
+  onNudge: (delta: number) => void;
+}
+
+function BpmControl({ bpm, onNudge }: BpmControlProps) {
+  // Press-and-hold repeat: tap once = ±1, hold = repeat at increasing
+  // rate. Released on pointerup / pointerleave.
+  const repeatTimeoutRef = useRef<number | null>(null);
+  const repeatIntervalRef = useRef<number | null>(null);
+
+  function clearRepeat() {
+    if (repeatTimeoutRef.current !== null) {
+      window.clearTimeout(repeatTimeoutRef.current);
+      repeatTimeoutRef.current = null;
+    }
+    if (repeatIntervalRef.current !== null) {
+      window.clearInterval(repeatIntervalRef.current);
+      repeatIntervalRef.current = null;
+    }
+  }
+
+  function startRepeat(delta: number) {
+    onNudge(delta);                         // immediate first nudge
+    // After 350ms hold, start repeating at 50ms intervals (~20/s).
+    repeatTimeoutRef.current = window.setTimeout(() => {
+      repeatIntervalRef.current = window.setInterval(() => {
+        onNudge(delta);
+      }, 50);
+    }, 350);
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 6px",
+        borderRadius: 999,
+        border: "1.5px solid rgba(255,255,255,0.18)",
+        background: "rgba(255,255,255,0.06)",
+      }}
+    >
+      <BpmButton
+        label="−"
+        onPointerDown={() => startRepeat(-1)}
+        onPointerUp={clearRepeat}
+        onPointerLeave={clearRepeat}
+        onPointerCancel={clearRepeat}
+      />
+      <div
+        style={{
+          minWidth: 56,
+          textAlign: "center",
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 12,
+          fontWeight: 700,
+          color: "#fff",
+          letterSpacing: "0.10em",
+          padding: "0 4px",
+        }}
+        aria-label={`${bpm} beats per minute`}
+      >
+        {bpm}<span style={{ opacity: 0.45, marginLeft: 4 }}>BPM</span>
+      </div>
+      <BpmButton
+        label="+"
+        onPointerDown={() => startRepeat(+1)}
+        onPointerUp={clearRepeat}
+        onPointerLeave={clearRepeat}
+        onPointerCancel={clearRepeat}
+      />
+    </div>
+  );
+}
+
+interface BpmButtonProps {
+  label: string;
+  onPointerDown:  () => void;
+  onPointerUp:    () => void;
+  onPointerLeave: () => void;
+  onPointerCancel: () => void;
+}
+
+function BpmButton({ label, onPointerDown, onPointerUp, onPointerLeave, onPointerCancel }: BpmButtonProps) {
+  return (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); onPointerDown(); }}
+      onPointerUp={onPointerUp}
+      onPointerLeave={onPointerLeave}
+      onPointerCancel={onPointerCancel}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{
+        width: 26,
+        height: 26,
+        borderRadius: 999,
+        border: "1.5px solid rgba(255,255,255,0.18)",
+        background: "rgba(255,255,255,0.04)",
+        color: "rgba(255,255,255,0.85)",
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 14,
+        fontWeight: 700,
+        cursor: "pointer",
+        padding: 0,
+        lineHeight: 1,
+        userSelect: "none",
+        WebkitUserSelect: "none",
+      }}
+    >
+      {label}
+    </button>
+  );
+}

@@ -174,6 +174,13 @@ export function BandSlot({
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerCancel}
       onPointerCancel={handlePointerCancel}
+      onContextMenu={(e) => {
+        // Block the browser's native context menu (Save Image, Inspect)
+        // and route the right-click to long-press instead — gives
+        // desktop users a one-click alternative to the hold gesture.
+        e.preventDefault();
+        if (filled) onLongPress();
+      }}
       style={{
         position: "relative",
         width:  size,

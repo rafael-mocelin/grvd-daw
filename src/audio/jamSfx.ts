@@ -150,3 +150,40 @@ export async function playJamComboSting(): Promise<void> {
   const t = Tone.now();
   stingSynth.triggerAttackRelease(["E5", "G#5", "B5", "D#6"], 0.7, t);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Metronome tick — single short click used during vocal recording to give    */
+/* unexperienced singers a beat reference. Lives on a dedicated synth so we   */
+/* can volume-tune it independently of the SFX bus and route it directly to   */
+/* the destination (it shouldn't duck under the SFX bus's –8 dB).             */
+/* -------------------------------------------------------------------------- */
+
+let metroSynth: Tone.MembraneSynth | null = null;
+
+function ensureMetro() {
+  if (metroSynth) return;
+  metroSynth = new Tone.MembraneSynth({
+    pitchDecay: 0.008,
+    octaves:    2,
+    envelope:   { attack: 0.001, decay: 0.06, sustain: 0, release: 0.02 },
+    volume:     -6,
+  }).toDestination();
+}
+
+/**
+ * Play one metronome click. `accent` = true for the downbeat (beat 1)
+ * — the click is brighter so the singer hears the bar boundary.
+ *
+ * Quiet enough to coexist with the band loops; loud enough that you
+ * hear it through wired headphones over a backing track. If recording
+ * happens on speakers (no headphones) the mic will pick this up — by
+ * design we still play it because the user has been told to use
+ * headphones, and a captured tick is far less bad than the singer
+ * losing the beat entirely.
+ */
+export async function playMetronomeTick(accent = false): Promise<void> {
+  await ensureAudio();
+  ensureMetro();
+  if (!metroSynth) return;
+  metroSynth.triggerAttackRelease(accent ? "C4" : "G3", "32n", Tone.now());
+}

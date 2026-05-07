@@ -22,6 +22,9 @@ interface PlayerAtMicProps {
   active:        boolean;
   /** True if a vocal recording is currently assigned to the player slot. */
   filled:        boolean;
+  /** True if the player's vocal is currently muted — fades the sprite
+   *  the same way the band slots fade when muted. */
+  muted:         boolean;
   /** True while a draggable is hovered over the player. */
   dragOver:      boolean;
   /** Drop handler — receives the dragged soundId. Parent validates that
@@ -45,6 +48,7 @@ const LONG_PRESS_MS = 320;
 export function PlayerAtMic({
   active,
   filled,
+  muted,
   dragOver,
   onDropSound,
   onDragEnter,
@@ -141,9 +145,20 @@ export function PlayerAtMic({
           ? "drop-shadow(0 0 18px rgba(255, 77, 156, 0.95)) drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))"
           : "drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))",
         cursor: filled ? "pointer" : "default",
+        // Muted = faded same as band slots, so the player's mute state
+        // reads at a glance.
+        opacity: filled ? (muted ? 0.72 : 1) : 1,
+        transition: "opacity 0.25s ease, filter 0.18s",
         userSelect: "none",
         WebkitUserSelect: "none",
         touchAction: "manipulation",
+      }}
+      onContextMenu={(e) => {
+        // Block the browser's native context menu (Save Image, Inspect)
+        // and route the right-click to long-press instead — handy
+        // alternative to the existing pointer-hold gesture for desktop.
+        e.preventDefault();
+        if (filled) onLongPress();
       }}
       aria-label="player — drop the mic to record your voice"
     >

@@ -35,6 +35,10 @@ interface Slot {
   unmutedGain: number;
   muted:       boolean;
   soundId:     string;
+  /** The sound's native BPM — used by setMasterBpm to recompute the
+   *  player's rate when the master changes. null for vocal slots
+   *  (recordings stay at rate 1 regardless of master BPM). */
+  nativeBpm:   number | null;
 }
 
 const slots = new Map<string, Slot>();
@@ -133,6 +137,7 @@ export async function assignSlot(slotId: string, soundId: string, bpm: number): 
     unmutedGain: 1.0,
     muted:       false,
     soundId,
+    nativeBpm:   sound.nativeBpm,
   });
 
   // Drop-in SFX — fire-and-forget. Stays quiet under the mix via sfxBus.
@@ -188,6 +193,26 @@ export function getSlotState(slotId: string):
 
 export function getJamMasterTransportSeconds(): number {
   return Tone.getTransport().seconds;
+}
+
+/**
+ * Live BPM change — updates the master Tone.Transport AND adjusts every
+ * active loop's playbackRate so they stay in time with the new tempo.
+ *
+ * Rate-changes shift pitch (no time-stretching). That's the standard
+ * behaviour in DAWs without a stretching algorithm and matches what
+ * the recipe-flow engine does. Slots with null nativeBpm (vocal
+ * recordings) are left at rate 1.
+ */
+export function setMasterBpm(bpm: number): void {
+  setBpm(bpm);
+  for (const slot of slots.values()) {
+    if (slot.nativeBpm == null) continue;
+    const rate = bpm / slot.nativeBpm;
+    if (isFinite(rate) && rate > 0) {
+      slot.player.playbackRate = rate;
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -273,6 +298,9 @@ export async function assignVocalSlot(
     unmutedGain: 1.0,
     muted:       false,
     soundId:     "__vocal__",  // sentinel — the UI knows this is a recording, not a catalog sound
+    // Vocal recordings stay at rate 1 regardless of master BPM —
+    // setMasterBpm skips slots with null nativeBpm.
+    nativeBpm:   null,
   });
 
   // Vocal slot also gets the drop-in whoosh.

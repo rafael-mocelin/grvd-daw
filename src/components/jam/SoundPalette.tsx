@@ -312,16 +312,9 @@ function SoundTile({ sound, inUse, accent }: SoundTileProps) {
         >
           {sound.name}
         </div>
-        <div
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 9,
-            color: "rgba(255,255,255,0.45)",
-            marginTop: 2,
-          }}
-        >
-          {sound.nativeBpm} bpm
-        </div>
+        {/* Per-tile native-BPM subline removed — the master BPM in the
+         *  top bar is the source of truth for the whole jam now, and
+         *  the per-tile number was just visual noise. */}
       </div>
     </div>
   );

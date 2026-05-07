@@ -1240,6 +1240,33 @@ export async function previewLayer(
  * @param maxSeconds Hard cap on recording duration.
  * @param onLevel    Optional callback fired ~20×/sec with RMS 0–1 for VU.
  */
+/**
+ * Post-capture gain in dB applied to every recorded vocal buffer.
+ * +12 dB ≈ 4× louder. Tuned for laptop / phone mics where the raw
+ * capture is quiet because we deliberately disable autoGainControl.
+ * Bumping this further is fine but the take will start clipping above
+ * ~+18 dB on most consumer mics.
+ */
+const INPUT_GAIN_DB = 12;
+
+/**
+ * Multiply every sample in the buffer in place by `gainDb`, hard-
+ * clipping to [–1, 1] to prevent wraparound. Mutates the AudioBuffer
+ * (returns the same reference for convenience).
+ */
+function applyInputGain(buffer: AudioBuffer, gainDb: number): AudioBuffer {
+  if (gainDb === 0) return buffer;
+  const gainLinear = Math.pow(10, gainDb / 20);
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i] * gainLinear;
+      data[i] = v > 1 ? 1 : v < -1 ? -1 : v;
+    }
+  }
+  return buffer;
+}
+
 export async function recordVocal(
   maxSeconds: number,
   onLevel?: (rms: number) => void
@@ -1310,9 +1337,15 @@ export async function recordVocal(
         }
 
         const buffer = await decodeRecordedBlob(blob);
+        // Apply post-capture gain — laptop / phone mics often record very
+        // quiet because we deliberately disable autoGainControl (so the
+        // band loops don't suppress vocal levels). +12 dB ≈ 4× louder is
+        // close to what autoGain would have done while keeping the user
+        // in control of distortion. Hard-clipped to ±1 to avoid wraparound.
+        applyInputGain(buffer, INPUT_GAIN_DB);
         const maxAmp = peakAmplitude(buffer);
 
-        console.log(`[recordVocal] ${buffer.duration.toFixed(2)}s @ ${buffer.sampleRate}Hz, ${(blob.size / 1024).toFixed(0)}KB ${blobType}, maxAmp=${maxAmp.toFixed(4)}`);
+        console.log(`[recordVocal] ${buffer.duration.toFixed(2)}s @ ${buffer.sampleRate}Hz, ${(blob.size / 1024).toFixed(0)}KB ${blobType}, maxAmp=${maxAmp.toFixed(4)} (post +${INPUT_GAIN_DB}dB)`);
         if (maxAmp < 0.001) {
           console.warn(
             "[recordVocal] silent recording — the mic stream opened but contained no signal.\n" +
