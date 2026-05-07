@@ -158,24 +158,44 @@ export function SoundPaletteV2({ assignedSoundIds }: SoundPaletteV2Props) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* SectionLabel — small uppercase strapline above each grid.                   */
+/* SectionLabel — chunky game-y header above each grid. Uses the canonical    */
+/* BURST display font (Lilita One per the design manifesto), with a layered  */
+/* drop-shadow + accent glow so it reads as a hand-painted sign instead of a */
+/* tiny technical strap. A thin accent rule underneath caps it off.           */
 /* -------------------------------------------------------------------------- */
 
 function SectionLabel({ color, children }: { color: string; children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 9,
-        fontWeight: 700,
-        letterSpacing: "0.18em",
-        color,
-        textTransform: "uppercase",
-        padding: "0 4px 6px",
-        opacity: 0.85,
-      }}
-    >
-      {children}
+    <div style={{ padding: "2px 4px 8px" }}>
+      <div
+        style={{
+          fontFamily: "'Lilita One', system-ui",
+          fontSize: 17,
+          color: "#fff",
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+          lineHeight: 1.05,
+          // Chunky-chrome text treatment: hard 2px drop, then a soft
+          // accent halo so the label feels like a sign in the room.
+          textShadow: `
+            0 2px 0 rgba(0, 0, 0, 0.65),
+            0 0 12px ${color}aa
+          `,
+        }}
+      >
+        {children}
+      </div>
+      {/* Thin accent rule — fades right so it reads as a stylized ribbon
+       *  rather than a hard divider line. */}
+      <div
+        style={{
+          marginTop: 4,
+          height: 2,
+          borderRadius: 1,
+          background: `linear-gradient(90deg, ${color} 0%, ${color}55 60%, transparent 100%)`,
+          boxShadow: `0 0 6px ${color}66`,
+        }}
+      />
     </div>
   );
 }
