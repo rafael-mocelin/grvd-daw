@@ -89,13 +89,13 @@ interface BandSlotConfig {
 }
 
 const BAND_SLOTS: BandSlotConfig[] = [
-  // Four-slot arc on the room floor — wider than v1 (3 slots) since
-  // we have more characters to host and no kind restriction making
-  // certain positions feel "the right one for drums".
-  { id: "slot-1", pos: { x: 35, y: 56 } },   // back-far-left
-  { id: "slot-2", pos: { x: 49, y: 51 } },   // back-mid-left
-  { id: "slot-3", pos: { x: 62, y: 51 } },   // back-mid-right
-  { id: "slot-4", pos: { x: 76, y: 56 } },   // back-far-right
+  // Three-slot symmetric arc — same positions that landed well on
+  // the v1 stage. Drum-guy back-center, beat-guy mid-right, guitar-guy
+  // mid-left. v2 has no kind restriction so the labels are
+  // historical, but the geometry still works.
+  { id: "slot-1", pos: { x: 53, y: 52 } },   // back-center
+  { id: "slot-2", pos: { x: 64, y: 63 } },   // mid-right
+  { id: "slot-3", pos: { x: 41, y: 63 } },   // mid-left
 ];
 
 /** Player slot id — distinct from band slots and special-cased in
@@ -103,8 +103,10 @@ const BAND_SLOTS: BandSlotConfig[] = [
  *  the audio engine and combo detector treat it uniformly. */
 const PLAYER_SLOT_ID = "slot-player";
 
-/** Player + mic stand position — front-center. */
-const PLAYER_POS = { x: 55, y: 74 };
+/** Player + mic stand position — front-center, on the same vertical
+ *  axis as the back-center band slot so the band-and-singer arc looks
+ *  centered. */
+const PLAYER_POS = { x: 53, y: 74 };
 
 /** Pick a random hype line for a band slot. Pulls from the assigned
  *  character's blurb-flavored pool. v2 doesn't ship per-character
@@ -597,12 +599,13 @@ export function JamView() {
 
       {/* Main area — palette on left, stage on right */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* Sound palette — sized to fit the tile (icon + name) and not
-         *  much else. Was 200 px when each tile carried a BPM subline;
-         *  the BPM is now in the top bar so the sidebar can shrink. */}
+        {/* Sound palette — sized to fit the v2 2×2 grid of character
+         *  tiles + section labels. Slightly wider than the v1 list
+         *  (160 px) so the icons can be big enough to recognize at a
+         *  glance. */}
         <div
           style={{
-            width: 160,
+            width: 180,
             flexShrink: 0,
             minHeight: 0,
             zIndex: 5,
