@@ -29,9 +29,9 @@ import { CHARACTER_SKINS, type CharacterKind } from "../../data/characterSkins";
 import { C } from "../../ui/burst/tokens";
 
 interface CharacterPaletteProps {
-  /** soundIds currently placed in the room — drives the "all on stage"
-   *  state on each kind tile. */
-  placedSoundIds: Set<string>;
+  /** Character kinds currently on stage (one per kind in the new
+   *  model). Drives the "ON STAGE" state on each tile. */
+  placedKinds: Set<CharacterKind>;
   /** Picked a character to place — JamView closes the popup and
    *  enters placement mode (cursor carries the sprite). */
   onPick: (char: PlaceableChar) => void;
@@ -46,7 +46,7 @@ const KIND_SECTIONS: { kind: CharacterKind; label: string; accent: string }[] = 
 ];
 
 export function CharacterPalette({
-  placedSoundIds,
+  placedKinds,
   onPick,
   onClose,
 }: CharacterPaletteProps) {
@@ -84,16 +84,15 @@ export function CharacterPalette({
       }}
     >
       {KIND_SECTIONS.map((section) => {
-        // Find all (character × sound) entries for this kind, in their
-        // original (skin-map) order. The next-to-place is the first one
-        // whose soundId isn't already on stage.
+        // One slot per kind in the new model — sound cycling lives in
+        // the placed character's controls popover. Tile is "ON STAGE"
+        // if the kind is already placed, else "TAP TO PLACE". Picking
+        // the tile spawns the kind with its DEFAULT (first) sound; the
+        // player can swap to a different variant inside the popover.
         const tilesForKind = PLACEABLE_CHARS.filter((c) => c.characterKind === section.kind);
-        const nextChar = tilesForKind.find((c) => !placedSoundIds.has(c.soundId)) ?? null;
-        const allPlaced = !nextChar;
-        // Icon shown on the tile — for an "available" kind, show the
-        // next variant the player will spawn; when all-placed, fall
-        // back to the first variant's pose.
-        const iconSrc = nextChar?.iconSrc ?? CHARACTER_SKINS[section.kind][tilesForKind[0].soundId].right;
+        const defaultChar  = tilesForKind[0];
+        const onStage      = placedKinds.has(section.kind);
+        const iconSrc      = defaultChar.iconSrc;
 
         return (
           <KindTile
@@ -101,11 +100,10 @@ export function CharacterPalette({
             label={section.label}
             accent={section.accent}
             iconSrc={iconSrc}
-            allPlaced={allPlaced}
-            placedCount={tilesForKind.filter((c) => placedSoundIds.has(c.soundId)).length}
-            totalCount={tilesForKind.length}
+            onStage={onStage}
             onPick={() => {
-              if (nextChar) onPick(nextChar);
+              if (onStage) return;
+              onPick(defaultChar);
             }}
           />
         );
@@ -126,24 +124,22 @@ export function CharacterPalette({
 /* -------------------------------------------------------------------------- */
 
 interface KindTileProps {
-  label:       string;
-  accent:      string;
-  iconSrc:     string;
-  allPlaced:   boolean;
-  placedCount: number;
-  totalCount:  number;
-  onPick:      () => void;
+  label:   string;
+  accent:  string;
+  iconSrc: string;
+  onStage: boolean;
+  onPick:  () => void;
 }
 
-function KindTile({ label, accent, iconSrc, allPlaced, placedCount, totalCount, onPick }: KindTileProps) {
+function KindTile({ label, accent, iconSrc, onStage, onPick }: KindTileProps) {
   return (
     <button
       onClick={onPick}
-      disabled={allPlaced}
+      disabled={onStage}
       title={
-        allPlaced
-          ? `${label} — all variants on stage`
-          : `${label} — tap to spawn (${placedCount}/${totalCount} on stage)`
+        onStage
+          ? `${label} — already on stage (open their menu to swap sounds)`
+          : `${label} — tap to spawn`
       }
       style={{
         position: "relative",
@@ -153,15 +149,15 @@ function KindTile({ label, accent, iconSrc, allPlaced, placedCount, totalCount, 
         gap: 4,
         padding: 6,
         borderRadius: 12,
-        background: allPlaced
+        background: onStage
           ? "rgba(0, 0, 0, 0.35)"
           : "linear-gradient(180deg, rgba(36, 51, 88, 0.65) 0%, rgba(15, 24, 40, 0.65) 100%)",
-        border: `2px solid ${allPlaced ? "rgba(255,255,255,0.10)" : accent}`,
-        boxShadow: allPlaced
+        border: `2px solid ${onStage ? "rgba(255,255,255,0.10)" : accent}`,
+        boxShadow: onStage
           ? "inset 0 1px 0 rgba(255,255,255,0.04)"
           : `inset 0 1px 0 rgba(255,255,255,0.10), 0 3px 0 rgba(0,0,0,0.4), 0 0 14px ${accent}55`,
-        cursor: allPlaced ? "not-allowed" : "pointer",
-        opacity: allPlaced ? 0.45 : 1,
+        cursor: onStage ? "not-allowed" : "pointer",
+        opacity: onStage ? 0.45 : 1,
         userSelect: "none",
         transition: "transform 0.12s ease, box-shadow 0.18s",
       }}
@@ -211,34 +207,34 @@ function KindTile({ label, accent, iconSrc, allPlaced, placedCount, totalCount, 
         {label}
       </div>
 
-      {/* placed-count chip — shows progress (e.g., 1/3) so the player
-       *  knows variants exist and the tile is going to spawn the next
-       *  one. Becomes "FULL" when all variants are out. */}
-      <div
-        style={{
-          position: "absolute",
-          top: -6,
-          right: -6,
-          minWidth: 22,
-          height: 18,
-          padding: "0 6px",
-          borderRadius: 9,
-          background: allPlaced
-            ? "rgba(255,255,255,0.10)"
-            : `linear-gradient(180deg, ${accent}, ${accent}aa)`,
-          border: "1.5px solid #0a0f1c",
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 9,
-          fontWeight: 700,
-          color: allPlaced ? "rgba(255,255,255,0.55)" : "#0a0f1c",
-          letterSpacing: "0.06em",
-          display: "grid",
-          placeItems: "center",
-          textTransform: "uppercase",
-        }}
-      >
-        {allPlaced ? "FULL" : `${placedCount}/${totalCount}`}
-      </div>
+      {/* State chip — "ON STAGE" when placed, otherwise hidden. Sound
+       *  cycling now lives inside the placed character's popover, so
+       *  no variant counter is shown here. */}
+      {onStage && (
+        <div
+          style={{
+            position: "absolute",
+            top: -6,
+            right: -6,
+            minWidth: 22,
+            height: 18,
+            padding: "0 6px",
+            borderRadius: 9,
+            background: "rgba(255,255,255,0.10)",
+            border: "1.5px solid #0a0f1c",
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 8,
+            fontWeight: 700,
+            color: "rgba(255,255,255,0.7)",
+            letterSpacing: "0.08em",
+            display: "grid",
+            placeItems: "center",
+            textTransform: "uppercase",
+          }}
+        >
+          ON STAGE
+        </div>
+      )}
     </button>
   );
 }

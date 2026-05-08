@@ -13,6 +13,16 @@
 
 import type { SoundOption } from "../../data/types";
 
+/** One option for the sound-cycler row — sibling sounds the placed
+ *  character can swap to. */
+export interface SiblingSound {
+  soundId: string;
+  /** Display name (e.g. "vanessa"). */
+  name:    string;
+  /** Path to a still pose used as the thumbnail. */
+  iconSrc: string;
+}
+
 interface CharacterControlsProps {
   sound:    SoundOption | null;
   muted:    boolean;
@@ -26,6 +36,13 @@ interface CharacterControlsProps {
   onVolume:     (v: number) => void;
   onClear:      () => void;
   onClose:      () => void;
+  /** Sibling sound options for the character's kind. When provided
+   *  alongside `currentSoundId` and `onSwap`, a row of thumbnails
+   *  appears at the top of the popover so the player can swap sounds
+   *  in place (skin + audio bus refresh together). */
+  siblings?:       SiblingSound[];
+  currentSoundId?: string;
+  onSwap?:         (soundId: string) => void;
   /** Anchor position in the parent's coord space (px from top-left). */
   anchorLeft: number;
   anchorTop:  number;
@@ -34,9 +51,11 @@ interface CharacterControlsProps {
 export function CharacterControls({
   sound, muted, volume, syncToBpm,
   onMuteToggle, onVolume, onSyncToggle, onClear, onClose,
+  siblings, currentSoundId, onSwap,
   anchorLeft, anchorTop,
 }: CharacterControlsProps) {
   const isVocal = sound?.kind === "vocal";
+  const showCycler = !isVocal && siblings && siblings.length > 1 && onSwap;
   return (
     <>
       {/* Backdrop — captures outside-clicks to dismiss. Transparent so
@@ -102,6 +121,101 @@ export function CharacterControls({
             ✕
           </button>
         </div>
+
+        {/* Sound cycler — row of sibling thumbnails. Tap one to swap
+         *  the character's sound (skin + audio bus together). Hidden
+         *  for vocal slots and for kinds with only one option. */}
+        {showCycler && (
+          <div style={{ marginBottom: 10 }}>
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: "0.16em",
+                color: "rgba(255,255,255,0.55)",
+                textTransform: "uppercase",
+                marginBottom: 6,
+              }}
+            >
+              swap sound
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${siblings!.length}, 1fr)`,
+                gap: 6,
+              }}
+            >
+              {siblings!.map((sib) => {
+                const active = sib.soundId === currentSoundId;
+                return (
+                  <button
+                    key={sib.soundId}
+                    onClick={() => onSwap!(sib.soundId)}
+                    title={sib.name}
+                    style={{
+                      position: "relative",
+                      padding: 4,
+                      borderRadius: 10,
+                      border: `2px solid ${active ? "#facc15" : "rgba(0,0,0,0.55)"}`,
+                      background: active
+                        ? "linear-gradient(180deg, rgba(250, 204, 21, 0.18), rgba(15, 24, 40, 0.5))"
+                        : "linear-gradient(180deg, rgba(36, 51, 88, 0.55), rgba(15, 24, 40, 0.55))",
+                      boxShadow: active
+                        ? "inset 0 1px 0 rgba(255,255,255,0.18), 0 0 14px rgba(250, 204, 21, 0.55)"
+                        : "inset 0 1px 0 rgba(255,255,255,0.06)",
+                      cursor: active ? "default" : "pointer",
+                      transition: "box-shadow 0.18s, border-color 0.18s",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "100%",
+                        aspectRatio: "1 / 1",
+                        borderRadius: 8,
+                        overflow: "hidden",
+                        background: "rgba(0, 0, 0, 0.3)",
+                        border: "1px solid #0a0f1c",
+                        display: "grid",
+                        placeItems: "center",
+                      }}
+                    >
+                      <img
+                        src={sib.iconSrc}
+                        alt=""
+                        draggable={false}
+                        style={{
+                          width:  "120%",
+                          height: "120%",
+                          objectFit: "contain",
+                          objectPosition: "center 65%",
+                          pointerEvents: "none",
+                        }}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 2,
+                        fontFamily: "'Lilita One', system-ui",
+                        fontSize: 9,
+                        color: active ? "#facc15" : "#fff",
+                        textAlign: "center",
+                        letterSpacing: 0.2,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        textShadow: "0 1px 0 rgba(0,0,0,0.55)",
+                      }}
+                    >
+                      {sib.name}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Mute toggle — chunky pill */}
         <button
