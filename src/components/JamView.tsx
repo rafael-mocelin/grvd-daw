@@ -92,8 +92,11 @@ const VOCAL_DROP_ID = "__vocal__";
  *  the audio engine and combo detector treat it uniformly. */
 const PLAYER_SLOT_ID = "slot-player";
 
-/** Player + mic stand position — front-center, fixed. */
-const PLAYER_POS = { x: 53, y: 74 };
+/** Default player + mic-stand position — front-center, where the lead
+ *  used to live in the fixed model. The placement-mode flow lets the
+ *  player be dropped anywhere; this just seeds the value before the
+ *  first placement and is kept around as a sensible fallback. */
+const DEFAULT_PLAYER_POS = { x: 53, y: 74 };
 
 /** Snap-to-grid resolution for character placements. The room is
  *  rendered as a square; we overlay an invisible GRID_COLS × GRID_ROWS
@@ -211,12 +214,20 @@ export function JamView() {
   // Whether the floating CharacterPalette popup is open.
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Whether the player has been placed at the mic. Initial state is
+  // Whether the player has been placed in the room. Initial state is
   // false — the room starts empty, the player's tile lives in the
-  // palette like every other character. Tapping the VOICE tile flips
-  // this to true and PlayerAtMic mounts at PLAYER_POS. Clearing the
-  // player from their popover flips it back to false.
+  // palette like every other character. Picking the VOICE tile enters
+  // placement mode (see pendingPlayer below); clicking the floor sets
+  // playerPos and flips this to true. Clearing them from the popover
+  // flips it back.
   const [playerPlaced, setPlayerPlaced] = useState(false);
+  /** Iso position (% of the contained room square) the player + mic
+   *  stand render at. Settable via placement mode — the mic follows
+   *  wherever the player lands. */
+  const [playerPos, setPlayerPos] = useState(DEFAULT_PLAYER_POS);
+  /** True while the player tile has been picked but not yet placed —
+   *  cursor carries the player sprite, click the room to drop. */
+  const [pendingPlayer, setPendingPlayer] = useState(false);
 
   // ── Placement mode ──
   // When the player taps a character tile in the popup (instead of
@@ -227,11 +238,12 @@ export function JamView() {
   const [pendingChar, setPendingChar] = useState<PlaceableChar | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
 
-  // Track cursor while in placement mode so the floating sprite
-  // tracks the pointer. We attach to document so movement outside the
-  // stage (e.g., over the top bar) still updates the preview.
+  // Track cursor while in placement mode (band character OR player)
+  // so the floating sprite tracks the pointer. We attach to document
+  // so movement outside the stage (e.g., over the top bar) still
+  // updates the preview.
   useEffect(() => {
-    if (!pendingChar) {
+    if (!pendingChar && !pendingPlayer) {
       setCursorPos(null);
       return;
     }
@@ -239,7 +251,10 @@ export function JamView() {
       setCursorPos({ x: e.clientX, y: e.clientY });
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPendingChar(null);
+      if (e.key === "Escape") {
+        setPendingChar(null);
+        setPendingPlayer(false);
+      }
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("keydown",     onKey);
@@ -247,7 +262,7 @@ export function JamView() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("keydown",     onKey);
     };
-  }, [pendingChar]);
+  }, [pendingChar, pendingPlayer]);
 
   // Which slot has its control panel open (null = none).
   const [openControls, setOpenControls] = useState<string | null>(null);
@@ -505,25 +520,26 @@ export function JamView() {
     setPendingChar(char);
   }
 
-  /** Picked the player from the popup — instant-place at the fixed
-   *  mic position. No placement mode (the mic is anchored to the
-   *  floor, so cursor-follow would be misleading). */
+  /** Picked the player from the popup — close the popup and enter
+   *  placement mode. The cursor will carry the player sprite until
+   *  the user clicks the room. */
   function handlePickPlayer() {
     setPaletteOpen(false);
-    setPlayerPlaced(true);
+    setPendingPlayer(true);
   }
 
   /** Cancel placement mode — fired by Esc, by clicking the + button
    *  while pending, or by an outside click on the top bar. */
   function cancelPlacement() {
     setPendingChar(null);
+    setPendingPlayer(false);
   }
 
   /** Place the pending character at the given client-space coords,
-   *  translating into room %, snapping to grid. Used both by the room's
-   *  click handler and by an HTML5 drop. */
+   *  translating into room %, snapping to grid. Handles both band
+   *  characters and the player. */
   async function placePendingAt(clientX: number, clientY: number) {
-    if (!pendingChar) return;
+    if (!pendingChar && !pendingPlayer) return;
     const stage = stageRef.current;
     if (!stage) return;
     const rect  = stage.getBoundingClientRect();
@@ -532,8 +548,17 @@ export function JamView() {
     const sqT   = rect.top  + (rect.height - sq) / 2;
     const xPct  = ((clientX - sqL) / sq) * 100;
     const yPct  = ((clientY - sqT) / sq) * 100;
-    setPendingChar(null);
-    await handleRoomDrop(pendingChar.soundId, xPct, yPct);
+
+    if (pendingPlayer) {
+      setPlayerPos(snapToGrid(xPct, yPct));
+      setPlayerPlaced(true);
+      setPendingPlayer(false);
+      return;
+    }
+    if (pendingChar) {
+      setPendingChar(null);
+      await handleRoomDrop(pendingChar.soundId, xPct, yPct);
+    }
   }
 
   /** Player-slot drop — only accepts the VOCAL_DROP_ID sentinel. Other
@@ -854,11 +879,11 @@ export function JamView() {
             void handleRoomDrop(id, xPct, yPct);
           }}
           // Click-to-place — fires when the player has tapped a tile
-          // (placement mode) and then clicks the room. Right-click
-          // cancels placement so the user has a quick out without
-          // hunting for the + button or Esc.
+          // (band character OR player) and then clicks the room.
+          // Right-click cancels placement so the user has a quick
+          // out without hunting for the + button or Esc.
           onClick={(e) => {
-            if (!pendingChar) return;
+            if (!pendingChar && !pendingPlayer) return;
             // Don't place when the click originated on a placed
             // character (those have their own handlers — tap = mute).
             const target = e.target as HTMLElement;
@@ -866,7 +891,7 @@ export function JamView() {
             void placePendingAt(e.clientX, e.clientY);
           }}
           onContextMenu={(e) => {
-            if (pendingChar) {
+            if (pendingChar || pendingPlayer) {
               e.preventDefault();
               cancelPlacement();
             }
@@ -875,7 +900,7 @@ export function JamView() {
             flex: 1,
             position: "relative",
             overflow: "hidden",
-            cursor: pendingChar ? "crosshair" : "default",
+            cursor: pendingChar || pendingPlayer ? "crosshair" : "default",
           }}
         >
           {/* Crib backdrop — pre-rendered iso room PNG, contained inside
@@ -903,7 +928,7 @@ export function JamView() {
              *  the player is summoned from the palette. */}
             {playerPlaced && (
               <StageSpot
-                pos={PLAYER_POS}
+                pos={playerPos}
                 active={playing && !!slotState[PLAYER_SLOT_ID].soundId && !slotState[PLAYER_SLOT_ID].muted}
                 size="large"
                 accent="#facc15"
@@ -970,8 +995,8 @@ export function JamView() {
               <div
                 style={{
                   position: "absolute",
-                  left: `${PLAYER_POS.x}%`,
-                  top:  `${PLAYER_POS.y}%`,
+                  left: `${playerPos.x}%`,
+                  top:  `${playerPos.y}%`,
                   transform: "translate(-50%, -100%)",
                   zIndex: 5,
                 }}
@@ -1041,7 +1066,7 @@ export function JamView() {
                   return;
                 }
                 // Treated as a tap.
-                if (pendingChar) {
+                if (pendingChar || pendingPlayer) {
                   cancelPlacement();
                   return;
                 }
@@ -1049,14 +1074,14 @@ export function JamView() {
               }}
               onContextMenu={(e) => e.preventDefault()}
               aria-label={
-                pendingChar
+                pendingChar || pendingPlayer
                   ? "cancel placement"
                   : paletteOpen
                     ? "close characters"
                     : "open characters · drag to move"
               }
               title={
-                pendingChar
+                pendingChar || pendingPlayer
                   ? "cancel placement"
                   : "tap to open · drag to move"
               }
@@ -1070,7 +1095,7 @@ export function JamView() {
                 height: 64,
                 borderRadius: 32,
                 border: "3px solid #0a0f1c",
-                background: pendingChar
+                background: pendingChar || pendingPlayer
                   ? "linear-gradient(180deg, #f4d35e, #b8881a)"
                   : paletteOpen
                     ? "linear-gradient(180deg, #f4d35e, #b8881a)"
@@ -1089,39 +1114,18 @@ export function JamView() {
                 boxShadow:
                   "inset 0 3px 0 rgba(255,255,255,0.4), inset 0 -3px 0 rgba(0,0,0,0.3), 0 6px 0 rgba(0,0,0,0.5), 0 0 22px rgba(233,69,96,0.55)",
                 animation:
-                  Object.keys(bandPlacements).length === 0 && !pendingChar && !paletteOpen
+                  Object.keys(bandPlacements).length === 0 && !playerPlaced && !pendingChar && !pendingPlayer && !paletteOpen
                     ? "jamCharBtnPulse 2.4s ease-in-out infinite"
                     : "none",
               }}
             >
-              {pendingChar ? "✕" : paletteOpen ? "✕" : "+"}
+              {pendingChar || pendingPlayer ? "✕" : paletteOpen ? "✕" : "+"}
             </button>
           </Crib>
 
-          {/* Empty-state hint — only shown when nothing is assigned yet */}
-          {assignedIds.size === 0 && (
-            <div
-              style={{
-                position: "absolute",
-                top: "20%",
-                left: "50%",
-                transform: "translateX(-50%)",
-                textAlign: "center",
-                pointerEvents: "none",
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: "0.12em",
-                color: "rgba(255,255,255,0.55)",
-                textShadow: "0 2px 0 rgba(0,0,0,0.6)",
-              }}
-            >
-              <div style={{ fontFamily: "'Lilita One', system-ui", fontSize: 22, color: "#fff", marginBottom: 6, letterSpacing: 1 }}>
-                Drop a sound on a character to start
-              </div>
-              <div>← drag from the left rail</div>
-            </div>
-          )}
+          {/* Empty-state hint removed — the floating + button pulses
+           *  while the room is empty, which is enough of a cue. */}
+
 
           {/* Combo banner — drops in from the top while a combo is active.
            *  Keyed on the combo id so a transition to a different combo
@@ -1222,20 +1226,28 @@ export function JamView() {
        *  the pointer at full room scale until the player clicks the
        *  room (or hits Esc / right-clicks to cancel). pointer-events
        *  none so the click below it actually lands on the room. */}
-      {pendingChar && cursorPos && (() => {
-        const skin = CHARACTER_SKINS[pendingChar.characterKind][pendingChar.soundId];
+      {(pendingChar || pendingPlayer) && cursorPos && (() => {
+        // Pick the right preview source — band character uses its
+        // skin's right pose; player uses the player-character.png
+        // PlayerAtMic renders. Player gets a slightly bigger preview
+        // to match the lead's room size.
+        const previewSrc = pendingChar
+          ? CHARACTER_SKINS[pendingChar.characterKind][pendingChar.soundId].right
+          : "/characters/player-guy/player-character.png";
+        const previewSize = pendingChar ? bandSpriteSize : playerSpriteSize;
+        const label = pendingChar ? pendingChar.name : "YOU";
         return (
           <>
             <img
-              src={skin.right}
+              src={previewSrc}
               alt=""
               draggable={false}
               style={{
                 position: "fixed",
                 left: cursorPos.x,
                 top:  cursorPos.y,
-                width:  bandSpriteSize,
-                height: bandSpriteSize,
+                width:  previewSize,
+                height: previewSize,
                 transform: "translate(-50%, -100%)",
                 pointerEvents: "none",
                 userSelect: "none",
@@ -1266,7 +1278,7 @@ export function JamView() {
                 whiteSpace: "nowrap",
               }}
             >
-              PLACING {pendingChar.name} — click to drop · esc to cancel
+              PLACING {label} — click to drop · esc to cancel
             </div>
           </>
         );
