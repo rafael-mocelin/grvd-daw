@@ -211,6 +211,13 @@ export function JamView() {
   // Whether the floating CharacterPalette popup is open.
   const [paletteOpen, setPaletteOpen] = useState(false);
 
+  // Whether the player has been placed at the mic. Initial state is
+  // false — the room starts empty, the player's tile lives in the
+  // palette like every other character. Tapping the VOICE tile flips
+  // this to true and PlayerAtMic mounts at PLAYER_POS. Clearing the
+  // player from their popover flips it back to false.
+  const [playerPlaced, setPlayerPlaced] = useState(false);
+
   // ── Placement mode ──
   // When the player taps a character tile in the popup (instead of
   // dragging), we close the popup and enter placement mode. The
@@ -498,6 +505,14 @@ export function JamView() {
     setPendingChar(char);
   }
 
+  /** Picked the player from the popup — instant-place at the fixed
+   *  mic position. No placement mode (the mic is anchored to the
+   *  floor, so cursor-follow would be misleading). */
+  function handlePickPlayer() {
+    setPaletteOpen(false);
+    setPlayerPlaced(true);
+  }
+
   /** Cancel placement mode — fired by Esc, by clicking the + button
    *  while pending, or by an outside click on the top bar. */
   function cancelPlacement() {
@@ -620,11 +635,14 @@ export function JamView() {
     if (!stageRef.current) return;
     const slotEl = stageRef.current.querySelector(`[data-slot-id="${slotId}"]`) as HTMLElement | null;
     if (!slotEl) return;
-    const stageRect = stageRef.current.getBoundingClientRect();
+    // Viewport coordinates — CharacterControls renders via portal at
+    // position: fixed and clamps itself into the visible window, so
+    // anchors close to the room edges still get a fully-visible
+    // popover.
     const slotRect  = slotEl.getBoundingClientRect();
     setControlAnchor({
-      left: slotRect.left - stageRect.left + slotRect.width / 2,
-      top:  slotRect.top  - stageRect.top,
+      left: slotRect.left + slotRect.width / 2,
+      top:  slotRect.top,
     });
     setOpenControls(slotId);
   }
@@ -648,8 +666,10 @@ export function JamView() {
   function handleClear(slotId: string) {
     clearSlot(slotId);
     if (slotId === PLAYER_SLOT_ID) {
-      // Player slot reverts to empty in place — fixed position.
+      // Player slot is removed from the room entirely. Tile re-opens
+      // in the palette so the player can summon them back later.
       setSlotState((prev) => ({ ...prev, [slotId]: { ...EMPTY_SLOT } }));
+      setPlayerPlaced(false);
     } else {
       // Band placements vanish from the floor — both the audio bus and
       // the iso position are dropped, freeing the soundId tile in the
@@ -879,13 +899,16 @@ export function JamView() {
               );
             })}
             {/* Player spot — gold accent + larger so the lead reads as
-             *  the star even when the band is hot. */}
-            <StageSpot
-              pos={PLAYER_POS}
-              active={playing && !!slotState[PLAYER_SLOT_ID].soundId && !slotState[PLAYER_SLOT_ID].muted}
-              size="large"
-              accent="#facc15"
-            />
+             *  the star even when the band is hot. Only rendered after
+             *  the player is summoned from the palette. */}
+            {playerPlaced && (
+              <StageSpot
+                pos={PLAYER_POS}
+                active={playing && !!slotState[PLAYER_SLOT_ID].soundId && !slotState[PLAYER_SLOT_ID].muted}
+                size="large"
+                accent="#facc15"
+              />
+            )}
 
             {/* Band — sprite-based, free-place. Each entry in
              *  bandPlacements becomes a BandSlot at its iso position.
@@ -939,32 +962,35 @@ export function JamView() {
               );
             })}
 
-            {/* Player + mic stand. Drop a vocal recording here (the
-             *  MIC tile from the palette); other dropped sounds are
+            {/* Player + mic stand. Only rendered after the player is
+             *  summoned from the palette. Drop a vocal recording here
+             *  (the existing recorder flow); other dropped sounds are
              *  silently rejected. */}
-            <div
-              style={{
-                position: "absolute",
-                left: `${PLAYER_POS.x}%`,
-                top:  `${PLAYER_POS.y}%`,
-                transform: "translate(-50%, -100%)",
-                zIndex: 5,
-              }}
-              data-slot-id={PLAYER_SLOT_ID}
-            >
-              <PlayerAtMic
-                active={playing}
-                filled={!!slotState[PLAYER_SLOT_ID].soundId}
-                muted={slotState[PLAYER_SLOT_ID].muted}
-                dragOver={dragOverSlot === PLAYER_SLOT_ID}
-                size={playerSpriteSize}
-                onDropSound={handlePlayerDrop}
-                onDragEnter={() => setDragOverSlot(PLAYER_SLOT_ID)}
-                onDragLeave={() => setDragOverSlot((s) => (s === PLAYER_SLOT_ID ? null : s))}
-                onTap={() => slotState[PLAYER_SLOT_ID].soundId && handleMuteToggle(PLAYER_SLOT_ID)}
-                onLongPress={() => slotState[PLAYER_SLOT_ID].soundId && handleSlotTap(PLAYER_SLOT_ID)}
-              />
-            </div>
+            {playerPlaced && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${PLAYER_POS.x}%`,
+                  top:  `${PLAYER_POS.y}%`,
+                  transform: "translate(-50%, -100%)",
+                  zIndex: 5,
+                }}
+                data-slot-id={PLAYER_SLOT_ID}
+              >
+                <PlayerAtMic
+                  active={playing}
+                  filled={!!slotState[PLAYER_SLOT_ID].soundId}
+                  muted={slotState[PLAYER_SLOT_ID].muted}
+                  dragOver={dragOverSlot === PLAYER_SLOT_ID}
+                  size={playerSpriteSize}
+                  onDropSound={handlePlayerDrop}
+                  onDragEnter={() => setDragOverSlot(PLAYER_SLOT_ID)}
+                  onDragLeave={() => setDragOverSlot((s) => (s === PLAYER_SLOT_ID ? null : s))}
+                  onTap={() => slotState[PLAYER_SLOT_ID].soundId && handleMuteToggle(PLAYER_SLOT_ID)}
+                  onLongPress={() => slotState[PLAYER_SLOT_ID].soundId && handleSlotTap(PLAYER_SLOT_ID)}
+                />
+              </div>
+            )}
 
             {/* Floating "characters" button — draggable, persists to
              *  localStorage. Tap to toggle the popup; if placement
@@ -1185,7 +1211,9 @@ export function JamView() {
       {paletteOpen && (
         <CharacterPalette
           placedKinds={new Set(Object.keys(bandPlacements) as CharacterKind[])}
+          playerOnStage={playerPlaced}
           onPick={handlePickCharacter}
+          onPickPlayer={handlePickPlayer}
           onClose={() => setPaletteOpen(false)}
         />
       )}

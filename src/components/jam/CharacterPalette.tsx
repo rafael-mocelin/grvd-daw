@@ -32,9 +32,17 @@ interface CharacterPaletteProps {
   /** Character kinds currently on stage (one per kind in the new
    *  model). Drives the "ON STAGE" state on each tile. */
   placedKinds: Set<CharacterKind>;
-  /** Picked a character to place — JamView closes the popup and
-   *  enters placement mode (cursor carries the sprite). */
+  /** Whether the player has been placed at the mic — drives the
+   *  "ON STAGE" state on the VOICE tile. */
+  playerOnStage: boolean;
+  /** Picked a band character (drum-guy/beat-guy/guitar-guy) — JamView
+   *  closes the popup and enters placement mode (cursor carries the
+   *  sprite). */
   onPick: (char: PlaceableChar) => void;
+  /** Picked the player — JamView snaps them to the fixed mic position
+   *  and closes the popup. No placement-mode cursor for the player
+   *  since the mic is anchored to the floor. */
+  onPickPlayer: () => void;
   onClose: () => void;
 }
 
@@ -45,9 +53,15 @@ const KIND_SECTIONS: { kind: CharacterKind; label: string; accent: string }[] = 
   { kind: "guitar-guy", label: "SAMPLE", accent: C.green  },   // purple character
 ];
 
+/** Image used as the icon on the VOICE / player tile. Same asset
+ *  PlayerAtMic renders so the popup matches what lands in the room. */
+const PLAYER_ICON = "/characters/player-guy/player-character.png";
+
 export function CharacterPalette({
   placedKinds,
+  playerOnStage,
   onPick,
+  onPickPlayer,
   onClose,
 }: CharacterPaletteProps) {
   // Esc closes the strip.
@@ -83,6 +97,19 @@ export function CharacterPalette({
         animation: "charPalSlideIn 0.22s cubic-bezier(.34,1.56,.64,1) both",
       }}
     >
+      {/* VOICE — special player tile. Placement is fixed (the mic
+       *  stand sits at PLAYER_POS); tapping just snaps them in. */}
+      <KindTile
+        label="VOICE"
+        accent={C.pink}
+        iconSrc={PLAYER_ICON}
+        onStage={playerOnStage}
+        onPick={() => {
+          if (playerOnStage) return;
+          onPickPlayer();
+        }}
+      />
+
       {KIND_SECTIONS.map((section) => {
         // One slot per kind in the new model — sound cycling lives in
         // the placed character's controls popover. Tile is "ON STAGE"

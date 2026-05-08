@@ -1,16 +1,22 @@
 /**
  * CharacterControls — floating popover above a tapped Jam character.
  *
- * Three actions, one slot:
- *   - Mute toggle (also toggled by tapping the character itself)
- *   - Volume slider (0–2, default 1; >1.2 triggers the lightning VFX
- *     on the character)
- *   - Clear — removes the assigned sound, slot goes empty again
+ * Sound cycler at top (left/right arrow swipe through the sibling
+ * variants for the character's kind), then mute / volume / sync /
+ * clear below.
  *
- * Anchored above the character; tapping outside dismisses (handled by
- * the parent JamView via a backdrop layer).
+ * Renders via React Portal to document.body so the popover can
+ * escape the stage's overflow:hidden and never gets clipped at the
+ * room edges. Anchor coords are viewport-fixed; a useLayoutEffect
+ * measures the popover after mount and shifts it horizontally /
+ * flips it below the character if it would overflow the viewport.
+ *
+ * Tapping outside dismisses (transparent fixed backdrop covers the
+ * whole window).
  */
 
+import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { SoundOption } from "../../data/types";
 
 /** One option for the sound-cycler row — sibling sounds the placed
@@ -48,6 +54,10 @@ interface CharacterControlsProps {
   anchorTop:  number;
 }
 
+const POPOVER_W   = 220;
+const VIEW_PAD    = 12;
+const ANCHOR_GAP  = 16;
+
 export function CharacterControls({
   sound, muted, volume, syncToBpm,
   onMuteToggle, onVolume, onSyncToggle, onClear, onClose,
@@ -56,28 +66,92 @@ export function CharacterControls({
 }: CharacterControlsProps) {
   const isVocal = sound?.kind === "vocal";
   const showCycler = !isVocal && siblings && siblings.length > 1 && onSwap;
-  return (
+
+  // Active variant index — drives the arrow cycler. Falls back to 0
+  // if the current soundId isn't found in the siblings list (rare;
+  // happens during a transient state right after a swap).
+  const currentIdx = showCycler
+    ? Math.max(0, siblings!.findIndex((s) => s.soundId === currentSoundId))
+    : 0;
+  const totalVariants = showCycler ? siblings!.length : 0;
+  const cyclerCurrent = showCycler ? siblings![currentIdx] : null;
+
+  function cycleSwap(delta: 1 | -1) {
+    if (!showCycler || !onSwap) return;
+    const nextIdx = (currentIdx + delta + totalVariants) % totalVariants;
+    onSwap(siblings![nextIdx].soundId);
+  }
+
+  // ── Viewport-clamp ──
+  // After the popover renders, measure it and figure out where it
+  // would land. Shift horizontally so it stays inside the viewport;
+  // if anchored too close to the top, flip it BELOW the character.
+  const popRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; below: boolean } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = popRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      const w = rect.width  || POPOVER_W;
+      const h = rect.height || 240;
+
+      // Default: above the anchor, horizontally centered.
+      let left = anchorLeft - w / 2;
+      let top  = anchorTop - h - ANCHOR_GAP;
+      let below = false;
+
+      // Horizontal clamp.
+      const minLeft = VIEW_PAD;
+      const maxLeft = window.innerWidth - w - VIEW_PAD;
+      if (left < minLeft) left = minLeft;
+      else if (left > maxLeft) left = maxLeft;
+
+      // If above the viewport, flip below the anchor (using the
+      // anchor's slot height isn't known here; we approximate with a
+      // small constant gap below the anchor's top).
+      if (top < VIEW_PAD) {
+        top = anchorTop + ANCHOR_GAP;
+        below = true;
+      }
+      // Final vertical clamp.
+      const maxTop = window.innerHeight - h - VIEW_PAD;
+      if (top > maxTop) top = Math.max(VIEW_PAD, maxTop);
+
+      setPos({ left, top, below });
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [anchorLeft, anchorTop, showCycler, totalVariants]);
+
+  return createPortal(
     <>
-      {/* Backdrop — captures outside-clicks to dismiss. Transparent so
-       *  the studio backdrop stays visible. */}
+      {/* Backdrop — captures outside-clicks to dismiss. Fully
+       *  transparent so the room stays visible. */}
       <div
         onClick={onClose}
         style={{
-          position: "absolute",
+          position: "fixed",
           inset: 0,
-          zIndex: 50,
+          zIndex: 200,
         }}
       />
 
       <div
+        ref={popRef}
         onClick={(e) => e.stopPropagation()}
         style={{
-          position: "absolute",
-          left: anchorLeft,
-          top:  anchorTop,
-          transform: "translate(-50%, calc(-100% - 16px))",
-          zIndex: 60,
-          width: 220,
+          position: "fixed",
+          left: pos?.left ?? anchorLeft - POPOVER_W / 2,
+          top:  pos?.top  ?? anchorTop - 240,
+          // Avoid flicker on first paint before useLayoutEffect runs.
+          visibility: pos ? "visible" : "hidden",
+          zIndex: 210,
+          width: POPOVER_W,
           padding: "12px 14px",
           borderRadius: 16,
           background: "linear-gradient(180deg, #243358 0%, #0f1828 100%)",
@@ -122,97 +196,107 @@ export function CharacterControls({
           </button>
         </div>
 
-        {/* Sound cycler — row of sibling thumbnails. Tap one to swap
-         *  the character's sound (skin + audio bus together). Hidden
-         *  for vocal slots and for kinds with only one option. */}
-        {showCycler && (
+        {/* Sound cycler — left arrow, big current thumbnail, right
+         *  arrow. Cyclic. Scales to N variants without growing the
+         *  popover. Hidden for vocal slots and kinds with only one
+         *  option. */}
+        {showCycler && cyclerCurrent && (
           <div style={{ marginBottom: 10 }}>
             <div
               style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 9,
-                fontWeight: 700,
-                letterSpacing: "0.16em",
-                color: "rgba(255,255,255,0.55)",
-                textTransform: "uppercase",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
                 marginBottom: 6,
               }}
             >
-              swap sound
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: "0.16em",
+                  color: "rgba(255,255,255,0.55)",
+                  textTransform: "uppercase",
+                }}
+              >
+                swap sound
+              </span>
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "rgba(255,255,255,0.45)",
+                  letterSpacing: "0.10em",
+                }}
+              >
+                {currentIdx + 1}/{totalVariants}
+              </span>
             </div>
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: `repeat(${siblings!.length}, 1fr)`,
-                gap: 6,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
               }}
             >
-              {siblings!.map((sib) => {
-                const active = sib.soundId === currentSoundId;
-                return (
-                  <button
-                    key={sib.soundId}
-                    onClick={() => onSwap!(sib.soundId)}
-                    title={sib.name}
+              <CycleArrow direction="prev" onClick={() => cycleSwap(-1)} />
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 2,
+                }}
+              >
+                <div
+                  key={cyclerCurrent.soundId}
+                  style={{
+                    width: 86,
+                    aspectRatio: "1 / 1",
+                    borderRadius: 12,
+                    overflow: "hidden",
+                    background: "radial-gradient(ellipse at 50% 110%, rgba(250, 204, 21, 0.22), rgba(15, 24, 40, 0.7) 70%)",
+                    border: "2px solid #facc15",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15), 0 0 14px rgba(250, 204, 21, 0.45)",
+                    display: "grid",
+                    placeItems: "center",
+                    animation: "jamCyclerSwap 0.22s ease-out both",
+                  }}
+                >
+                  <img
+                    src={cyclerCurrent.iconSrc}
+                    alt=""
+                    draggable={false}
                     style={{
-                      position: "relative",
-                      padding: 4,
-                      borderRadius: 10,
-                      border: `2px solid ${active ? "#facc15" : "rgba(0,0,0,0.55)"}`,
-                      background: active
-                        ? "linear-gradient(180deg, rgba(250, 204, 21, 0.18), rgba(15, 24, 40, 0.5))"
-                        : "linear-gradient(180deg, rgba(36, 51, 88, 0.55), rgba(15, 24, 40, 0.55))",
-                      boxShadow: active
-                        ? "inset 0 1px 0 rgba(255,255,255,0.18), 0 0 14px rgba(250, 204, 21, 0.55)"
-                        : "inset 0 1px 0 rgba(255,255,255,0.06)",
-                      cursor: active ? "default" : "pointer",
-                      transition: "box-shadow 0.18s, border-color 0.18s",
+                      width:  "120%",
+                      height: "120%",
+                      objectFit: "contain",
+                      objectPosition: "center 65%",
+                      pointerEvents: "none",
                     }}
-                  >
-                    <div
-                      style={{
-                        width: "100%",
-                        aspectRatio: "1 / 1",
-                        borderRadius: 8,
-                        overflow: "hidden",
-                        background: "rgba(0, 0, 0, 0.3)",
-                        border: "1px solid #0a0f1c",
-                        display: "grid",
-                        placeItems: "center",
-                      }}
-                    >
-                      <img
-                        src={sib.iconSrc}
-                        alt=""
-                        draggable={false}
-                        style={{
-                          width:  "120%",
-                          height: "120%",
-                          objectFit: "contain",
-                          objectPosition: "center 65%",
-                          pointerEvents: "none",
-                        }}
-                      />
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 2,
-                        fontFamily: "'Lilita One', system-ui",
-                        fontSize: 9,
-                        color: active ? "#facc15" : "#fff",
-                        textAlign: "center",
-                        letterSpacing: 0.2,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        textShadow: "0 1px 0 rgba(0,0,0,0.55)",
-                      }}
-                    >
-                      {sib.name}
-                    </div>
-                  </button>
-                );
-              })}
+                  />
+                </div>
+                <div
+                  style={{
+                    fontFamily: "'Lilita One', system-ui",
+                    fontSize: 12,
+                    color: "#facc15",
+                    letterSpacing: 0.3,
+                    textAlign: "center",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    maxWidth: "100%",
+                    textShadow: "0 1px 0 rgba(0,0,0,0.6)",
+                  }}
+                >
+                  {cyclerCurrent.name}
+                </div>
+              </div>
+              <CycleArrow direction="next" onClick={() => cycleSwap(+1)} />
             </div>
           </div>
         )}
@@ -347,28 +431,72 @@ export function CharacterControls({
           ✕ Clear slot
         </button>
 
-        {/* Tail pointer pointing down at the character */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: -10,
-            left: "50%",
-            transform: "translateX(-50%) rotate(45deg)",
-            width: 16, height: 16,
-            background: "#0f1828",
-            border: "2.5px solid #0a0f1c",
-            borderTop: "none",
-            borderLeft: "none",
-          }}
-        />
+        {/* Tail pointer — only when the popover sits ABOVE the
+         *  anchor (default position). Hidden when flipped below to
+         *  avoid pointing the wrong way. */}
+        {pos && !pos.below && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: -10,
+              left: "50%",
+              transform: "translateX(-50%) rotate(45deg)",
+              width: 16, height: 16,
+              background: "#0f1828",
+              border: "2.5px solid #0a0f1c",
+              borderTop: "none",
+              borderLeft: "none",
+            }}
+          />
+        )}
 
         <style>{`
           @keyframes jamPanelPop {
-            0%   { transform: translate(-50%, calc(-100% - 8px)) scale(0.9); opacity: 0; }
-            100% { transform: translate(-50%, calc(-100% - 16px)) scale(1);   opacity: 1; }
+            0%   { transform: scale(0.9); opacity: 0; }
+            100% { transform: scale(1);   opacity: 1; }
+          }
+          @keyframes jamCyclerSwap {
+            0%   { transform: scale(0.85) rotate(-3deg); opacity: 0; }
+            70%  { transform: scale(1.05) rotate(0deg);  opacity: 1; }
+            100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
           }
         `}</style>
       </div>
-    </>
+    </>,
+    document.body,
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* CycleArrow — chunky round arrow button used by the sound cycler.           */
+/* -------------------------------------------------------------------------- */
+
+function CycleArrow({ direction, onClick }: { direction: "prev" | "next"; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={direction === "prev" ? "previous sound" : "next sound"}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        flexShrink: 0,
+        border: "2px solid #0a0f1c",
+        background: "linear-gradient(180deg, rgba(36, 51, 88, 0.85), rgba(15, 24, 40, 0.85))",
+        color: "#fff",
+        fontFamily: "'Lilita One', system-ui",
+        fontSize: 18,
+        lineHeight: 1,
+        cursor: "pointer",
+        padding: 0,
+        boxShadow: "inset 0 2px 0 rgba(255,255,255,0.20), 0 3px 0 rgba(0,0,0,0.45)",
+        transition: "transform 0.12s ease",
+      }}
+      onMouseDown={(e) => (e.currentTarget.style.transform = "translateY(1px) scale(0.96)")}
+      onMouseUp={(e) => (e.currentTarget.style.transform = "")}
+      onMouseLeave={(e) => (e.currentTarget.style.transform = "")}
+    >
+      {direction === "prev" ? "‹" : "›"}
+    </button>
   );
 }
