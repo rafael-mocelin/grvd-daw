@@ -26,6 +26,11 @@ interface CharacterPaletteProps {
   /** Px-size used as the drag preview (matches the placement size in
    *  the room). Driven by JamView from the measured room. */
   dragPreviewSize: number;
+  /** Called when the user TAPS a character tile (no drag). Hands the
+   *  picked character off to JamView, which closes the popup and
+   *  enters placement mode (cursor carries the sprite around the
+   *  room). The classic drag flow still works via dataTransfer. */
+  onPick: (char: PlaceableChar) => void;
   onClose: () => void;
 }
 
@@ -41,6 +46,7 @@ const SECTIONS: { kind: CharacterKind; label: string; accent: string }[] = [
 export function CharacterPalette({
   placedSoundIds,
   dragPreviewSize,
+  onPick,
   onClose,
 }: CharacterPaletteProps) {
   // Esc closes the popup.
@@ -132,7 +138,7 @@ export function CharacterPalette({
             marginBottom: 14,
           }}
         >
-          drag one onto the room floor
+          tap one — then click the room to place
         </div>
 
         {/* Sections */}
@@ -155,6 +161,7 @@ export function CharacterPalette({
                     inUse={placedSoundIds.has(char.soundId)}
                     accent={section.accent}
                     dragPreviewSize={dragPreviewSize}
+                    onPick={onPick}
                   />
                 ))}
               </div>
@@ -217,9 +224,10 @@ interface CharTileProps {
   inUse:           boolean;
   accent:          string;
   dragPreviewSize: number;
+  onPick:          (char: PlaceableChar) => void;
 }
 
-function CharTile({ char, inUse, accent, dragPreviewSize }: CharTileProps) {
+function CharTile({ char, inUse, accent, dragPreviewSize, onPick }: CharTileProps) {
   const [dragging, setDragging] = useState(false);
   const previewRef = useRef<HTMLImageElement>(null);
 
@@ -244,16 +252,25 @@ function CharTile({ char, inUse, accent, dragPreviewSize }: CharTileProps) {
   }
   function onDragEnd() { setDragging(false); }
 
+  /** Tap (no drag) → pick the character. The popup closes and we
+   *  enter placement mode on the parent. The browser only fires
+   *  click when there's no drag, so the two flows don't overlap. */
+  function onClick() {
+    if (inUse) return;
+    onPick(char);
+  }
+
   return (
     <>
       <div
         draggable={!inUse}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
+        onClick={onClick}
         role="button"
         title={inUse
           ? `${char.name} — already on stage`
-          : `${char.name} — drag onto the room`}
+          : `${char.name} — tap to pick or drag`}
         style={{
           display: "flex",
           flexDirection: "column",

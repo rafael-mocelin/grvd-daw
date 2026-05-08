@@ -48,7 +48,8 @@ import {
   HYPE_POOL,
   type CharacterKind,
 } from "../data/characterSkins";
-import { getPlaceable } from "../data/placeableChars";
+import { getPlaceable, type PlaceableChar } from "../data/placeableChars";
+import { CHARACTER_SKINS } from "../data/characterSkins";
 import { useJamAudioFrame } from "../hooks/useJamAudioFrame";
 import { ComboCodex } from "./jam/ComboCodex";
 import {
@@ -124,6 +125,43 @@ function snapToGrid(xPct: number, yPct: number): { x: number; y: number } {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Floating "+" button position — persisted in localStorage so the player's   */
+/* preferred parking spot for the character menu survives reloads. Stored as   */
+/* % of the room overlay (square contained in the stage) so the button tracks  */
+/* the same room location at any viewport size.                                */
+/* -------------------------------------------------------------------------- */
+
+const CHAR_BTN_POS_KEY = "grvd:jam:char-button-pos:v1";
+const CHAR_BTN_DEFAULT = { x: 8, y: 50 };  // left wall, vertically centered
+
+function loadCharBtnPos(): { x: number; y: number } {
+  try {
+    const raw = window.localStorage.getItem(CHAR_BTN_POS_KEY);
+    if (!raw) return { ...CHAR_BTN_DEFAULT };
+    const parsed = JSON.parse(raw) as { x: number; y: number };
+    if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
+      return clampBtnPos(parsed);
+    }
+  } catch { /* ignore — corrupt or unavailable storage */ }
+  return { ...CHAR_BTN_DEFAULT };
+}
+
+function saveCharBtnPos(pos: { x: number; y: number }) {
+  try {
+    window.localStorage.setItem(CHAR_BTN_POS_KEY, JSON.stringify(pos));
+  } catch { /* ignore */ }
+}
+
+/** Clamp the button to the room — pad a little so the chunky disc
+ *  doesn't fall off the wall edges. */
+function clampBtnPos(pos: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: Math.max(2, Math.min(98, pos.x)),
+    y: Math.max(2, Math.min(98, pos.y)),
+  };
+}
+
 /** Master BPM defaults — chosen so the most common loops (140 / 144 /
  *  150) only need a small rate stretch. The user can dial this live
  *  via the top-bar control; setMasterBpm() updates Tone.Transport AND
@@ -169,6 +207,37 @@ export function JamView() {
 
   // Whether the floating CharacterPalette popup is open.
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // ── Placement mode ──
+  // When the player taps a character tile in the popup (instead of
+  // dragging), we close the popup and enter placement mode. The
+  // selected character "follows" the cursor as a translucent floating
+  // sprite at room scale; clicking the room drops them at the cursor
+  // position (snapped to grid). Esc / clicking the + button cancels.
+  const [pendingChar, setPendingChar] = useState<PlaceableChar | null>(null);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Track cursor while in placement mode so the floating sprite
+  // tracks the pointer. We attach to document so movement outside the
+  // stage (e.g., over the top bar) still updates the preview.
+  useEffect(() => {
+    if (!pendingChar) {
+      setCursorPos(null);
+      return;
+    }
+    const onMove = (e: PointerEvent) => {
+      setCursorPos({ x: e.clientX, y: e.clientY });
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPendingChar(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("keydown",     onKey);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("keydown",     onKey);
+    };
+  }, [pendingChar]);
 
   // Which slot has its control panel open (null = none).
   const [openControls, setOpenControls] = useState<string | null>(null);
@@ -261,6 +330,23 @@ export function JamView() {
   const PLAYER_SPRITE_FRAC = 0.26;
   const bandSpriteSize   = Math.max(64,  Math.round(roomSize * BAND_SPRITE_FRAC));
   const playerSpriteSize = Math.max(80,  Math.round(roomSize * PLAYER_SPRITE_FRAC));
+
+  // ── Floating "+" button position ──
+  // Stored as % of the room overlay so it stays at the same room
+  // location across viewports. Persisted to localStorage so the
+  // player's preferred parking spot survives reloads. Default: anchored
+  // to the left wall, vertically centered.
+  const [charBtnPos, setCharBtnPos] = useState<{ x: number; y: number }>(() =>
+    loadCharBtnPos(),
+  );
+  const charBtnDragRef = useRef({
+    active:    false,
+    moved:     false,        // crossed the click-vs-drag threshold?
+    startX:    0,
+    startY:    0,
+    startPctX: 0,
+    startPctY: 0,
+  });
 
   // Map soundId → SoundOption for fast lookup.
   const soundsById = useMemo(() => {
@@ -399,6 +485,37 @@ export function JamView() {
     const interval = window.setInterval(tick, 6500);
     return () => window.clearInterval(interval);
   }, [playing]);
+
+  /** Picked a character from the popup (tap, no drag) — close the
+   *  popup and enter placement mode. The cursor will carry the
+   *  full-size sprite until the player clicks the room. */
+  function handlePickCharacter(char: PlaceableChar) {
+    setPaletteOpen(false);
+    setPendingChar(char);
+  }
+
+  /** Cancel placement mode — fired by Esc, by clicking the + button
+   *  while pending, or by an outside click on the top bar. */
+  function cancelPlacement() {
+    setPendingChar(null);
+  }
+
+  /** Place the pending character at the given client-space coords,
+   *  translating into room %, snapping to grid. Used both by the room's
+   *  click handler and by an HTML5 drop. */
+  async function placePendingAt(clientX: number, clientY: number) {
+    if (!pendingChar) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect  = stage.getBoundingClientRect();
+    const sq    = Math.min(rect.width, rect.height);
+    const sqL   = rect.left + (rect.width  - sq) / 2;
+    const sqT   = rect.top  + (rect.height - sq) / 2;
+    const xPct  = ((clientX - sqL) / sq) * 100;
+    const yPct  = ((clientY - sqT) / sq) * 100;
+    setPendingChar(null);
+    await handleRoomDrop(pendingChar.soundId, xPct, yPct);
+  }
 
   /** Player-slot drop — only accepts the VOCAL_DROP_ID sentinel. Other
    *  drops are silently rejected. Used by PlayerAtMic only. */
@@ -663,16 +780,9 @@ export function JamView() {
         {/* Stage */}
         <div
           ref={stageRef}
-          style={{
-            flex: 1,
-            position: "relative",
-            overflow: "hidden",
-          }}
           // Room-level drop target — accepts character tiles dragged
-          // from CharacterPalette and places them at the cursor position
-          // (snapped to grid). The contained Crib image is square and
-          // centered with letterboxing; we translate clientX/Y into
-          // %-coords inside that contained square.
+          // from CharacterPalette (HTML5 drag flow) and places them at
+          // the cursor position (snapped to grid).
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes(PLACE_CHAR_MIME)) {
               e.preventDefault();
@@ -695,6 +805,30 @@ export function JamView() {
             const xPct  = ((e.clientX - sqL) / sq) * 100;
             const yPct  = ((e.clientY - sqT) / sq) * 100;
             void handleRoomDrop(id, xPct, yPct);
+          }}
+          // Click-to-place — fires when the player has tapped a tile
+          // (placement mode) and then clicks the room. Right-click
+          // cancels placement so the user has a quick out without
+          // hunting for the + button or Esc.
+          onClick={(e) => {
+            if (!pendingChar) return;
+            // Don't place when the click originated on a placed
+            // character (those have their own handlers — tap = mute).
+            const target = e.target as HTMLElement;
+            if (target.closest("[data-slot-id]")) return;
+            void placePendingAt(e.clientX, e.clientY);
+          }}
+          onContextMenu={(e) => {
+            if (pendingChar) {
+              e.preventDefault();
+              cancelPlacement();
+            }
+          }}
+          style={{
+            flex: 1,
+            position: "relative",
+            overflow: "hidden",
+            cursor: pendingChar ? "crosshair" : "default",
           }}
         >
           {/* Crib backdrop — pre-rendered iso room PNG, contained inside
@@ -802,39 +936,109 @@ export function JamView() {
               />
             </div>
 
-            {/* Floating "characters" button — center-left of the room,
-             *  anchored to the wall. Tap to open the popup roster. */}
+            {/* Floating "characters" button — draggable, persists to
+             *  localStorage. Tap to toggle the popup; if placement
+             *  mode is active, tap to cancel instead. Drag (>5 px) to
+             *  reposition; the new spot is saved on pointer-up. */}
             <button
-              onClick={() => setPaletteOpen(true)}
-              aria-label="open characters"
+              onPointerDown={(e) => {
+                charBtnDragRef.current = {
+                  active:    true,
+                  moved:     false,
+                  startX:    e.clientX,
+                  startY:    e.clientY,
+                  startPctX: charBtnPos.x,
+                  startPctY: charBtnPos.y,
+                };
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                const ref = charBtnDragRef.current;
+                if (!ref.active) return;
+                const dx = e.clientX - ref.startX;
+                const dy = e.clientY - ref.startY;
+                if (!ref.moved && Math.hypot(dx, dy) <= 5) return;
+                ref.moved = true;
+                // Translate the pixel delta into a %-of-room delta so
+                // the button stays where the player drags it
+                // regardless of viewport size.
+                const stage = stageRef.current;
+                if (!stage) return;
+                const rect = stage.getBoundingClientRect();
+                const sq = Math.min(rect.width, rect.height);
+                if (sq <= 0) return;
+                const dxPct = (dx / sq) * 100;
+                const dyPct = (dy / sq) * 100;
+                setCharBtnPos(
+                  clampBtnPos({
+                    x: ref.startPctX + dxPct,
+                    y: ref.startPctY + dyPct,
+                  }),
+                );
+              }}
+              onPointerUp={(e) => {
+                const wasDrag = charBtnDragRef.current.moved;
+                charBtnDragRef.current.active = false;
+                try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+                if (wasDrag) {
+                  saveCharBtnPos(charBtnPos);
+                  return;
+                }
+                // Treated as a tap.
+                if (pendingChar) {
+                  cancelPlacement();
+                  return;
+                }
+                setPaletteOpen((v) => !v);
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+              aria-label={
+                pendingChar
+                  ? "cancel placement"
+                  : paletteOpen
+                    ? "close characters"
+                    : "open characters · drag to move"
+              }
+              title={
+                pendingChar
+                  ? "cancel placement"
+                  : "tap to open · drag to move"
+              }
               style={{
                 position: "absolute",
-                left: "4%",
-                top:  "50%",
-                transform: "translate(0, -50%)",
+                left: `${charBtnPos.x}%`,
+                top:  `${charBtnPos.y}%`,
+                transform: "translate(-50%, -50%)",
                 zIndex: 6,
                 width: 64,
                 height: 64,
                 borderRadius: 32,
                 border: "3px solid #0a0f1c",
-                background: paletteOpen
+                background: pendingChar
                   ? "linear-gradient(180deg, #f4d35e, #b8881a)"
-                  : "linear-gradient(180deg, #ff7a8e, #b8253a)",
+                  : paletteOpen
+                    ? "linear-gradient(180deg, #f4d35e, #b8881a)"
+                    : "linear-gradient(180deg, #ff7a8e, #b8253a)",
                 color: "#fff",
                 display: "grid",
                 placeItems: "center",
                 fontFamily: "'Lilita One', system-ui",
                 fontSize: 32,
                 lineHeight: 1,
-                cursor: "pointer",
+                cursor: charBtnDragRef.current.active && charBtnDragRef.current.moved
+                  ? "grabbing"
+                  : "grab",
+                touchAction: "none",
+                userSelect: "none",
                 boxShadow:
                   "inset 0 3px 0 rgba(255,255,255,0.4), inset 0 -3px 0 rgba(0,0,0,0.3), 0 6px 0 rgba(0,0,0,0.5), 0 0 22px rgba(233,69,96,0.55)",
-                animation: Object.keys(bandPlacements).length === 0
-                  ? "jamCharBtnPulse 2.4s ease-in-out infinite"
-                  : "none",
+                animation:
+                  Object.keys(bandPlacements).length === 0 && !pendingChar && !paletteOpen
+                    ? "jamCharBtnPulse 2.4s ease-in-out infinite"
+                    : "none",
               }}
             >
-              {paletteOpen ? "✕" : "+"}
+              {pendingChar ? "✕" : paletteOpen ? "✕" : "+"}
             </button>
           </Crib>
 
@@ -926,15 +1130,71 @@ export function JamView() {
       )}
 
       {/* Character popup — replaces the v1 sidebar palette. Opens via
-       *  the floating "+" button on the left wall of the room. Drops
-       *  are caught by the stage's room-level drop handler above. */}
+       *  the floating "+" button. Tapping a tile picks the character
+       *  (closes the popup, enters placement mode); dragging a tile
+       *  uses the classic HTML5 drop flow. */}
       {paletteOpen && (
         <CharacterPalette
           placedSoundIds={new Set(Object.keys(bandPlacements))}
           dragPreviewSize={bandSpriteSize}
+          onPick={handlePickCharacter}
           onClose={() => setPaletteOpen(false)}
         />
       )}
+
+      {/* Placement-mode cursor preview — the picked character follows
+       *  the pointer at full room scale until the player clicks the
+       *  room (or hits Esc / right-clicks to cancel). pointer-events
+       *  none so the click below it actually lands on the room. */}
+      {pendingChar && cursorPos && (() => {
+        const skin = CHARACTER_SKINS[pendingChar.characterKind][pendingChar.soundId];
+        return (
+          <>
+            <img
+              src={skin.right}
+              alt=""
+              draggable={false}
+              style={{
+                position: "fixed",
+                left: cursorPos.x,
+                top:  cursorPos.y,
+                width:  bandSpriteSize,
+                height: bandSpriteSize,
+                transform: "translate(-50%, -100%)",
+                pointerEvents: "none",
+                userSelect: "none",
+                zIndex: 250,
+                opacity: 0.85,
+                filter: "drop-shadow(0 0 18px rgba(255, 230, 90, 0.8)) drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))",
+              }}
+            />
+            {/* "Placing X — click to drop" hint banner */}
+            <div
+              style={{
+                position: "fixed",
+                top: 60,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 251,
+                padding: "8px 16px",
+                borderRadius: 999,
+                background: "linear-gradient(180deg, #f4d35e, #b8881a)",
+                border: "2.5px solid #0a0f1c",
+                fontFamily: "'Lilita One', system-ui",
+                fontSize: 13,
+                color: "#0a0f1c",
+                letterSpacing: 0.5,
+                pointerEvents: "none",
+                boxShadow: "inset 0 2px 0 rgba(255,255,255,0.5), 0 4px 0 rgba(0,0,0,0.45), 0 0 18px rgba(244, 211, 94, 0.55)",
+                textShadow: "0 1px 0 rgba(255,255,255,0.4)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              PLACING {pendingChar.name} — click to drop · esc to cancel
+            </div>
+          </>
+        );
+      })()}
 
       <style>{`
         @keyframes jamCharBtnPulse {
