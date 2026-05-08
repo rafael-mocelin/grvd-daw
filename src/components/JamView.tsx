@@ -98,15 +98,6 @@ const PLAYER_SLOT_ID = "slot-player";
  *  first placement and is kept around as a sensible fallback. */
 const DEFAULT_PLAYER_POS = { x: 53, y: 74 };
 
-/** Snap-to-grid resolution for character placements. The room is
- *  rendered as a square; we overlay an invisible GRID_COLS × GRID_ROWS
- *  grid and snap each drop to the nearest cell center. The numbers
- *  here trade off placement freedom (high = anywhere) vs. tidy
- *  alignment (low = chunky desktop-icon feel). 10×7 lands in the
- *  middle: ~10% horizontal × ~14% vertical cells. */
-const GRID_COLS = 10;
-const GRID_ROWS = 7;
-
 /** Pick a random hype line for a placed band character. Player slot
  *  has no pool — they're the lead, they let the band hype them. */
 function randomHypeForCharacter(kind: CharacterKind | undefined): string | null {
@@ -115,16 +106,15 @@ function randomHypeForCharacter(kind: CharacterKind | undefined): string | null 
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-/** Snap an x/y in % to the nearest grid cell center, clamping to the
- *  grid extents so a near-edge drop doesn't fall off the room. */
-function snapToGrid(xPct: number, yPct: number): { x: number; y: number } {
-  const cellW = 100 / GRID_COLS;
-  const cellH = 100 / GRID_ROWS;
-  const col = Math.max(0, Math.min(GRID_COLS - 1, Math.floor(xPct / cellW)));
-  const row = Math.max(0, Math.min(GRID_ROWS - 1, Math.floor(yPct / cellH)));
+/** Clamp an x/y in % to the valid room range so a near-edge drop
+ *  doesn't fall off the iso floor. No grid snap — characters land
+ *  exactly where the cursor is so the player has pixel-precise
+ *  control over placement and can make small adjustments by
+ *  dragging. */
+function clampPos(xPct: number, yPct: number): { x: number; y: number } {
   return {
-    x: (col + 0.5) * cellW,
-    y: (row + 0.5) * cellH,
+    x: Math.max(0, Math.min(100, xPct)),
+    y: Math.max(0, Math.min(100, yPct)),
   };
 }
 
@@ -234,7 +224,7 @@ export function JamView() {
   // dragging), we close the popup and enter placement mode. The
   // selected character "follows" the cursor as a translucent floating
   // sprite at room scale; clicking the room drops them at the cursor
-  // position (snapped to grid). Esc / clicking the + button cancels.
+  // position. Esc / clicking the + button cancels.
   const [pendingChar, setPendingChar] = useState<PlaceableChar | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -605,7 +595,7 @@ export function JamView() {
     const yPct  = ((clientY - sqT) / sq) * 100;
 
     if (pendingPlayer) {
-      setPlayerPos(snapToGrid(xPct, yPct));
+      setPlayerPos(clampPos(xPct, yPct));
       setPlayerPlaced(true);
       setPendingPlayer(false);
       return;
@@ -633,11 +623,11 @@ export function JamView() {
     const placeable = getPlaceable(soundId);
     if (!placeable) return;
     const slotId  = placeable.characterKind;
-    const snapped = snapToGrid(xPct, yPct);
+    const dropped = clampPos(xPct, yPct);
 
     setBandPlacements((prev) => ({
       ...prev,
-      [slotId]: { soundId, pos: snapped },
+      [slotId]: { soundId, pos: dropped },
     }));
     setSlotState((prev) => ({
       ...prev,
@@ -668,11 +658,11 @@ export function JamView() {
     const sqT   = rect.top  + (rect.height - sq) / 2;
     const xPct  = ((clientX - sqL) / sq) * 100;
     const yPct  = ((clientY - sqT) / sq) * 100;
-    const snapped = snapToGrid(xPct, yPct);
+    const dropped = clampPos(xPct, yPct);
     setBandPlacements((prev) => {
       const cur = prev[slotId as CharacterKind];
       if (!cur) return prev;
-      return { ...prev, [slotId]: { ...cur, pos: snapped } };
+      return { ...prev, [slotId]: { ...cur, pos: dropped } };
     });
   }
 
@@ -688,7 +678,7 @@ export function JamView() {
     const sqT   = rect.top  + (rect.height - sq) / 2;
     const xPct  = ((clientX - sqL) / sq) * 100;
     const yPct  = ((clientY - sqT) / sq) * 100;
-    setPlayerPos(snapToGrid(xPct, yPct));
+    setPlayerPos(clampPos(xPct, yPct));
   }
 
   /** Cycle the sound on a placed band character (called from the
@@ -946,7 +936,7 @@ export function JamView() {
           ref={stageRef}
           // Room-level drop target — accepts character tiles dragged
           // from CharacterPalette (HTML5 drag flow) and places them at
-          // the cursor position (snapped to grid).
+          // the cursor position.
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes(PLACE_CHAR_MIME)) {
               e.preventDefault();
