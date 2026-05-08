@@ -161,8 +161,10 @@ export function CharacterControls({
           animation: "jamPanelPop 0.22s cubic-bezier(.34,1.56,.64,1) both",
         }}
       >
-        {/* Header — sound name + close X */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        {/* Header — sound name + remove + close. The trash button is
+         *  prominent (red tint) so removal is discoverable; the X
+         *  closes the popover without removing the character. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
           <span style={{ fontSize: 18, lineHeight: 1 }}>{sound?.glyph ?? "🎵"}</span>
           <span
             style={{
@@ -179,10 +181,41 @@ export function CharacterControls({
             {sound?.name ?? "EMPTY SLOT"}
           </span>
           <button
+            onClick={onClear}
+            disabled={!sound}
+            aria-label="remove character from room"
+            title="remove from room"
+            style={{
+              width: 24, height: 24, borderRadius: 12,
+              border: "1.5px solid rgba(233, 69, 96, 0.55)",
+              background: "rgba(233, 69, 96, 0.18)",
+              color: "#ff7a8e",
+              fontSize: 13,
+              cursor: sound ? "pointer" : "not-allowed",
+              opacity: sound ? 1 : 0.4,
+              padding: 0, lineHeight: 1,
+              display: "grid",
+              placeItems: "center",
+              transition: "background 0.15s, border-color 0.15s, transform 0.1s",
+            }}
+            onMouseEnter={(e) => {
+              if (sound) {
+                e.currentTarget.style.background   = "rgba(233, 69, 96, 0.32)";
+                e.currentTarget.style.borderColor  = "rgba(233, 69, 96, 0.85)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background  = "rgba(233, 69, 96, 0.18)";
+              e.currentTarget.style.borderColor = "rgba(233, 69, 96, 0.55)";
+            }}
+          >
+            🗑
+          </button>
+          <button
             onClick={onClose}
             aria-label="close"
             style={{
-              width: 22, height: 22, borderRadius: 11,
+              width: 24, height: 24, borderRadius: 12,
               border: "1.5px solid rgba(255,255,255,0.18)",
               background: "rgba(255,255,255,0.06)",
               color: "rgba(255,255,255,0.7)",
@@ -408,28 +441,9 @@ export function CharacterControls({
           </button>
         )}
 
-        {/* Clear slot */}
-        <button
-          onClick={onClear}
-          disabled={!sound}
-          style={{
-            width: "100%",
-            padding: "7px 10px",
-            borderRadius: 10,
-            border: "1.5px solid rgba(255,255,255,0.18)",
-            background: "rgba(255,255,255,0.04)",
-            color: "rgba(255,255,255,0.7)",
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            cursor: sound ? "pointer" : "not-allowed",
-            opacity: sound ? 1 : 0.4,
-          }}
-        >
-          ✕ Clear slot
-        </button>
+        {/* Removal moved to the header trash icon — keeps the menu
+         *  shorter and removal discoverable from where the eye lands
+         *  first. */}
 
         {/* Tail pointer — only when the popover sits ABOVE the
          *  anchor (default position). Hidden when flipped below to
