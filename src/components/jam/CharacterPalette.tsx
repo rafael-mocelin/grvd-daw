@@ -1,55 +1,56 @@
 /**
- * CharacterPalette — popup roster for the v1 free-place model.
+ * CharacterPalette — thin side strip with 3 character-type tiles.
  *
- * Replaces the v1 SoundPalette sidebar. Click the floating "+" button
- * on the stage to toggle this open. The popup shows every (character ×
- * sound) tile from PLACEABLE_CHARS as a v2-style chunky tile (idle
- * icon + name). Drag a tile and drop anywhere in the room to place
- * the character there.
+ * Anchored to the right edge of the viewport, OUTSIDE the room area
+ * so the player can still see the floor while choosing. No backdrop,
+ * no darkening — the popup is non-modal and can sit alongside the
+ * room with a click-catcher.
  *
- * Drag preview UX: when the user starts dragging, the browser cursor
- * shows the FULL-SIZE character sprite (not the tiny tile icon) so the
- * player can preview how the character will sit at the drop location.
- * This is wired via dataTransfer.setDragImage() pointing at a hidden
- * sprite image we keep at the actual placement size.
+ * Layout: a single column with 3 tiles, one per CHARACTER TYPE:
+ *   - blue  : drum-guy    (drums)
+ *   - green : beat-guy    (808)
+ *   - purple: guitar-guy  (sample)
+ *
+ * Tapping a tile picks the FIRST sound for that kind that isn't yet
+ * on stage and enters placement mode (handled by JamView). When all
+ * three sounds for a kind are placed, the tile shows "ALL ON STAGE"
+ * and is disabled.
+ *
+ * The (character × sound) granularity still exists at the audio /
+ * skin level — every sound has its own art and own audio bus — but
+ * the player only sees the type roster here. Picking the same tile
+ * twice spawns the next variant; clear an instance to free up a slot
+ * for a re-pick.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { PLACEABLE_CHARS, type PlaceableChar } from "../../data/placeableChars";
 import { CHARACTER_SKINS, type CharacterKind } from "../../data/characterSkins";
 import { C } from "../../ui/burst/tokens";
 
 interface CharacterPaletteProps {
-  /** soundIds currently placed in the room — drives the "in use"
-   *  glow on the tile so the player sees what's already on the floor. */
+  /** soundIds currently placed in the room — drives the "all on stage"
+   *  state on each kind tile. */
   placedSoundIds: Set<string>;
-  /** Px-size used as the drag preview (matches the placement size in
-   *  the room). Driven by JamView from the measured room. */
-  dragPreviewSize: number;
-  /** Called when the user TAPS a character tile (no drag). Hands the
-   *  picked character off to JamView, which closes the popup and
-   *  enters placement mode (cursor carries the sprite around the
-   *  room). The classic drag flow still works via dataTransfer. */
+  /** Picked a character to place — JamView closes the popup and
+   *  enters placement mode (cursor carries the sprite). */
   onPick: (char: PlaceableChar) => void;
   onClose: () => void;
 }
 
-const DRAG_MIME = "text/jam-place-char";
-
-/** Sections to group the tiles by — same buddy framing as v2's sidebar. */
-const SECTIONS: { kind: CharacterKind; label: string; accent: string }[] = [
-  { kind: "drum-guy",   label: "DRUM BUDDIES",   accent: C.coral  },
-  { kind: "beat-guy",   label: "808 BUDDIES",    accent: "#fb923c" },
-  { kind: "guitar-guy", label: "SAMPLE BUDDIES", accent: C.green  },
+/** Section metadata, ordered top-to-bottom in the strip. */
+const KIND_SECTIONS: { kind: CharacterKind; label: string; accent: string }[] = [
+  { kind: "drum-guy",   label: "DRUMS",  accent: C.coral  },   // blue character
+  { kind: "beat-guy",   label: "808",    accent: "#fb923c" },  // green character
+  { kind: "guitar-guy", label: "SAMPLE", accent: C.green  },   // purple character
 ];
 
 export function CharacterPalette({
   placedSoundIds,
-  dragPreviewSize,
   onPick,
   onClose,
 }: CharacterPaletteProps) {
-  // Esc closes the popup.
+  // Esc closes the strip.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -59,324 +60,191 @@ export function CharacterPalette({
   }, [onClose]);
 
   return (
-    <>
-      {/* Backdrop — capture outside-clicks to dismiss. */}
-      <div
-        onClick={onClose}
-        style={{
-          position: "absolute",
-          inset: 0,
-          zIndex: 40,
-          background: "rgba(8, 12, 24, 0.4)",
-          backdropFilter: "blur(2px)",
-          WebkitBackdropFilter: "blur(2px)",
-          animation: "charPalFadeIn 0.16s ease-out",
-        }}
-      />
+    <div
+      role="dialog"
+      aria-label="characters"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: "fixed",
+        right: 14,
+        top:  "50%",
+        transform: "translateY(-50%)",
+        zIndex: 60,
+        width: 92,
+        padding: 10,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        borderRadius: 18,
+        background: "linear-gradient(180deg, #243358 0%, #0f1828 100%)",
+        border: "2.5px solid #0a0f1c",
+        boxShadow:
+          "inset 0 2px 0 rgba(255,255,255,0.18), 0 6px 0 rgba(0,0,0,0.5), 0 0 22px rgba(233,69,96,0.35)",
+        animation: "charPalSlideIn 0.22s cubic-bezier(.34,1.56,.64,1) both",
+      }}
+    >
+      {KIND_SECTIONS.map((section) => {
+        // Find all (character × sound) entries for this kind, in their
+        // original (skin-map) order. The next-to-place is the first one
+        // whose soundId isn't already on stage.
+        const tilesForKind = PLACEABLE_CHARS.filter((c) => c.characterKind === section.kind);
+        const nextChar = tilesForKind.find((c) => !placedSoundIds.has(c.soundId)) ?? null;
+        const allPlaced = !nextChar;
+        // Icon shown on the tile — for an "available" kind, show the
+        // next variant the player will spawn; when all-placed, fall
+        // back to the first variant's pose.
+        const iconSrc = nextChar?.iconSrc ?? CHARACTER_SKINS[section.kind][tilesForKind[0].soundId].right;
 
-      <div
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="characters"
-        style={{
-          position: "absolute",
-          left: "50%",
-          top:  "50%",
-          transform: "translate(-50%, -50%)",
-          zIndex: 60,
-          width: "min(94vw, 480px)",
-          maxHeight: "80vh",
-          overflowY: "auto",
-          padding: "16px 16px 18px",
-          borderRadius: 22,
-          background: "linear-gradient(180deg, #243358 0%, #0f1828 100%)",
-          border: "2.5px solid #0a0f1c",
-          boxShadow:
-            "inset 0 2px 0 rgba(255,255,255,0.18), 0 6px 0 rgba(0,0,0,0.5), 0 16px 36px rgba(0,0,0,0.55)",
-          animation: "charPalPop 0.22s cubic-bezier(.34,1.56,.64,1) both",
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
-          <div
-            style={{
-              fontFamily: "'Lilita One', system-ui",
-              fontSize: 20,
-              color: "#fff",
-              letterSpacing: 0.6,
-              textShadow: "0 2px 0 rgba(0,0,0,0.6), 0 0 14px rgba(233, 69, 96, 0.55)",
+        return (
+          <KindTile
+            key={section.kind}
+            label={section.label}
+            accent={section.accent}
+            iconSrc={iconSrc}
+            allPlaced={allPlaced}
+            placedCount={tilesForKind.filter((c) => placedSoundIds.has(c.soundId)).length}
+            totalCount={tilesForKind.length}
+            onPick={() => {
+              if (nextChar) onPick(nextChar);
             }}
-          >
-            CHOOSE A CHARACTER
-          </div>
-          <div style={{ flex: 1 }} />
-          <button
-            onClick={onClose}
-            aria-label="close"
-            style={{
-              width: 30, height: 30, borderRadius: 15,
-              border: "2px solid rgba(255,255,255,0.22)",
-              background: "rgba(255,255,255,0.08)",
-              color: "rgba(255,255,255,0.85)",
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 12, fontWeight: 700,
-              cursor: "pointer",
-              padding: 0, lineHeight: 1,
-            }}
-          >
-            ✕
-          </button>
-        </div>
+          />
+        );
+      })}
 
-        <div
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 10,
-            color: "rgba(255,255,255,0.55)",
-            letterSpacing: "0.16em",
-            textTransform: "uppercase",
-            marginBottom: 14,
-          }}
-        >
-          tap one — then click the room to place
-        </div>
-
-        {/* Sections */}
-        {SECTIONS.map((section) => {
-          const tiles = PLACEABLE_CHARS.filter((c) => c.characterKind === section.kind);
-          return (
-            <div key={section.kind} style={{ marginBottom: 14 }}>
-              <SectionLabel color={section.accent}>{section.label}</SectionLabel>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  gap: 8,
-                }}
-              >
-                {tiles.map((char) => (
-                  <CharTile
-                    key={char.id}
-                    char={char}
-                    inUse={placedSoundIds.has(char.soundId)}
-                    accent={section.accent}
-                    dragPreviewSize={dragPreviewSize}
-                    onPick={onPick}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-
-        <style>{`
-          @keyframes charPalFadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
-          @keyframes charPalPop {
-            0%   { transform: translate(-50%, -50%) scale(0.9); opacity: 0; }
-            100% { transform: translate(-50%, -50%) scale(1);   opacity: 1; }
-          }
-        `}</style>
-      </div>
-    </>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* SectionLabel — chunky game-y header above each grid (matches v2 style).    */
-/* -------------------------------------------------------------------------- */
-
-function SectionLabel({ color, children }: { color: string; children: React.ReactNode }) {
-  return (
-    <div style={{ padding: "2px 4px 6px" }}>
-      <div
-        style={{
-          fontFamily: "'Lilita One', system-ui",
-          fontSize: 15,
-          color: "#fff",
-          letterSpacing: 0.5,
-          textTransform: "uppercase",
-          lineHeight: 1.05,
-          textShadow: `0 2px 0 rgba(0, 0, 0, 0.65), 0 0 12px ${color}aa`,
-        }}
-      >
-        {children}
-      </div>
-      <div
-        style={{
-          marginTop: 3,
-          height: 2,
-          borderRadius: 1,
-          background: `linear-gradient(90deg, ${color} 0%, ${color}55 60%, transparent 100%)`,
-          boxShadow: `0 0 6px ${color}66`,
-        }}
-      />
+      <style>{`
+        @keyframes charPalSlideIn {
+          0%   { transform: translate(20px, -50%) scale(0.92); opacity: 0; }
+          100% { transform: translate(0,    -50%) scale(1);    opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* CharTile — one (character × sound) entry. Drag uses setDragImage so the    */
-/* cursor preview is the FULL-SIZE character sprite, not the tile icon.       */
+/* KindTile — one of the three character-type tiles in the side strip.        */
 /* -------------------------------------------------------------------------- */
 
-interface CharTileProps {
-  char:            PlaceableChar;
-  inUse:           boolean;
-  accent:          string;
-  dragPreviewSize: number;
-  onPick:          (char: PlaceableChar) => void;
+interface KindTileProps {
+  label:       string;
+  accent:      string;
+  iconSrc:     string;
+  allPlaced:   boolean;
+  placedCount: number;
+  totalCount:  number;
+  onPick:      () => void;
 }
 
-function CharTile({ char, inUse, accent, dragPreviewSize, onPick }: CharTileProps) {
-  const [dragging, setDragging] = useState(false);
-  const previewRef = useRef<HTMLImageElement>(null);
-
-  // Use the same skin's right-pose as the drag preview — same image as
-  // the tile icon, just rendered at full placement size offscreen.
-  const previewSrc = CHARACTER_SKINS[char.characterKind][char.soundId].right;
-
-  function onDragStart(e: React.DragEvent<HTMLDivElement>) {
-    e.dataTransfer.setData(DRAG_MIME, char.soundId);
-    e.dataTransfer.effectAllowed = "copy";
-    // Anchor the preview at its bottom-center on the cursor so the
-    // sprite's "feet" sit where the user is pointing — matches the
-    // translate(-50%, -100%) anchoring used when placing.
-    if (previewRef.current) {
-      e.dataTransfer.setDragImage(
-        previewRef.current,
-        dragPreviewSize / 2,
-        dragPreviewSize,
-      );
-    }
-    setDragging(true);
-  }
-  function onDragEnd() { setDragging(false); }
-
-  /** Tap (no drag) → pick the character. The popup closes and we
-   *  enter placement mode on the parent. The browser only fires
-   *  click when there's no drag, so the two flows don't overlap. */
-  function onClick() {
-    if (inUse) return;
-    onPick(char);
-  }
-
+function KindTile({ label, accent, iconSrc, allPlaced, placedCount, totalCount, onPick }: KindTileProps) {
   return (
-    <>
+    <button
+      onClick={onPick}
+      disabled={allPlaced}
+      title={
+        allPlaced
+          ? `${label} — all variants on stage`
+          : `${label} — tap to spawn (${placedCount}/${totalCount} on stage)`
+      }
+      style={{
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: 4,
+        padding: 6,
+        borderRadius: 12,
+        background: allPlaced
+          ? "rgba(0, 0, 0, 0.35)"
+          : "linear-gradient(180deg, rgba(36, 51, 88, 0.65) 0%, rgba(15, 24, 40, 0.65) 100%)",
+        border: `2px solid ${allPlaced ? "rgba(255,255,255,0.10)" : accent}`,
+        boxShadow: allPlaced
+          ? "inset 0 1px 0 rgba(255,255,255,0.04)"
+          : `inset 0 1px 0 rgba(255,255,255,0.10), 0 3px 0 rgba(0,0,0,0.4), 0 0 14px ${accent}55`,
+        cursor: allPlaced ? "not-allowed" : "pointer",
+        opacity: allPlaced ? 0.45 : 1,
+        userSelect: "none",
+        transition: "transform 0.12s ease, box-shadow 0.18s",
+      }}
+    >
+      {/* Big square icon */}
       <div
-        draggable={!inUse}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onClick={onClick}
-        role="button"
-        title={inUse
-          ? `${char.name} — already on stage`
-          : `${char.name} — tap to pick or drag`}
         style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "stretch",
-          gap: 4,
-          padding: 6,
-          borderRadius: 12,
-          background: dragging
-            ? "rgba(255,255,255,0.10)"
-            : "linear-gradient(180deg, rgba(36, 51, 88, 0.6) 0%, rgba(15, 24, 40, 0.6) 100%)",
-          border: `2px solid ${inUse ? accent : "rgba(0,0,0,0.55)"}`,
-          boxShadow: inUse
-            ? `0 0 0 1.5px ${accent}, inset 0 1px 0 rgba(255,255,255,0.08), 0 3px 0 rgba(0,0,0,0.4), 0 0 14px ${accent}77`
-            : "inset 0 1px 0 rgba(255,255,255,0.08), 0 3px 0 rgba(0,0,0,0.35)",
-          cursor: inUse ? "not-allowed" : "grab",
-          userSelect: "none",
-          opacity: dragging ? 0.4 : (inUse ? 0.55 : 1),
-          transition: "box-shadow 0.18s, opacity 0.15s",
+          width: "100%",
+          aspectRatio: "1 / 1",
+          borderRadius: 10,
+          background: `radial-gradient(ellipse at 50% 110%, ${accent}55, rgba(15, 24, 40, 0.7) 70%)`,
+          border: "1.5px solid #0a0f1c",
+          overflow: "hidden",
+          display: "grid",
+          placeItems: "center",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
         }}
       >
-        <div
+        <img
+          src={iconSrc}
+          alt=""
+          draggable={false}
           style={{
-            width: "100%",
-            aspectRatio: "1 / 1",
-            borderRadius: 10,
-            background: `radial-gradient(ellipse at 50% 110%, ${accent}55, rgba(15, 24, 40, 0.7) 70%)`,
-            border: "1.5px solid #0a0f1c",
-            overflow: "hidden",
-            display: "grid",
-            placeItems: "center",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+            width:  "120%",
+            height: "120%",
+            objectFit: "contain",
+            objectPosition: "center 65%",
+            pointerEvents: "none",
+            userSelect: "none",
+            WebkitUserSelect: "none",
           }}
-        >
-          <img
-            src={char.iconSrc}
-            alt=""
-            draggable={false}
-            style={{
-              width:  "120%",
-              height: "120%",
-              objectFit: "contain",
-              objectPosition: "center 65%",
-              pointerEvents: "none",
-              userSelect: "none",
-              WebkitUserSelect: "none",
-            }}
-          />
-        </div>
-        <div
-          style={{
-            fontFamily: "'Lilita One', system-ui",
-            fontSize: 11,
-            color: "#fff",
-            letterSpacing: 0.3,
-            textAlign: "center",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            textShadow: "0 1px 0 rgba(0,0,0,0.55)",
-          }}
-        >
-          {char.name}
-        </div>
-        {inUse && (
-          <div
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 8,
-              fontWeight: 700,
-              color: accent,
-              letterSpacing: "0.18em",
-              textAlign: "center",
-              textTransform: "uppercase",
-              marginTop: -2,
-            }}
-          >
-            on stage
-          </div>
-        )}
+        />
       </div>
 
-      {/* Hidden full-size sprite — used as the drag-preview image so
-       *  the cursor shows the actual character at room size. Kept off-
-       *  screen but loaded so the browser has it ready when drag
-       *  starts. */}
-      <img
-        ref={previewRef}
-        src={previewSrc}
-        alt=""
-        aria-hidden="true"
-        draggable={false}
+      {/* Label below the icon */}
+      <div
         style={{
-          position: "fixed",
-          top: -10000,
-          left: -10000,
-          width:  dragPreviewSize,
-          height: dragPreviewSize,
-          objectFit: "contain",
-          pointerEvents: "none",
-          userSelect: "none",
+          fontFamily: "'Lilita One', system-ui",
+          fontSize: 10,
+          color: "#fff",
+          letterSpacing: 0.4,
+          textAlign: "center",
+          textShadow: "0 1px 0 rgba(0,0,0,0.55)",
+          lineHeight: 1.05,
         }}
-      />
-    </>
+      >
+        {label}
+      </div>
+
+      {/* placed-count chip — shows progress (e.g., 1/3) so the player
+       *  knows variants exist and the tile is going to spawn the next
+       *  one. Becomes "FULL" when all variants are out. */}
+      <div
+        style={{
+          position: "absolute",
+          top: -6,
+          right: -6,
+          minWidth: 22,
+          height: 18,
+          padding: "0 6px",
+          borderRadius: 9,
+          background: allPlaced
+            ? "rgba(255,255,255,0.10)"
+            : `linear-gradient(180deg, ${accent}, ${accent}aa)`,
+          border: "1.5px solid #0a0f1c",
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 9,
+          fontWeight: 700,
+          color: allPlaced ? "rgba(255,255,255,0.55)" : "#0a0f1c",
+          letterSpacing: "0.06em",
+          display: "grid",
+          placeItems: "center",
+          textTransform: "uppercase",
+        }}
+      >
+        {allPlaced ? "FULL" : `${placedCount}/${totalCount}`}
+      </div>
+    </button>
   );
 }
 
 /** Re-export the dataTransfer MIME so JamView's drop handler can read
- *  the same string. Single source of truth for the drag protocol. */
-export const PLACE_CHAR_MIME = DRAG_MIME;
+ *  the same string. We no longer drag from the palette in this design,
+ *  but JamView still listens for it from any other source — kept for
+ *  future use and to avoid an import churn. */
+export const PLACE_CHAR_MIME = "text/jam-place-char";

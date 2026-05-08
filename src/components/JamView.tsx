@@ -1136,7 +1136,6 @@ export function JamView() {
       {paletteOpen && (
         <CharacterPalette
           placedSoundIds={new Set(Object.keys(bandPlacements))}
-          dragPreviewSize={bandSpriteSize}
           onPick={handlePickCharacter}
           onClose={() => setPaletteOpen(false)}
         />
