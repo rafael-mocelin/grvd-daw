@@ -31,7 +31,7 @@
  *   - Saving the jam as a song
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store/useStore";
 import { REAL_SOUNDS } from "../data/sounds";
 import type { LayerKind, SoundOption } from "../data/types";
@@ -232,6 +232,36 @@ export function JamView() {
 
   // Stage container — used to compute control-panel anchor coords.
   const stageRef = useRef<HTMLDivElement>(null);
+
+  // ── Room size (in px) ──
+  // The Crib backdrop renders as a square contained inside the stage —
+  // its edge length is min(stageW, stageH). We measure that here so we
+  // can size the band sprites + player as a fraction of the room. This
+  // is what makes the formation hold its shape across viewports: the
+  // slot positions are already %-based, so scaling sprite size with the
+  // room keeps the spacing-to-sprite ratio constant. Without this,
+  // sprites stay 200 / 250 px on every screen and bleed into each other
+  // on narrow viewports while looking tiny on wide ones.
+  const [roomSize, setRoomSize] = useState(0);
+  useLayoutEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const measure = () => {
+      setRoomSize(Math.min(el.clientWidth, el.clientHeight));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Sprite size fractions — tuned against the slot positions so the
+  // band reads as a tight band-photo line at any size without sprites
+  // overlapping into illegibility. Player gets a slight bump (~26%) so
+  // they read as the lead.
+  const BAND_SPRITE_FRAC   = 0.22;
+  const PLAYER_SPRITE_FRAC = 0.26;
+  const bandSpriteSize   = Math.max(64,  Math.round(roomSize * BAND_SPRITE_FRAC));
+  const playerSpriteSize = Math.max(80,  Math.round(roomSize * PLAYER_SPRITE_FRAC));
 
   // Map soundId → SoundOption for fast lookup.
   const soundsById = useMemo(() => {
@@ -688,6 +718,7 @@ export function JamView() {
                     playing={playing}
                     bpm={bpm}
                     hypeLine={hypeLines[slot.id] ?? null}
+                    size={bandSpriteSize}
                     onDropSound={(soundId) => handleDrop(slot.id, soundId)}
                     onTap={() => state.soundId && handleMuteToggle(slot.id)}
                     onLongPress={() => state.soundId && handleSlotTap(slot.id)}
@@ -717,6 +748,7 @@ export function JamView() {
                 filled={!!slotState[PLAYER_SLOT_ID].soundId}
                 muted={slotState[PLAYER_SLOT_ID].muted}
                 dragOver={dragOverSlot === PLAYER_SLOT_ID}
+                size={playerSpriteSize}
                 onDropSound={(soundId) => handleDrop(PLAYER_SLOT_ID, soundId)}
                 onDragEnter={() => setDragOverSlot(PLAYER_SLOT_ID)}
                 onDragLeave={() => setDragOverSlot((s) => (s === PLAYER_SLOT_ID ? null : s))}
