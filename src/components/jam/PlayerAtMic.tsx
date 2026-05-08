@@ -14,7 +14,7 @@
  * Asset path: /characters/player-guy/player-character.png (2000x2000 RGBA).
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useJamAudioFrame } from "../../hooks/useJamAudioFrame";
 
 interface PlayerAtMicProps {
@@ -42,9 +42,13 @@ interface PlayerAtMicProps {
    *  viewport. Default 250 keeps prior behaviour for any caller that
    *  hasn't been migrated. */
   size?:         number;
+  /** Drag-to-reposition. Fired on release of a drag past the
+   *  threshold; JamView snaps to grid and updates playerPos. */
+  onMove?:       (clientX: number, clientY: number) => void;
 }
 
-const LONG_PRESS_MS = 320;
+const LONG_PRESS_MS  = 320;
+const DRAG_THRESHOLD = 6;
 
 export function PlayerAtMic({
   active,
@@ -57,6 +61,7 @@ export function PlayerAtMic({
   onTap,
   onLongPress,
   size = 250,
+  onMove,
 }: PlayerAtMicProps) {
   // Sprite is square at `size`. The wrapper extends slightly taller so
   // the mic stand base + "YOU" label sit below the sprite. All
@@ -98,30 +103,64 @@ export function PlayerAtMic({
     };
   }, [audioFrame, active]);
 
-  // ── Tap vs long-press — only relevant when a vocal is assigned. ──
+  // ── Tap / long-press / drag-to-reposition ──
+  // The player slot is always present once placed (no "empty"
+  // state), so drag is gated only on having `onMove` wired. Below
+  // DRAG_THRESHOLD movement, the gesture collapses to a tap (mute
+  // toggle) or a long-press (open controls); past it, the player
+  // sprite follows the pointer and lands wherever they release.
   const longPressTimerRef = useRef<number | null>(null);
   const longPressFiredRef = useRef(false);
+  const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0 });
+  const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
+
   function clearLongPressTimer() {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
   }
-  function handlePointerDown() {
-    if (!filled) return;
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     longPressFiredRef.current = false;
+    dragRef.current = { active: true, moved: false, startX: e.clientX, startY: e.clientY };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     clearLongPressTimer();
+    if (!filled) return;
     longPressTimerRef.current = window.setTimeout(() => {
-      longPressFiredRef.current = true;
-      onLongPress();
+      if (dragRef.current.active && !dragRef.current.moved) {
+        longPressFiredRef.current = true;
+        onLongPress();
+      }
     }, LONG_PRESS_MS);
   }
-  function handlePointerUp() {
-    if (!filled) return;
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const ref = dragRef.current;
+    if (!ref.active) return;
+    const dx = e.clientX - ref.startX;
+    const dy = e.clientY - ref.startY;
+    if (!ref.moved && Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
+    if (!ref.moved) {
+      ref.moved = true;
+      clearLongPressTimer();
+    }
+    if (onMove) setDragOffset({ dx, dy });
+  }
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const wasDrag = dragRef.current.moved;
+    dragRef.current.active = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     clearLongPressTimer();
+    if (wasDrag) {
+      setDragOffset(null);
+      if (onMove) onMove(e.clientX, e.clientY);
+      return;
+    }
+    if (!filled) return;
     if (!longPressFiredRef.current) onTap();
   }
   function handlePointerCancel() {
+    dragRef.current.active = false;
+    setDragOffset(null);
     clearLongPressTimer();
   }
 
@@ -145,28 +184,36 @@ export function PlayerAtMic({
       onDragLeave={onDragLeave}
       onDrop={handleDrop}
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerCancel}
       onPointerCancel={handlePointerCancel}
       style={{
         position: "relative",
         width:  playerW,
         // Extra height for the mic stand base + 'YOU' label below.
         height: wrapperH,
-        // Drop-target halo when something's hovering over this slot.
-        // JamView sets dragOver only when the dragged tile is the MIC,
-        // so the halo also doubles as "yes this is the right slot."
-        filter: dragOver
-          ? "drop-shadow(0 0 18px rgba(255, 77, 156, 0.95)) drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))"
-          : "drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))",
-        cursor: filled ? "pointer" : "default",
+        // Drop-target halo when something's hovering over this slot,
+        // or a brighter gold halo while the player is being dragged
+        // around the room.
+        filter: dragOffset
+          ? "drop-shadow(0 0 22px rgba(255, 230, 90, 0.85)) drop-shadow(0 10px 12px rgba(0, 0, 0, 0.6))"
+          : dragOver
+            ? "drop-shadow(0 0 18px rgba(255, 77, 156, 0.95)) drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))"
+            : "drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55))",
+        cursor: dragOffset ? "grabbing" : (filled ? "pointer" : "default"),
         // Muted = faded same as band slots, so the player's mute state
         // reads at a glance.
         opacity: filled ? (muted ? 0.72 : 1) : 1,
-        transition: "opacity 0.25s ease, filter 0.18s",
+        transform: dragOffset
+          ? `translate(${dragOffset.dx}px, ${dragOffset.dy}px)`
+          : undefined,
+        transition: dragOffset
+          ? "none"
+          : "opacity 0.25s ease, filter 0.18s",
         userSelect: "none",
         WebkitUserSelect: "none",
-        touchAction: "manipulation",
+        touchAction: "none",
+        zIndex: dragOffset ? 10 : undefined,
       }}
       onContextMenu={(e) => {
         // Block the browser's native context menu (Save Image, Inspect)

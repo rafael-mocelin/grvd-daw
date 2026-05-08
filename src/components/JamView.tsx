@@ -238,10 +238,12 @@ export function JamView() {
   const [pendingChar, setPendingChar] = useState<PlaceableChar | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
 
-  // Track cursor while in placement mode (band character OR player)
-  // so the floating sprite tracks the pointer. We attach to document
-  // so movement outside the stage (e.g., over the top bar) still
-  // updates the preview.
+  // Track cursor + pointerup while in placement mode (band character
+  // OR player). Pointermove drives the cursor sprite; pointerup
+  // handles the release-on-room drop so the entire pick + drop is a
+  // single gesture (drag from tile to room). Releases on the popup,
+  // top bar, or anywhere else are ignored — placement mode persists
+  // so the user can also tap-then-click if they prefer.
   useEffect(() => {
     if (!pendingChar && !pendingPlayer) {
       setCursorPos(null);
@@ -256,12 +258,34 @@ export function JamView() {
         setPendingPlayer(false);
       }
     };
+    const onUp = (e: PointerEvent) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const r = stage.getBoundingClientRect();
+      const inStage = (
+        e.clientX >= r.left && e.clientX <= r.right &&
+        e.clientY >= r.top  && e.clientY <= r.bottom
+      );
+      if (!inStage) return;
+      // Ignore releases over the popup or onto an existing placed
+      // character — we only place on empty floor.
+      const t = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      if (!t) return;
+      if (t.closest('[role="dialog"][aria-label="characters"]')) return;
+      if (t.closest("[data-slot-id]")) return;
+      void placePendingAt(e.clientX, e.clientY);
+    };
     window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup",   onUp);
     window.addEventListener("keydown",     onKey);
     return () => {
       window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup",   onUp);
       window.removeEventListener("keydown",     onKey);
     };
+    // placePendingAt is closure-stable; we only re-run when pending
+    // state flips so the listener has the latest closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingChar, pendingPlayer]);
 
   // Which slot has its control panel open (null = none).
@@ -512,19 +536,18 @@ export function JamView() {
     return () => window.clearInterval(interval);
   }, [playing]);
 
-  /** Picked a character from the popup (tap, no drag) — close the
-   *  popup and enter placement mode. The cursor will carry the
-   *  full-size sprite until the player clicks the room. */
+  /** Picked a character from the popup (tap, no drag) — enter
+   *  placement mode. The popup STAYS OPEN so the player can pick
+   *  another character right after dropping the current one without
+   *  re-opening the menu. Close it explicitly via the + button, X,
+   *  or Esc when finished placing. */
   function handlePickCharacter(char: PlaceableChar) {
-    setPaletteOpen(false);
     setPendingChar(char);
   }
 
-  /** Picked the player from the popup — close the popup and enter
-   *  placement mode. The cursor will carry the player sprite until
-   *  the user clicks the room. */
+  /** Picked the player from the popup — enter placement mode. Same
+   *  rule as handlePickCharacter: the popup stays open. */
   function handlePickPlayer() {
-    setPaletteOpen(false);
     setPendingPlayer(true);
   }
 
@@ -595,8 +618,45 @@ export function JamView() {
       resumeJam();
       setPlaying(true);
     }
+    // Popup stays open after a drop — the player can keep placing
+    // characters without re-opening the menu each time. The + button
+    // / X / Esc closes it.
+  }
 
-    setPaletteOpen(false);
+  /** Drag-to-reposition. Fired by BandSlot when a placed character
+   *  is dragged past the threshold and released. The audio bus
+   *  doesn't need to be touched — only the iso position changes.
+   *  Snap to the same grid the palette drops use. */
+  function handleSlotMove(slotId: string, clientX: number, clientY: number) {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect  = stage.getBoundingClientRect();
+    const sq    = Math.min(rect.width, rect.height);
+    const sqL   = rect.left + (rect.width  - sq) / 2;
+    const sqT   = rect.top  + (rect.height - sq) / 2;
+    const xPct  = ((clientX - sqL) / sq) * 100;
+    const yPct  = ((clientY - sqT) / sq) * 100;
+    const snapped = snapToGrid(xPct, yPct);
+    setBandPlacements((prev) => {
+      const cur = prev[slotId as CharacterKind];
+      if (!cur) return prev;
+      return { ...prev, [slotId]: { ...cur, pos: snapped } };
+    });
+  }
+
+  /** Drag-to-reposition for the player slot. Same translation logic;
+   *  updates the standalone `playerPos` state used by StageSpot and
+   *  PlayerAtMic. */
+  function handlePlayerMove(clientX: number, clientY: number) {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect  = stage.getBoundingClientRect();
+    const sq    = Math.min(rect.width, rect.height);
+    const sqL   = rect.left + (rect.width  - sq) / 2;
+    const sqT   = rect.top  + (rect.height - sq) / 2;
+    const xPct  = ((clientX - sqL) / sq) * 100;
+    const yPct  = ((clientY - sqT) / sq) * 100;
+    setPlayerPos(snapToGrid(xPct, yPct));
   }
 
   /** Cycle the sound on a placed band character (called from the
@@ -979,6 +1039,7 @@ export function JamView() {
                     onDropSound={() => { /* no-op: room-level drop */ }}
                     onTap={() => state.soundId && handleMuteToggle(slotId)}
                     onLongPress={() => state.soundId && handleSlotTap(slotId)}
+                    onMove={(x, y) => handleSlotMove(slotId, x, y)}
                     dragOver={false}
                     onDragEnter={() => { /* no-op */ }}
                     onDragLeave={() => { /* no-op */ }}
@@ -1013,6 +1074,7 @@ export function JamView() {
                   onDragLeave={() => setDragOverSlot((s) => (s === PLAYER_SLOT_ID ? null : s))}
                   onTap={() => slotState[PLAYER_SLOT_ID].soundId && handleMuteToggle(PLAYER_SLOT_ID)}
                   onLongPress={() => slotState[PLAYER_SLOT_ID].soundId && handleSlotTap(PLAYER_SLOT_ID)}
+                  onMove={handlePlayerMove}
                 />
               </div>
             )}

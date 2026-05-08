@@ -54,9 +54,18 @@ interface BandSlotProps {
   onDragLeave:   () => void;
   /** Render size in px — square. Defaults to 200. */
   size?:         number;
+  /** Drag-to-reposition. Fired with viewport (clientX/Y) coords on
+   *  the release of a drag past the threshold. JamView snaps to grid
+   *  and updates the slot's pos. When undefined, drag-to-move is
+   *  disabled and the slot only does tap/long-press. */
+  onMove?:       (clientX: number, clientY: number) => void;
 }
 
 const LONG_PRESS_MS = 320;
+/** Pointer movement (in px) past which we treat the gesture as a
+ *  drag instead of a tap or long-press. Below this threshold the
+ *  existing tap/long-press logic still wins. */
+const DRAG_THRESHOLD = 6;
 
 export function BandSlot({
   slotId,
@@ -75,6 +84,7 @@ export function BandSlot({
   onDragEnter,
   onDragLeave,
   size = 200,
+  onMove,
 }: BandSlotProps) {
   const filled    = !!sound;
   const flipping  = filled && !muted && playing;
@@ -127,28 +137,84 @@ export function BandSlot({
     };
   }, [audioFrame, filled, muted]);
 
-  // ── Tap vs long-press ──
+  // ── Tap / long-press / drag ──
+  // Below DRAG_THRESHOLD movement, the gesture is a tap (mute) or a
+  // long-press (open controls). Past the threshold, the slot enters
+  // drag mode: pointer capture keeps movement events flowing even
+  // when the cursor leaves the slot bounds, the sprite follows the
+  // pointer via a transient transform offset, and onMove is fired
+  // with the final clientX/Y on release so JamView can snap it to
+  // grid and update the placement.
   const longPressTimerRef = useRef<number | null>(null);
   const longPressFiredRef = useRef(false);
+  const dragRef = useRef({
+    active:  false,
+    moved:   false,
+    startX:  0,
+    startY:  0,
+  });
+  const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
+
   function clearLongPressTimer() {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
   }
-  function handlePointerDown() {
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     longPressFiredRef.current = false;
+    dragRef.current = {
+      active: true,
+      moved:  false,
+      startX: e.clientX,
+      startY: e.clientY,
+    };
+    // Capture the pointer so move/up keep firing if the cursor leaves
+    // the slot — required for smooth drag past the slot bounds.
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     clearLongPressTimer();
     longPressTimerRef.current = window.setTimeout(() => {
-      longPressFiredRef.current = true;
-      onLongPress();
+      // If the pointer is still within the threshold when the
+      // long-press timer fires, treat as long-press. If the user
+      // already entered drag mode, the timer was cancelled.
+      if (dragRef.current.active && !dragRef.current.moved) {
+        longPressFiredRef.current = true;
+        onLongPress();
+      }
     }, LONG_PRESS_MS);
   }
-  function handlePointerUp() {
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const ref = dragRef.current;
+    if (!ref.active) return;
+    const dx = e.clientX - ref.startX;
+    const dy = e.clientY - ref.startY;
+    if (!ref.moved && Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
+    if (!ref.moved) {
+      ref.moved = true;
+      // Crossed the threshold — cancel the long-press timer so it
+      // doesn't open the controls mid-drag.
+      clearLongPressTimer();
+    }
+    // Only render the visual offset when drag-to-move is wired up;
+    // for unmanaged callers the sprite stays put and the gesture
+    // collapses to a tap on release.
+    if (onMove) setDragOffset({ dx, dy });
+  }
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const wasDrag = dragRef.current.moved;
+    dragRef.current.active = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     clearLongPressTimer();
+    if (wasDrag) {
+      setDragOffset(null);
+      if (onMove) onMove(e.clientX, e.clientY);
+      return;
+    }
     if (!longPressFiredRef.current) onTap();
   }
   function handlePointerCancel() {
+    dragRef.current.active = false;
+    setDragOffset(null);
     clearLongPressTimer();
   }
 
@@ -171,8 +237,8 @@ export function BandSlot({
       onDragLeave={onDragLeave}
       onDrop={handleDrop}
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerCancel}
       onPointerCancel={handlePointerCancel}
       onContextMenu={(e) => {
         // Block the browser's native context menu (Save Image, Inspect)
@@ -185,17 +251,32 @@ export function BandSlot({
         position: "relative",
         width:  size,
         height: size,
-        cursor: "pointer",
-        filter: dragOver
-          ? "drop-shadow(0 0 18px rgba(34, 211, 238, 0.95)) drop-shadow(0 6px 8px rgba(0, 0, 0, 0.6))"
-          : "drop-shadow(0 6px 8px rgba(0, 0, 0, 0.55))",
+        cursor: dragOffset ? "grabbing" : "pointer",
+        filter: dragOffset
+          ? "drop-shadow(0 0 22px rgba(255, 230, 90, 0.85)) drop-shadow(0 10px 12px rgba(0, 0, 0, 0.6))"
+          : dragOver
+            ? "drop-shadow(0 0 18px rgba(34, 211, 238, 0.95)) drop-shadow(0 6px 8px rgba(0, 0, 0, 0.6))"
+            : "drop-shadow(0 6px 8px rgba(0, 0, 0, 0.55))",
         opacity: filled ? (muted ? 0.72 : 1) : 0.55,
-        transition: "opacity 0.25s ease, filter 0.18s",
+        // While dragging, render a translate offset so the sprite
+        // visually follows the cursor. Disable the transition during
+        // drag so the offset tracks the pointer 1:1; restore it for
+        // mute / drop-target halo changes.
+        transform: dragOffset
+          ? `translate(${dragOffset.dx}px, ${dragOffset.dy}px)`
+          : undefined,
+        transition: dragOffset
+          ? "none"
+          : "opacity 0.25s ease, filter 0.18s",
         userSelect: "none",
         WebkitUserSelect: "none",
-        touchAction: "manipulation",
+        // touchAction: none lets pointer events fire continuously
+        // through a touch-drag instead of being hijacked into native
+        // scrolling.
+        touchAction: "none",
+        zIndex: dragOffset ? 10 : undefined,
         // Wrapper-level shake when a wrong-kind drop is rejected.
-        animation: rejected ? "bandSlotReject 0.32s ease-in-out" : undefined,
+        animation: rejected && !dragOffset ? "bandSlotReject 0.32s ease-in-out" : undefined,
       }}
       data-slot-id={slotId}
       data-accept-kind={acceptKind}

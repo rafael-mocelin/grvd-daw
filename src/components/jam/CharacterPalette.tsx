@@ -159,9 +159,20 @@ interface KindTileProps {
 }
 
 function KindTile({ label, accent, iconSrc, onStage, onPick }: KindTileProps) {
+  // pointerdown starts placement mode immediately so the cursor can
+  // carry the sprite the whole time the user drags from the tile to
+  // the room (single-gesture drag-and-drop). onClick stays for
+  // keyboard activation; both are idempotent.
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (onStage) return;
+    // Prevent the button from grabbing focus / firing native drag.
+    e.preventDefault();
+    onPick();
+  };
   return (
     <button
       onClick={onPick}
+      onPointerDown={handlePointerDown}
       disabled={onStage}
       title={
         onStage
