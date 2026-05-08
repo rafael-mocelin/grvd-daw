@@ -421,6 +421,38 @@ export function JamView() {
     };
   }, []);
 
+  // ── Eager audio unlock (mobile fix) ──
+  // Mobile browsers (Chrome / Safari / Firefox) require the
+  // AudioContext to be resumed from inside a fresh user-gesture
+  // event — not from an async chain triggered by a gesture. Our
+  // placement flow is fine on desktop but on a phone the chain
+  // goes pointerup → placePendingAt → handleRoomDrop → ensureAudio
+  // and by the time the synchronous ctx.resume() runs the gesture
+  // can be considered stale. Solution: on the first pointerdown /
+  // touchstart anywhere in the document we call ensureAudio
+  // synchronously inside the gesture and remove the listener. After
+  // that the context stays running and every subsequent call lands
+  // on an already-resumed AudioContext.
+  useEffect(() => {
+    let unlocked = false;
+    const unlock = () => {
+      if (unlocked) return;
+      unlocked = true;
+      // Fire-and-forget — ensureAudio's synchronous unlock runs
+      // before the await Tone.start(), which is what matters for
+      // the gesture-frame requirement.
+      void ensureAudio();
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("touchstart",  unlock);
+    };
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("touchstart",  unlock, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("touchstart",  unlock);
+    };
+  }, []);
+
   // Combo detection — runs every time slotState changes. When the
   // detected combo flips to a NEW id, fire a burst and update the
   // active combo. When the combo de-activates (player breaks the
