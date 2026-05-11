@@ -125,7 +125,9 @@ export function PlayerAtMic({
     dragRef.current = { active: true, moved: false, startX: e.clientX, startY: e.clientY };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     clearLongPressTimer();
-    if (!filled) return;
+    // Long-press fires whether or not a vocal is assigned — the
+    // parent maps it to "open recorder" when empty and "open
+    // controls" when filled.
     longPressTimerRef.current = window.setTimeout(() => {
       if (dragRef.current.active && !dragRef.current.moved) {
         longPressFiredRef.current = true;
@@ -155,7 +157,8 @@ export function PlayerAtMic({
       if (onMove) onMove(e.clientX, e.clientY);
       return;
     }
-    if (!filled) return;
+    // Tap always fires — parent maps it to "open recorder" when
+    // empty and "toggle mute" when filled.
     if (!longPressFiredRef.current) onTap();
   }
   function handlePointerCancel() {
@@ -219,8 +222,11 @@ export function PlayerAtMic({
         // Block the browser's native context menu (Save Image, Inspect)
         // and route the right-click to long-press instead — handy
         // alternative to the existing pointer-hold gesture for desktop.
+        // Fires regardless of `filled`: an empty player opens the
+        // recorder (parent maps long-press to recordingForSlot), a
+        // filled player opens the controls popover.
         e.preventDefault();
-        if (filled) onLongPress();
+        onLongPress();
       }}
       aria-label="player — drop the mic to record your voice"
     >

@@ -46,6 +46,15 @@ interface Slot {
    *  OFF, vocal stays at its recorded tempo regardless). undefined
    *  for non-vocal slots. */
   recordedBpm?: number;
+  /** Vocal-only effects chain — pitch shifter for tuning and a chorus
+   *  that lays in the "auto-tuned / produced" sheen. Real autotune
+   *  needs real-time pitch detection + scale quantization (heavy);
+   *  this approximation is what the game-y UX actually needs: a
+   *  semitone knob and a wet/dry effect blend.  */
+  vocalFx?: {
+    pitchShift: Tone.PitchShift;
+    chorus:     Tone.Chorus;
+  };
 }
 
 const slots = new Map<string, Slot>();
@@ -157,6 +166,10 @@ export function clearSlot(slotId: string): void {
   try { slot.player.stop(); } catch { /* ignore */ }
   try { slot.player.dispose(); } catch { /* ignore */ }
   try { slot.gain.dispose(); } catch { /* ignore */ }
+  if (slot.vocalFx) {
+    try { slot.vocalFx.pitchShift.dispose(); } catch { /* ignore */ }
+    try { slot.vocalFx.chorus.dispose();    } catch { /* ignore */ }
+  }
   slots.delete(slotId);
 }
 
@@ -303,15 +316,40 @@ export async function assignVocalSlot(
   // Tear down whatever was there.
   clearSlot(slotId);
 
-  const player = new Tone.Player(buffer).toDestination();
+  const player = new Tone.Player(buffer);
   player.loop = true;
   // Vocal recordings come from the user's mic — no rate-stretch.
   player.playbackRate = 1;
 
-  // Wrap in a Gain so mute / volume work uniformly.
+  // ── Autotune-flavoured FX chain ──
+  // Pitch shifter handles the semitone "tune" knob; chorus adds the
+  // produced sheen autotuned vocals are known for. The chorus wet
+  // amount IS the "effect" amount the popover exposes — 0 = bypass,
+  // 1 = full wash. Real autotune snaps detected pitch to a scale;
+  // without realtime pitch detection that's not in scope, so this
+  // chain gives the audible character without the heavy DSP.
+  const pitchShift = new Tone.PitchShift({
+    pitch:      0,
+    windowSize: 0.08,
+    feedback:   0,
+  });
+  const chorus = new Tone.Chorus({
+    frequency: 4,
+    delayTime: 2.5,
+    depth:     0.7,
+    feedback:  0.3,
+    spread:    180,
+    wet:       0.5,         // default effect amount — noticeable but not cartoonish
+  }).start();
+
+  // Mute / volume node downstream of the FX so the dB target lands on
+  // the wet signal.
   const gain = new Tone.Gain(1.0);
+
   player.disconnect();
-  player.connect(gain);
+  player.connect(pitchShift);
+  pitchShift.connect(chorus);
+  chorus.connect(gain);
   gain.toDestination();
 
   const offset = phaseAlignedOffset(player);
@@ -319,7 +357,7 @@ export async function assignVocalSlot(
     player.start(Tone.now(), offset);
   } catch (err) {
     console.error("[jamEngine] vocal player start failed:", err);
-    try { player.dispose(); gain.dispose(); } catch { /* ignore */ }
+    try { player.dispose(); gain.dispose(); pitchShift.dispose(); chorus.dispose(); } catch { /* ignore */ }
     return;
   }
 
@@ -334,8 +372,34 @@ export async function assignVocalSlot(
     // with the band.
     nativeBpm:   null,
     recordedBpm: bpm,
+    vocalFx:     { pitchShift, chorus },
   });
 
   // Vocal slot also gets the drop-in whoosh.
   void playJamWhoosh();
+}
+
+/**
+ * Update the autotune parameters on a vocal slot in place. Safe to
+ * call on non-vocal slots (no-op) and at any rate (no audible glitch).
+ *
+ *   - pitch:  -12..+12 semitones (Tone.PitchShift.pitch)
+ *   - effect: 0..1 chorus wet amount + depth scale
+ */
+export function setVocalAutotune(
+  slotId: string,
+  params: { pitch?: number; effect?: number },
+): void {
+  const slot = slots.get(slotId);
+  if (!slot?.vocalFx) return;
+  if (typeof params.pitch === "number") {
+    slot.vocalFx.pitchShift.pitch = params.pitch;
+  }
+  if (typeof params.effect === "number") {
+    const e = Math.max(0, Math.min(1, params.effect));
+    slot.vocalFx.chorus.wet.value = e;
+    // Slight depth scaling so 0 = dry, 1 = full wash. Keeps the
+    // chorus character recognisable across the slider range.
+    slot.vocalFx.chorus.depth = 0.2 + e * 0.6;
+  }
 }

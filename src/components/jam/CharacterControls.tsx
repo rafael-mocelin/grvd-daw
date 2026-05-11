@@ -49,6 +49,11 @@ interface CharacterControlsProps {
   siblings?:       SiblingSound[];
   currentSoundId?: string;
   onSwap?:         (soundId: string) => void;
+  /** Vocal-slot only — current autotune state. When provided alongside
+   *  `onAutotuneChange`, a Tune + Effect row appears in the popover. */
+  autotunePitch?:  number;
+  autotuneEffect?: number;
+  onAutotuneChange?: (params: { pitch?: number; effect?: number }) => void;
   /** Anchor position in the parent's coord space (px from top-left). */
   anchorLeft: number;
   anchorTop:  number;
@@ -62,6 +67,7 @@ export function CharacterControls({
   sound, muted, volume, syncToBpm,
   onMuteToggle, onVolume, onSyncToggle, onClear, onClose,
   siblings, currentSoundId, onSwap,
+  autotunePitch, autotuneEffect, onAutotuneChange,
   anchorLeft, anchorTop,
 }: CharacterControlsProps) {
   const isVocal = sound?.kind === "vocal";
@@ -414,6 +420,107 @@ export function CharacterControls({
          *  shifts) or stays at its recorded tempo (OFF). Default off
          *  so existing recordings don't change unexpectedly when the
          *  player nudges the master BPM. */}
+        {/* AUTOTUNE — vocal-only. TUNE (-12..+12 semitones) shifts the
+         *  pitch; EFFECT (0..1) blends in the chorus wash that gives
+         *  the produced / autotuned character. Hidden when the slot
+         *  isn't a vocal or the parent didn't wire the handler. */}
+        {isVocal && onAutotuneChange && (
+          <div
+            style={{
+              marginBottom: 10,
+              padding: "8px 10px",
+              borderRadius: 12,
+              border: "2px solid rgba(192, 132, 252, 0.45)",
+              background: "linear-gradient(180deg, rgba(192, 132, 252, 0.18), rgba(15, 24, 40, 0.55))",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px rgba(192, 132, 252, 0.35)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 6,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "'Lilita One', system-ui",
+                  fontSize: 12,
+                  color: "#e9d5ff",
+                  letterSpacing: 0.4,
+                }}
+              >
+                🎚 AUTOTUNE
+              </span>
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "rgba(255,255,255,0.5)",
+                  letterSpacing: "0.10em",
+                }}
+              >
+                T {((autotunePitch ?? 0) >= 0 ? "+" : "") + (autotunePitch ?? 0)}  ·  FX {Math.round((autotuneEffect ?? 0) * 100)}%
+              </span>
+            </div>
+            {/* Tune (semitones) */}
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: "0.16em",
+                color: "rgba(255,255,255,0.55)",
+                textTransform: "uppercase",
+                marginBottom: 2,
+              }}
+            >
+              tune
+            </div>
+            <input
+              type="range"
+              min={-12}
+              max={12}
+              step={1}
+              value={autotunePitch ?? 0}
+              onChange={(e) => onAutotuneChange({ pitch: parseInt(e.target.value, 10) })}
+              style={{
+                width: "100%",
+                accentColor: "#c084fc",
+                marginBottom: 4,
+              }}
+            />
+            {/* Effect (chorus wet) */}
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: "0.16em",
+                color: "rgba(255,255,255,0.55)",
+                textTransform: "uppercase",
+                marginBottom: 2,
+              }}
+            >
+              effect
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={autotuneEffect ?? 0}
+              onChange={(e) => onAutotuneChange({ effect: parseFloat(e.target.value) })}
+              style={{
+                width: "100%",
+                accentColor: "#c084fc",
+              }}
+            />
+          </div>
+        )}
+
         {isVocal && onSyncToggle && (
           <button
             onClick={onSyncToggle}

@@ -59,6 +59,7 @@ import {
   setSlotMuted,
   setMasterBpm,
   setVocalSync,
+  setVocalAutotune,
   clearAllSlots,
   pauseJam,
   resumeJam,
@@ -176,9 +177,20 @@ interface SlotState {
    *  (false). Default false so changing master BPM doesn't break
    *  existing recordings. The popover surfaces this as a toggle. */
   syncToBpm: boolean;
+  /** Vocal-slot only: semitone offset for the autotune pitch
+   *  shifter (-12..+12). Default 0. */
+  autotunePitch?:  number;
+  /** Vocal-slot only: 0..1 chorus wet-blend driving the autotune
+   *  effect amount. Default 0.5 — produced-sounding but not
+   *  cartoonish. */
+  autotuneEffect?: number;
 }
 
 const EMPTY_SLOT: SlotState = { soundId: null, muted: false, volume: 1.0, syncToBpm: false };
+
+/** Vocal slot defaults applied when a fresh recording lands. */
+const VOCAL_AUTOTUNE_DEFAULT_PITCH  = 0;
+const VOCAL_AUTOTUNE_DEFAULT_EFFECT = 0.5;
 
 export function JamView() {
   const setStage = useStore((s) => s.setStage);
@@ -728,14 +740,47 @@ export function JamView() {
       // syncToBpm: false — fresh recordings start unsynced; the player
       // can flip the toggle in the popover to lock the vocal to the
       // master BPM if they want.
-      [slotId]: { soundId: VOCAL_DROP_ID, muted: false, volume: 1.0, syncToBpm: false },
+      [slotId]: {
+        soundId:        VOCAL_DROP_ID,
+        muted:          false,
+        volume:         1.0,
+        syncToBpm:      false,
+        autotunePitch:  VOCAL_AUTOTUNE_DEFAULT_PITCH,
+        autotuneEffect: VOCAL_AUTOTUNE_DEFAULT_EFFECT,
+      },
     }));
     setRecordingForSlot(null);
     await assignVocalSlot(slotId, buffer, bpm);
+    // The defaults baked into Tone.PitchShift / Tone.Chorus already
+    // match VOCAL_AUTOTUNE_DEFAULT_*, so no extra setVocalAutotune
+    // call needed here.
     if (!playing) {
       resumeJam();
       setPlaying(true);
     }
+  }
+
+  /** Update the autotune params on the player's vocal slot. Persists
+   *  the values in slotState so the popover sliders stay in sync, and
+   *  pushes the new params to the audio engine so the sound updates
+   *  in real time. */
+  function handleAutotuneChange(
+    slotId: string,
+    params: { pitch?: number; effect?: number },
+  ) {
+    setSlotState((prev) => {
+      const cur = prev[slotId];
+      if (!cur) return prev;
+      return {
+        ...prev,
+        [slotId]: {
+          ...cur,
+          ...(typeof params.pitch  === "number" ? { autotunePitch:  params.pitch  } : {}),
+          ...(typeof params.effect === "number" ? { autotuneEffect: params.effect } : {}),
+        },
+      };
+    });
+    setVocalAutotune(slotId, params);
   }
 
   function handleSlotTap(slotId: string) {
@@ -1094,8 +1139,22 @@ export function JamView() {
                   onDropSound={handlePlayerDrop}
                   onDragEnter={() => setDragOverSlot(PLAYER_SLOT_ID)}
                   onDragLeave={() => setDragOverSlot((s) => (s === PLAYER_SLOT_ID ? null : s))}
-                  onTap={() => slotState[PLAYER_SLOT_ID].soundId && handleMuteToggle(PLAYER_SLOT_ID)}
-                  onLongPress={() => slotState[PLAYER_SLOT_ID].soundId && handleSlotTap(PLAYER_SLOT_ID)}
+                  onTap={() => {
+                    // Empty player → open the recorder; filled → mute toggle.
+                    if (slotState[PLAYER_SLOT_ID].soundId) {
+                      handleMuteToggle(PLAYER_SLOT_ID);
+                    } else {
+                      setRecordingForSlot(PLAYER_SLOT_ID);
+                    }
+                  }}
+                  onLongPress={() => {
+                    // Empty player → open the recorder; filled → controls popover.
+                    if (slotState[PLAYER_SLOT_ID].soundId) {
+                      handleSlotTap(PLAYER_SLOT_ID);
+                    } else {
+                      setRecordingForSlot(PLAYER_SLOT_ID);
+                    }
+                  }}
                   onMove={handlePlayerMove}
                 />
               </div>
@@ -1262,6 +1321,9 @@ export function JamView() {
                 siblings={siblings}
                 currentSoundId={state.soundId ?? undefined}
                 onSwap={(sid) => handleSwapSound(openControls, sid)}
+                autotunePitch={state.autotunePitch}
+                autotuneEffect={state.autotuneEffect}
+                onAutotuneChange={(p) => handleAutotuneChange(openControls, p)}
                 onMuteToggle={() => handleMuteToggle(openControls)}
                 onVolume={(v) => handleVolume(openControls, v)}
                 onSyncToggle={() => handleSyncToggle(openControls)}
