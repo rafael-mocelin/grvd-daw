@@ -223,6 +223,49 @@ export function JamView() {
   // Whether the floating CharacterPalette popup is open.
   const [paletteOpen, setPaletteOpen] = useState(false);
 
+  // ── Arrange per-section mute state ──
+  // Keyed `${slotId}:${sectionId}`. true = that slot is silent during
+  // that section. Sectional mute is COMBINED with the slot's global
+  // mute by JamArrange's RAF loop, which calls onApplyEffectiveMutes
+  // every frame with the currently-silent slot ids — we push that
+  // straight to the audio engine via setSlotMuted below.
+  const [arrangeMutes, setArrangeMutes] = useState<Record<string, boolean>>({});
+  /** Most recent set of "effectively muted" slot ids (global ∪
+   *  section). Stored in a ref so the RAF tick can diff without
+   *  re-rendering each frame. */
+  const effectiveMutedRef = useRef<Set<string>>(new Set());
+
+  function toggleArrangeMute(slotId: string, sectionId: string) {
+    const key = `${slotId}:${sectionId}`;
+    setArrangeMutes((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  /** Called every animation frame by JamArrange with the slot ids
+   *  that should be silent right now. We diff against the previous
+   *  effective set and push only the changes into setSlotMuted so the
+   *  engine doesn't churn on every frame. */
+  function applyEffectiveMutes(mutedSlotIds: Set<string>) {
+    const prev = effectiveMutedRef.current;
+    // Things that became muted this frame.
+    for (const id of mutedSlotIds) {
+      if (!prev.has(id) && slotState[id]?.soundId) {
+        setSlotMuted(id, true);
+      }
+    }
+    // Things that became unmuted this frame (engine state matches
+    // their slotState.muted flag — we only flip OFF the arrange-mute
+    // overlay; if the slot is globally muted via state.muted it stays
+    // silent because globalMuted is part of the set already).
+    for (const id of prev) {
+      if (!mutedSlotIds.has(id) && slotState[id]) {
+        // Restore the slot's intended state: muted if globally
+        // muted, otherwise live.
+        setSlotMuted(id, !!slotState[id].muted);
+      }
+    }
+    effectiveMutedRef.current = mutedSlotIds;
+  }
+
   // Whether the player has been placed in the room. Initial state is
   // false — the room starts empty, the player's tile lives in the
   // palette like every other character. Picking the VOICE tile enters
@@ -1275,6 +1318,51 @@ export function JamView() {
             >
               {pendingChar || pendingPlayer ? "✕" : paletteOpen ? "✕" : "+"}
             </button>
+
+            {/* ── Arrange timeline ──
+             *  Floats over the bottom of the room (rendered inside
+             *  Crib's overlay so its % anchors map to the room-square).
+             *  XP-gated: panel mounts only when the player has earned
+             *  ARRANGE_UNLOCK_XP. Inside, individual sections
+             *  (INTRO / BRIDGE / OUTRO) have their own XP thresholds
+             *  and render as dashed locked-out placeholders until met.
+             */}
+            {totalXP >= ARRANGE_UNLOCK_XP && (() => {
+              const rows: ArrangeRow[] = [];
+              for (const [slotId, placement] of Object.entries(bandPlacements)) {
+                if (!placement) continue;
+                const state = slotState[slotId];
+                if (!state?.soundId) continue;
+                const placeable = getPlaceable(state.soundId);
+                const name      = placeable?.name ?? state.soundId.toUpperCase();
+                const kind      = slotId as CharacterKind;
+                rows.push({
+                  slotId,
+                  name,
+                  iconSrc:     characterIconFor(kind, state.soundId),
+                  globalMuted: state.muted,
+                  accent:      ARRANGE_ACCENT[kind],
+                });
+              }
+              const playerRow = playerArrangeRow({
+                slotId:      PLAYER_SLOT_ID,
+                globalMuted: slotState[PLAYER_SLOT_ID].muted,
+                filled:      !!slotState[PLAYER_SLOT_ID].soundId,
+              });
+              if (playerRow) rows.push(playerRow);
+
+              if (rows.length === 0) return null;
+              return (
+                <JamArrange
+                  rows={rows}
+                  bpm={bpm}
+                  totalXP={totalXP}
+                  arrangeMutes={arrangeMutes}
+                  onToggleSectionMute={toggleArrangeMute}
+                  onApplyEffectiveMutes={applyEffectiveMutes}
+                />
+              );
+            })()}
           </Crib>
 
           {/* Empty-state hint removed — the floating + button pulses
@@ -1344,42 +1432,6 @@ export function JamView() {
             );
           })()}
 
-          {/* ── Arrange timeline ──
-           *  XP-gated feature. Once the player has done a bit of
-           *  creation and earned the unlock, a slim bottom panel
-           *  appears with one row per placed character (band + player)
-           *  showing the looped audio as a waveform, a playhead
-           *  tracking master transport seconds, and scrub-on-drag
-           *  semantics matching the recipe DAW's arrange page.  */}
-          {totalXP >= ARRANGE_UNLOCK_XP && (() => {
-            const rows: ArrangeRow[] = [];
-            // Band slots first (drum-guy → beat-guy → guitar-guy order).
-            for (const [slotId, placement] of Object.entries(bandPlacements)) {
-              if (!placement) continue;
-              const state = slotState[slotId];
-              if (!state?.soundId) continue;
-              const placeable = getPlaceable(state.soundId);
-              const name      = placeable?.name ?? state.soundId.toUpperCase();
-              const kind      = slotId as CharacterKind;
-              rows.push({
-                slotId,
-                name,
-                iconSrc: characterIconFor(kind, state.soundId),
-                muted:   state.muted,
-                accent:  ARRANGE_ACCENT[kind],
-              });
-            }
-            // Player row, if there's a recorded vocal.
-            const playerRow = playerArrangeRow({
-              slotId: PLAYER_SLOT_ID,
-              muted:  slotState[PLAYER_SLOT_ID].muted,
-              filled: !!slotState[PLAYER_SLOT_ID].soundId,
-            });
-            if (playerRow) rows.push(playerRow);
-
-            if (rows.length === 0) return null;
-            return <JamArrange rows={rows} bpm={bpm} />;
-          })()}
         </div>
       </div>
 
