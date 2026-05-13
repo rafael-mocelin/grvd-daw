@@ -50,6 +50,7 @@ import {
 } from "../data/characterSkins";
 import { getPlaceable, PLACEABLE_CHARS, type PlaceableChar } from "../data/placeableChars";
 import { CHARACTER_SKINS } from "../data/characterSkins";
+import { JamArrange, ARRANGE_ACCENT, characterIconFor, playerArrangeRow, type ArrangeRow } from "./jam/JamArrange";
 import { useJamAudioFrame } from "../hooks/useJamAudioFrame";
 import { ComboCodex } from "./jam/ComboCodex";
 import {
@@ -192,8 +193,14 @@ const EMPTY_SLOT: SlotState = { soundId: null, muted: false, volume: 1.0, syncTo
 const VOCAL_AUTOTUNE_DEFAULT_PITCH  = 0;
 const VOCAL_AUTOTUNE_DEFAULT_EFFECT = 0.5;
 
+/** XP gate for the bottom arrange-timeline feature. The player has
+ *  to do a bit of music creation before this unlocks, so the empty
+ *  jam stage doesn't lead with a "DAW UI" they don't yet need. */
+const ARRANGE_UNLOCK_XP = 300;
+
 export function JamView() {
   const setStage = useStore((s) => s.setStage);
+  const totalXP  = useStore((s) => s.totalXP);
 
   // Per-slot state, keyed by the slot id. Band slots use the
   // characterKind as their slotId ("drum-guy" / "beat-guy" /
@@ -1335,6 +1342,43 @@ export function JamView() {
                 onClose={() => setOpenControls(null)}
               />
             );
+          })()}
+
+          {/* ── Arrange timeline ──
+           *  XP-gated feature. Once the player has done a bit of
+           *  creation and earned the unlock, a slim bottom panel
+           *  appears with one row per placed character (band + player)
+           *  showing the looped audio as a waveform, a playhead
+           *  tracking master transport seconds, and scrub-on-drag
+           *  semantics matching the recipe DAW's arrange page.  */}
+          {totalXP >= ARRANGE_UNLOCK_XP && (() => {
+            const rows: ArrangeRow[] = [];
+            // Band slots first (drum-guy → beat-guy → guitar-guy order).
+            for (const [slotId, placement] of Object.entries(bandPlacements)) {
+              if (!placement) continue;
+              const state = slotState[slotId];
+              if (!state?.soundId) continue;
+              const placeable = getPlaceable(state.soundId);
+              const name      = placeable?.name ?? state.soundId.toUpperCase();
+              const kind      = slotId as CharacterKind;
+              rows.push({
+                slotId,
+                name,
+                iconSrc: characterIconFor(kind, state.soundId),
+                muted:   state.muted,
+                accent:  ARRANGE_ACCENT[kind],
+              });
+            }
+            // Player row, if there's a recorded vocal.
+            const playerRow = playerArrangeRow({
+              slotId: PLAYER_SLOT_ID,
+              muted:  slotState[PLAYER_SLOT_ID].muted,
+              filled: !!slotState[PLAYER_SLOT_ID].soundId,
+            });
+            if (playerRow) rows.push(playerRow);
+
+            if (rows.length === 0) return null;
+            return <JamArrange rows={rows} bpm={bpm} />;
           })()}
         </div>
       </div>

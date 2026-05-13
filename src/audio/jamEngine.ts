@@ -232,6 +232,45 @@ export function getJamMasterTransportSeconds(): number {
 }
 
 /**
+ * Scrub support — set the master transport position. Pair with
+ * resyncJamSlotsToTransport() on pointer-up to glitch-stitch every
+ * looping slot Player to the new offset.
+ */
+export function seekJamTransport(seconds: number): void {
+  Tone.getTransport().seconds = Math.max(0, seconds);
+}
+
+/**
+ * After a seek, restart every slot's Tone.Player at the source-time
+ * offset matching the new transport position. Mirrors the recipe
+ * engine's resyncLoopingPlayersToTransport but operates on the jam
+ * engine's slot map. Vocal slots also re-stitch — their nativeBpm
+ * may be null (sync OFF) but `Tone.now()` is still valid.
+ *
+ * Call once on pointer-up after a scrub, not on every pointer-move
+ * (stop/start every frame sounds terrible).
+ */
+export function resyncJamSlotsToTransport(): void {
+  const transportSec = Tone.getTransport().seconds;
+  for (const slot of slots.values()) {
+    const player = slot.player;
+    if (!player.loop || !player.loaded || !player.buffer) continue;
+    const sourceDur = player.buffer.duration;
+    const rate      = player.playbackRate || 1;
+    const outputDur = sourceDur / rate;
+    if (!isFinite(outputDur) || outputDur <= 0) continue;
+    const offsetInOutput = ((transportSec % outputDur) + outputDur) % outputDur;
+    const sourceOffset   = offsetInOutput * rate;
+    try {
+      player.stop();
+      player.start(Tone.now(), sourceOffset);
+    } catch (err) {
+      console.warn("[resyncJamSlotsToTransport] failed:", err);
+    }
+  }
+}
+
+/**
  * Toggle whether a vocal slot follows the master BPM.
  *
  * - sync = true   → nativeBpm becomes the recordedBpm, so subsequent

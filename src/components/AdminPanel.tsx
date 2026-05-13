@@ -184,6 +184,7 @@ export function AdminPanel() {
   const { isAdmin, user } = useAuth();
   const {
     moodOverride, setMoodOverride,
+    totalXP, addXP,
     adminResetXP,
     adminResetAchievements,
     adminResetLifetimeStats,
@@ -354,6 +355,31 @@ export function AdminPanel() {
 
           {/* GAME CONFIG — live tuning for Slice 2 thresholds */}
           <GameConfigEditor />
+
+          {/* XP — quick add buttons for testing XP-gated features
+           *  like the jam-stage arrange timeline (unlocks at 300 XP).
+           *  Visible to admins only; goes straight into the store's
+           *  addXP path so the totalXP UI updates instantly. */}
+          <div className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase text-grvd-gold/80 mb-2">
+            xp · current {totalXP}
+          </div>
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {[100, 500, 1000, 5000].map((amount) => (
+              <button
+                key={amount}
+                onClick={() => addXP(amount, `admin +${amount}xp`)}
+                className={[
+                  "px-3 py-1.5 rounded-full",
+                  "border-2 transition-all shadow-chunky-press",
+                  "font-mono text-[10px] font-bold tracking-[0.1em] uppercase",
+                  "bg-grvd-gold/15 border-grvd-gold/50 text-grvd-gold hover:bg-grvd-gold/25",
+                  "cursor-pointer",
+                ].join(" ")}
+              >
+                +{amount} xp
+              </button>
+            ))}
+          </div>
 
           {/* RESETS */}
           <div className="font-mono text-[9px] font-bold tracking-[0.16em] uppercase text-red-400/85 mb-2">
