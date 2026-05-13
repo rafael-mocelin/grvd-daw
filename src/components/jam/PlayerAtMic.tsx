@@ -121,6 +121,10 @@ export function PlayerAtMic({
     }
   }
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    // Only the primary (left) button runs the tap/long-press/drag
+    // path. Right-click is handled by onContextMenu — without this
+    // gate, every right-click would also fire onTap (mute toggle).
+    if (e.button !== 0) return;
     longPressFiredRef.current = false;
     dragRef.current = { active: true, moved: false, startX: e.clientX, startY: e.clientY };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
@@ -148,6 +152,9 @@ export function PlayerAtMic({
     if (onMove) setDragOffset({ dx, dy });
   }
   function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    // Ignore non-primary buttons — they didn't start a tracking
+    // session in pointerdown so the bookkeeping below is stale.
+    if (e.button !== 0) return;
     const wasDrag = dragRef.current.moved;
     dragRef.current.active = false;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }

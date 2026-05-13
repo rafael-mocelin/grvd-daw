@@ -162,6 +162,10 @@ export function BandSlot({
     }
   }
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    // Only the primary (left) button drives tap / long-press / drag.
+    // Right-click is handled by onContextMenu — if we ran the tap
+    // path here too, every right-click would also toggle mute.
+    if (e.button !== 0) return;
     longPressFiredRef.current = false;
     dragRef.current = {
       active: true,
@@ -201,6 +205,9 @@ export function BandSlot({
     if (onMove) setDragOffset({ dx, dy });
   }
   function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    // Ignore non-primary buttons — they didn't get a pointerdown
+    // session started, so the tap/drag bookkeeping is stale.
+    if (e.button !== 0) return;
     const wasDrag = dragRef.current.moved;
     dragRef.current.active = false;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
