@@ -66,7 +66,7 @@ import {
   assignVocalSlot,
 } from "../audio/jamEngine";
 import { ensureAudio, recordVocal } from "../audio/engine";
-import { playJamComboSting, playMetronomeTickAt } from "../audio/jamSfx";
+import { playJamComboSting, playMetronomeTick, playMetronomeTickAt } from "../audio/jamSfx";
 import * as Tone from "tone";
 import { C } from "../ui/burst/tokens";
 
@@ -1528,67 +1528,72 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
     ? Math.min(verse.length - 1, Math.floor(elapsed / lineSecs))
     : -1;
 
-  // ── Countdown phase — transport-locked ──
+  // ── Countdown phase — BPM-locked via setTimeout ──
   // 3 → 2 → 1 → record. Each step is one BEAT at the master BPM
-  // (not one second), so the countdown matches the band's tempo. We
-  // schedule on Tone.Transport so the ticks fire on the same beat
-  // grid the band loops use — no drift, and the "go" lands exactly
-  // on a downbeat.
+  // (not one second), so the countdown matches the band's tempo
+  // regardless of whether the master transport is currently running
+  // (the player may be recording before placing any band character).
+  // We use setTimeout here because it always fires; the recording
+  // metronome below switches to Tone.Transport which locks to the
+  // band loops' grid once at least one band sound has been placed.
   useEffect(() => {
     if (phase !== "countdown") return;
     let cancelled = false;
-    const transport = Tone.getTransport();
-    const beatSec = 60 / bpm;
+    const beatMs = (60 / bpm) * 1000;
 
-    // First tick fires on the next quarter-note boundary so the
-    // countdown locks into the band's grid even if the player taps
-    // "start" mid-bar.
-    const startOffset = "@4n";
-    const ids: number[] = [];
+    setCountdownTick(3);
+    void playMetronomeTick(false);
 
-    ids.push(transport.scheduleOnce((time) => {
-      if (cancelled) return;
-      setCountdownTick(3);
-      playMetronomeTickAt(time, false);
-    }, startOffset));
-    ids.push(transport.scheduleOnce((time) => {
+    const t1 = window.setTimeout(() => {
       if (cancelled) return;
       setCountdownTick(2);
-      playMetronomeTickAt(time, false);
-    }, `+${beatSec}`));
-    ids.push(transport.scheduleOnce((time) => {
+      void playMetronomeTick(false);
+    }, beatMs);
+    const t2 = window.setTimeout(() => {
       if (cancelled) return;
       setCountdownTick(1);
-      playMetronomeTickAt(time, true);
-    }, `+${beatSec * 2}`));
-    ids.push(transport.scheduleOnce(() => {
+      void playMetronomeTick(true);
+    }, beatMs * 2);
+    const t3 = window.setTimeout(() => {
       if (cancelled) return;
       void beginRecording();
-    }, `+${beatSec * 3}`));
-
+    }, beatMs * 3);
     return () => {
       cancelled = true;
-      for (const id of ids) transport.clear(id);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
+  }, [phase, bpm]);
 
-  // ── Beat clicks during recording — transport-locked ──
-  // Tone.Transport.scheduleRepeat fires precisely on every quarter
-  // note. Locked to the same grid the band loops follow, so the
-  // metronome never drifts and stays in phase with what the player
-  // hears in their headphones. Beats 1/5/9/13 (first of each bar)
-  // are accented.
+  // ── Beat clicks during recording ──
+  // Prefers Tone.Transport.scheduleRepeat (locks to the band loops'
+  // grid) when the transport is running; falls back to a BPM-locked
+  // setInterval when the player records before any band character is
+  // on stage. Both paths fire on every quarter note; beats 1/5/9/13
+  // (first of each bar) are accented.
   useEffect(() => {
     if (phase !== "recording") return;
     const transport = Tone.getTransport();
     let beatIdx = 0;
-    const id = transport.scheduleRepeat((time) => {
-      playMetronomeTickAt(time, beatIdx % 4 === 0);
-      beatIdx += 1;
-    }, "4n");
-    return () => { transport.clear(id); };
-  }, [phase]);
+
+    if (transport.state === "started") {
+      const id = transport.scheduleRepeat((time) => {
+        playMetronomeTickAt(time, beatIdx % 4 === 0);
+        beatIdx += 1;
+      }, "4n");
+      return () => { transport.clear(id); };
+    } else {
+      void playMetronomeTick(true);
+      const beatMs = (60 / bpm) * 1000;
+      const id = window.setInterval(() => {
+        beatIdx += 1;
+        void playMetronomeTick(beatIdx % 4 === 0);
+      }, beatMs);
+      return () => window.clearInterval(id);
+    }
+  }, [phase, bpm]);
 
   async function beginRecording() {
     setPhase("recording");
