@@ -66,8 +66,7 @@ import {
   assignVocalSlot,
 } from "../audio/jamEngine";
 import { ensureAudio, recordVocal } from "../audio/engine";
-import { playJamComboSting, playMetronomeTick, playMetronomeTickAt } from "../audio/jamSfx";
-import * as Tone from "tone";
+import { playJamComboSting, playMetronomeTick } from "../audio/jamSfx";
 import { C } from "../ui/burst/tokens";
 
 /**
@@ -1533,9 +1532,9 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
   // (not one second), so the countdown matches the band's tempo
   // regardless of whether the master transport is currently running
   // (the player may be recording before placing any band character).
-  // We use setTimeout here because it always fires; the recording
-  // metronome below switches to Tone.Transport which locks to the
-  // band loops' grid once at least one band sound has been placed.
+  // The ticks are the only metronome cues — the recording phase
+  // itself runs silent so the captured vocal isn't muddied by click
+  // bleed (phone speaker → mic) and the singer is free to flow.
   useEffect(() => {
     if (phase !== "countdown") return;
     let cancelled = false;
@@ -1567,33 +1566,15 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, bpm]);
 
-  // ── Beat clicks during recording ──
-  // Prefers Tone.Transport.scheduleRepeat (locks to the band loops'
-  // grid) when the transport is running; falls back to a BPM-locked
-  // setInterval when the player records before any band character is
-  // on stage. Both paths fire on every quarter note; beats 1/5/9/13
-  // (first of each bar) are accented.
-  useEffect(() => {
-    if (phase !== "recording") return;
-    const transport = Tone.getTransport();
-    let beatIdx = 0;
-
-    if (transport.state === "started") {
-      const id = transport.scheduleRepeat((time) => {
-        playMetronomeTickAt(time, beatIdx % 4 === 0);
-        beatIdx += 1;
-      }, "4n");
-      return () => { transport.clear(id); };
-    } else {
-      void playMetronomeTick(true);
-      const beatMs = (60 / bpm) * 1000;
-      const id = window.setInterval(() => {
-        beatIdx += 1;
-        void playMetronomeTick(beatIdx % 4 === 0);
-      }, beatMs);
-      return () => window.clearInterval(id);
-    }
-  }, [phase, bpm]);
+  // ── No recording-phase metronome ──
+  // The countdown handles "lock the tempo / cue the singer to start".
+  // Once recording begins, the band loops the singer hears in their
+  // headphones (when any band character is placed) are the rhythm
+  // reference, plus the active-line highlight in the lyrics block.
+  // A ticking click during the take ends up either bleeding into the
+  // captured vocal (phone-speaker recording) or distracting the
+  // singer from free-flowing custom lyrics. Free-form vocal performance
+  // tends to be tighter without the click on top.
 
   async function beginRecording() {
     setPhase("recording");
