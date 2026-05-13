@@ -166,7 +166,11 @@ function ensureMetro() {
     pitchDecay: 0.008,
     octaves:    2,
     envelope:   { attack: 0.001, decay: 0.06, sustain: 0, release: 0.02 },
-    volume:     -6,
+    // Very quiet — the metronome is a personal cue. Loud enough to
+    // hear over the band loops through wired headphones, but quiet
+    // enough that if the player is recording on a phone (speaker →
+    // mic), the bleed into the captured vocal is minimal.
+    volume:     -22,
   }).toDestination();
 }
 
