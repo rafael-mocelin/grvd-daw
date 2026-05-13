@@ -181,9 +181,31 @@ function ensureMetro() {
  * headphones, and a captured tick is far less bad than the singer
  * losing the beat entirely.
  */
+/**
+ * Plays a metronome tick. The optional `time` parameter accepts an
+ * AudioContext time (e.g., the `time` argument from a
+ * Tone.Transport.scheduleRepeat callback) so the click lands exactly
+ * on the scheduled beat instead of being smeared by JS event-loop
+ * latency. When omitted, the tick fires immediately at Tone.now().
+ *
+ * IMPORTANT: when called from inside a Tone.Transport callback, do
+ * NOT await ensureAudio() (the audio context is already running by
+ * definition) — awaiting from within a scheduler callback can break
+ * the timing. The non-async variant playMetronomeTickAt below is
+ * provided for that case.
+ */
 export async function playMetronomeTick(accent = false): Promise<void> {
   await ensureAudio();
   ensureMetro();
   if (!metroSynth) return;
   metroSynth.triggerAttackRelease(accent ? "C4" : "G3", "32n", Tone.now());
+}
+
+/** Synchronous variant — caller is responsible for the audio context
+ *  already being unlocked. Used by Tone.Transport scheduler callbacks
+ *  so the tick fires at the exact scheduled time. */
+export function playMetronomeTickAt(time: number, accent = false): void {
+  ensureMetro();
+  if (!metroSynth) return;
+  metroSynth.triggerAttackRelease(accent ? "C4" : "G3", "32n", time);
 }

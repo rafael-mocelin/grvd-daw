@@ -66,7 +66,8 @@ import {
   assignVocalSlot,
 } from "../audio/jamEngine";
 import { ensureAudio, recordVocal } from "../audio/engine";
-import { playJamComboSting, playMetronomeTick } from "../audio/jamSfx";
+import { playJamComboSting, playMetronomeTickAt } from "../audio/jamSfx";
+import * as Tone from "tone";
 import { C } from "../ui/burst/tokens";
 
 /**
@@ -610,6 +611,10 @@ export function JamView() {
       setPlayerPos(clampPos(xPct, yPct));
       setPlayerPlaced(true);
       setPendingPlayer(false);
+      // Auto-open the recorder so the user doesn't have to tap the
+      // just-placed player to start recording — the placement IS the
+      // request to record.
+      setRecordingForSlot(PLAYER_SLOT_ID);
       return;
     }
     if (pendingChar) {
@@ -1469,6 +1474,32 @@ interface VocalRecordingOverlayProps {
   onCancel:   () => void;
 }
 
+/** Premade verse pool — 8 hooks across trap / drill / melodic so the
+ *  GENERATE button always lands somewhere usable. Two lines each so
+ *  the recording stays in the 5–9 s sweet spot at common BPMs. */
+const VERSE_POOL: string[][] = [
+  ["step in the booth, it's time to create",
+   "GRVD certified, we shining at the light"],
+  ["count it up, all this paper in my hand",
+   "no time to play, gotta stick to the plan"],
+  ["uptown, uptown, gettin' it shakin'",
+   "linkin' my dawgs, this the takeover"],
+  ["feel the bass, it's a wave in my chest",
+   "city night ridin' with the squad on my left"],
+  ["paint a picture with the words I say",
+   "every single line, every flow a play"],
+  ["I been on a roll, won't slow down",
+   "rep my city, yeah I hold it down"],
+  ["it's a movement, it's a moment",
+   "every beat I drop, it's golden"],
+  ["chasin' dreams in the middle of the night",
+   "everything I touch, it turn out right"],
+];
+
+function pickRandomVerse(): string[] {
+  return VERSE_POOL[Math.floor(Math.random() * VERSE_POOL.length)];
+}
+
 function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOverlayProps) {
   type Phase = "ready" | "countdown" | "recording" | "scoring" | "error";
   const [phase,         setPhase]         = useState<Phase>("ready");
@@ -1476,56 +1507,88 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
   const [elapsed,       setElapsed]       = useState(0);
   const [countdownTick, setCountdownTick] = useState<3 | 2 | 1>(3);
 
-  // 4 bars at the master BPM = recordSecs. Long enough to phrase a
-  // hook, short enough to feel snappy.
-  const recordSecs = (60 / bpm) * 4 * 4;
-  const beatSecs   = 60 / bpm;
+  // ── Karaoke lyrics ──
+  // Verse = an array of lines. Each line takes BARS_PER_LINE bars of
+  // the master BPM. Total record length = verse.length × line length.
+  // 2 lines × 2 bars at 140 BPM ≈ 6.9 s — matches the catalog loops
+  // (drums / 808 / sample) so the vocal phrase loops cleanly under
+  // the band. Generate picks a new random verse from the pool; edit
+  // opens an inline textarea per line.
+  const BARS_PER_LINE = 2;
+  const [verse, setVerse] = useState<string[]>(() => pickRandomVerse());
+  const [isEditing, setIsEditing] = useState(false);
+  const [editLines, setEditLines] = useState<string[]>([]);
 
-  // ── Countdown phase ──
-  // 3 → 2 → 1 → recording starts. Each step plays one metronome click
-  // (downbeat-accented on "1") so the singer can lock the tempo before
-  // they have to perform.
+  const beatSecs = 60 / bpm;
+  const lineSecs = beatSecs * 4 * BARS_PER_LINE;     // 1 line = 2 bars
+  const recordSecs = verse.length * lineSecs;
+
+  // Which lyric line should be lit up given current elapsed time.
+  const activeLineIdx = phase === "recording"
+    ? Math.min(verse.length - 1, Math.floor(elapsed / lineSecs))
+    : -1;
+
+  // ── Countdown phase — transport-locked ──
+  // 3 → 2 → 1 → record. Each step is one BEAT at the master BPM
+  // (not one second), so the countdown matches the band's tempo. We
+  // schedule on Tone.Transport so the ticks fire on the same beat
+  // grid the band loops use — no drift, and the "go" lands exactly
+  // on a downbeat.
   useEffect(() => {
     if (phase !== "countdown") return;
     let cancelled = false;
-    void playMetronomeTick(false);            // click on "3"
-    setCountdownTick(3);
-    const t1 = window.setTimeout(() => {
+    const transport = Tone.getTransport();
+    const beatSec = 60 / bpm;
+
+    // First tick fires on the next quarter-note boundary so the
+    // countdown locks into the band's grid even if the player taps
+    // "start" mid-bar.
+    const startOffset = "@4n";
+    const ids: number[] = [];
+
+    ids.push(transport.scheduleOnce((time) => {
+      if (cancelled) return;
+      setCountdownTick(3);
+      playMetronomeTickAt(time, false);
+    }, startOffset));
+    ids.push(transport.scheduleOnce((time) => {
       if (cancelled) return;
       setCountdownTick(2);
-      void playMetronomeTick(false);          // click on "2"
-    }, 1000);
-    const t2 = window.setTimeout(() => {
+      playMetronomeTickAt(time, false);
+    }, `+${beatSec}`));
+    ids.push(transport.scheduleOnce((time) => {
       if (cancelled) return;
       setCountdownTick(1);
-      void playMetronomeTick(true);           // accented click on "1"
-    }, 2000);
-    const t3 = window.setTimeout(() => {
+      playMetronomeTickAt(time, true);
+    }, `+${beatSec * 2}`));
+    ids.push(transport.scheduleOnce(() => {
       if (cancelled) return;
       void beginRecording();
-    }, 3000);
+    }, `+${beatSec * 3}`));
+
     return () => {
       cancelled = true;
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
+      for (const id of ids) transport.clear(id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  // ── Beat clicks during recording ──
-  // setInterval at one beat per master BPM. Beats 1/5/9/13 are accented
-  // so the bar boundaries are audible.
+  // ── Beat clicks during recording — transport-locked ──
+  // Tone.Transport.scheduleRepeat fires precisely on every quarter
+  // note. Locked to the same grid the band loops follow, so the
+  // metronome never drifts and stays in phase with what the player
+  // hears in their headphones. Beats 1/5/9/13 (first of each bar)
+  // are accented.
   useEffect(() => {
     if (phase !== "recording") return;
+    const transport = Tone.getTransport();
     let beatIdx = 0;
-    void playMetronomeTick(true);             // beat 1, accented
-    const id = window.setInterval(() => {
+    const id = transport.scheduleRepeat((time) => {
+      playMetronomeTickAt(time, beatIdx % 4 === 0);
       beatIdx += 1;
-      void playMetronomeTick(beatIdx % 4 === 0);
-    }, beatSecs * 1000);
-    return () => window.clearInterval(id);
-  }, [phase, beatSecs]);
+    }, "4n");
+    return () => { transport.clear(id); };
+  }, [phase]);
 
   async function beginRecording() {
     setPhase("recording");
@@ -1574,8 +1637,8 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
     >
       <div
         style={{
-          width: "min(90vw, 360px)",
-          padding: 24,
+          width: "min(94vw, 420px)",
+          padding: 22,
           borderRadius: 22,
           background: "linear-gradient(180deg, #243358 0%, #0f1828 100%)",
           border: "2.5px solid #0a0f1c",
@@ -1584,36 +1647,150 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
           textAlign: "center",
         }}
       >
-        {/* READY phase — minimal copy: title, headphone hint, buttons. */}
+        {/* READY phase — title, lyrics block + edit / generate, headphone
+         *  hint, start / cancel. */}
         {phase === "ready" && (
           <>
-            <div style={{ fontSize: 48, marginBottom: 8 }}>🎤</div>
+            <div style={{ fontSize: 40, marginBottom: 4 }}>🎤</div>
             <div
               style={{
                 fontFamily: "'Lilita One', system-ui",
-                fontSize: 22,
+                fontSize: 20,
                 color: "#fff",
                 letterSpacing: 0.5,
-                marginBottom: 8,
+                marginBottom: 12,
               }}
             >
               RECORD YOUR VOICE
             </div>
+
+            {/* Lyrics block — read mode by default; edit mode shows a
+             *  per-line textarea so the player can rewrite freely. */}
+            {!isEditing ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  marginBottom: 12,
+                  borderRadius: 14,
+                  background: "rgba(0, 0, 0, 0.28)",
+                  border: "2px solid rgba(192, 132, 252, 0.35)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 0 12px rgba(192, 132, 252, 0.18)",
+                  textAlign: "center",
+                }}
+              >
+                {verse.map((line, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      fontFamily: "'Lilita One', system-ui",
+                      fontSize: 14,
+                      color: "#fff",
+                      letterSpacing: 0.2,
+                      lineHeight: 1.4,
+                      marginBottom: i < verse.length - 1 ? 4 : 0,
+                      textShadow: "0 1px 0 rgba(0,0,0,0.55)",
+                    }}
+                  >
+                    {line}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: 10,
+                  marginBottom: 12,
+                  borderRadius: 14,
+                  background: "rgba(0, 0, 0, 0.28)",
+                  border: "2px solid rgba(192, 132, 252, 0.55)",
+                }}
+              >
+                {editLines.map((line, i) => (
+                  <input
+                    key={i}
+                    type="text"
+                    value={line}
+                    onChange={(e) => {
+                      const next = [...editLines];
+                      next[i] = e.target.value;
+                      setEditLines(next);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "6px 10px",
+                      marginBottom: i < editLines.length - 1 ? 6 : 0,
+                      borderRadius: 8,
+                      border: "1.5px solid rgba(255,255,255,0.18)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#fff",
+                      fontFamily: "'Lilita One', system-ui",
+                      fontSize: 13,
+                      letterSpacing: 0.2,
+                      outline: "none",
+                      textAlign: "center",
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Generate / Edit row */}
+            <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 12 }}>
+              {!isEditing ? (
+                <>
+                  <button
+                    onClick={() => setVerse(pickRandomVerse())}
+                    style={lyricsBtn("#fb923c")}
+                  >
+                    🎲 GENERATE
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditLines([...verse]);
+                      setIsEditing(true);
+                    }}
+                    style={lyricsBtn("#c084fc")}
+                  >
+                    ✏️ EDIT
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      const cleaned = editLines.map((l) => l.trim()).filter((l) => l.length > 0);
+                      setVerse(cleaned.length > 0 ? cleaned : verse);
+                      setIsEditing(false);
+                    }}
+                    style={lyricsBtn("#6bf395")}
+                  >
+                    ✓ SAVE
+                  </button>
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    style={lyricsBtn("#9ca3af")}
+                  >
+                    ✕ CANCEL
+                  </button>
+                </>
+              )}
+            </div>
+
             <p
               style={{
                 fontFamily: "'Plus Jakarta Sans', system-ui",
-                fontSize: 12,
-                color: "rgba(255,255,255,0.65)",
+                fontSize: 11,
+                color: "rgba(255,255,255,0.55)",
                 fontStyle: "italic",
-                margin: "0 0 18px",
+                margin: "0 0 14px",
                 lineHeight: 1.5,
               }}
             >
               use wired headphones for high-quality results
             </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-              <button onClick={handleStart}    style={primaryBtn()}>START</button>
-              <button onClick={onCancel}        style={secondaryBtn()}>CANCEL</button>
+              <button onClick={handleStart} disabled={isEditing} style={primaryBtn(isEditing)}>START</button>
+              <button onClick={onCancel} style={secondaryBtn()}>CANCEL</button>
             </div>
           </>
         )}
@@ -1679,14 +1856,41 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
               RECORDING
             </div>
 
-            <div style={{
-              fontFamily: "'Lilita One', system-ui",
-              fontSize: 24,
-              color: "#fff",
-              letterSpacing: 0.5,
-              marginBottom: 14,
-            }}>
-              SING IT
+            {/* Karaoke lyrics — line that's "now" is gold and big; the
+             *  upcoming / already-sung lines fade. Active line based
+             *  purely on elapsed time so it tracks the metronome the
+             *  singer is hearing. */}
+            <div
+              style={{
+                marginBottom: 14,
+                padding: "10px 12px",
+                borderRadius: 12,
+                background: "rgba(0, 0, 0, 0.32)",
+                border: "2px solid rgba(192, 132, 252, 0.30)",
+              }}
+            >
+              {verse.map((line, i) => {
+                const active = i === activeLineIdx;
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      fontFamily: "'Lilita One', system-ui",
+                      fontSize: active ? 16 : 13,
+                      color: active ? "#facc15" : "rgba(255,255,255,0.45)",
+                      letterSpacing: 0.2,
+                      lineHeight: 1.35,
+                      marginBottom: i < verse.length - 1 ? 4 : 0,
+                      textShadow: active
+                        ? "0 1px 0 rgba(0,0,0,0.65), 0 0 12px rgba(250, 204, 21, 0.55)"
+                        : "0 1px 0 rgba(0,0,0,0.5)",
+                      transition: "color 0.2s, font-size 0.2s, text-shadow 0.2s",
+                    }}
+                  >
+                    {line}
+                  </div>
+                );
+              })}
             </div>
 
             {/* 4 beat dots — light up in sequence with the bar. Reads
@@ -1806,18 +2010,40 @@ function VocalRecordingOverlay({ bpm, onRecorded, onCancel }: VocalRecordingOver
   );
 }
 
-function primaryBtn(): React.CSSProperties {
+function primaryBtn(disabled = false): React.CSSProperties {
   return {
     padding: "10px 22px",
     borderRadius: 14,
     border: "2px solid #0a0f1c",
-    background: "linear-gradient(180deg, #ff7a8e, #b8253a)",
+    background: disabled
+      ? "linear-gradient(180deg, #4a4a4a, #2a2a2a)"
+      : "linear-gradient(180deg, #ff7a8e, #b8253a)",
     color: "#fff",
     fontFamily: "'Lilita One', system-ui",
     fontSize: 14,
     letterSpacing: 0.5,
-    cursor: "pointer",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.5 : 1,
     boxShadow: "inset 0 2px 0 rgba(255,255,255,0.35), 0 4px 0 rgba(0,0,0,0.45)",
+  };
+}
+
+/** Small accent-colour pill used by the GENERATE / EDIT / SAVE row.
+ *  Color is the gradient top — a darker shade is computed for the
+ *  bottom so the button looks chunky and game-y at any hue. */
+function lyricsBtn(accent: string): React.CSSProperties {
+  return {
+    padding: "6px 12px",
+    borderRadius: 10,
+    border: "2px solid #0a0f1c",
+    background: `linear-gradient(180deg, ${accent}, ${accent}99)`,
+    color: "#0a0f1c",
+    fontFamily: "'Lilita One', system-ui",
+    fontSize: 11,
+    letterSpacing: 0.3,
+    cursor: "pointer",
+    boxShadow: "inset 0 2px 0 rgba(255,255,255,0.4), 0 2px 0 rgba(0,0,0,0.4)",
+    textShadow: "0 1px 0 rgba(255,255,255,0.35)",
   };
 }
 function secondaryBtn(): React.CSSProperties {

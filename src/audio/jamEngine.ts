@@ -46,14 +46,23 @@ interface Slot {
    *  OFF, vocal stays at its recorded tempo regardless). undefined
    *  for non-vocal slots. */
   recordedBpm?: number;
-  /** Vocal-only effects chain — pitch shifter for tuning and a chorus
-   *  that lays in the "auto-tuned / produced" sheen. Real autotune
-   *  needs real-time pitch detection + scale quantization (heavy);
-   *  this approximation is what the game-y UX actually needs: a
-   *  semitone knob and a wet/dry effect blend.  */
+  /** Vocal-only effects chain — Travis-Scott-flavoured trap stack.
+   *  Real autotune does live pitch detection + scale quantization
+   *  (Antares Auto-Tune Pro); without that DSP, the audible
+   *  character of the genre comes from: (1) tight pitch shift,
+   *  (2) octave-doubled harmony, (3) slap delay, (4) plate reverb,
+   *  (5) bus compression to glue. The EFFECT slider blends 2/3/4
+   *  in together — at 0 you hear a near-dry tuned vocal, at 1 the
+   *  full "in the booth" wash. */
   vocalFx?: {
-    pitchShift: Tone.PitchShift;
-    chorus:     Tone.Chorus;
+    pitchShift:    Tone.PitchShift;   // main tune (semitones)
+    octaveShift:   Tone.PitchShift;   // +12 harmony, runs parallel to dry
+    octaveGain:    Tone.Gain;         // ramps with EFFECT
+    delay:         Tone.FeedbackDelay; // slap delay
+    delayGain:     Tone.Gain;          // ramps with EFFECT
+    reverb:        Tone.Reverb;       // plate-ish
+    reverbGain:    Tone.Gain;          // ramps with EFFECT
+    compressor:    Tone.Compressor;
   };
 }
 
@@ -167,8 +176,15 @@ export function clearSlot(slotId: string): void {
   try { slot.player.dispose(); } catch { /* ignore */ }
   try { slot.gain.dispose(); } catch { /* ignore */ }
   if (slot.vocalFx) {
-    try { slot.vocalFx.pitchShift.dispose(); } catch { /* ignore */ }
-    try { slot.vocalFx.chorus.dispose();    } catch { /* ignore */ }
+    const fx = slot.vocalFx;
+    try { fx.pitchShift.dispose();  } catch { /* ignore */ }
+    try { fx.octaveShift.dispose(); } catch { /* ignore */ }
+    try { fx.octaveGain.dispose();  } catch { /* ignore */ }
+    try { fx.delay.dispose();       } catch { /* ignore */ }
+    try { fx.delayGain.dispose();   } catch { /* ignore */ }
+    try { fx.reverb.dispose();      } catch { /* ignore */ }
+    try { fx.reverbGain.dispose();  } catch { /* ignore */ }
+    try { fx.compressor.dispose();  } catch { /* ignore */ }
   }
   slots.delete(slotId);
 }
@@ -321,35 +337,82 @@ export async function assignVocalSlot(
   // Vocal recordings come from the user's mic — no rate-stretch.
   player.playbackRate = 1;
 
-  // ── Autotune-flavoured FX chain ──
-  // Pitch shifter handles the semitone "tune" knob; chorus adds the
-  // produced sheen autotuned vocals are known for. The chorus wet
-  // amount IS the "effect" amount the popover exposes — 0 = bypass,
-  // 1 = full wash. Real autotune snaps detected pitch to a scale;
-  // without realtime pitch detection that's not in scope, so this
-  // chain gives the audible character without the heavy DSP.
+  // ── Trap / Travis-style autotune chain ──
+  // The defining traits of the genre's vocal sound are octave-doubled
+  // harmonies, tight slap delay, and a plate reverb tail, sitting on
+  // top of an autotuned lead. Without realtime pitch detection we can
+  // approximate the audible character with this signal flow:
+  //
+  //                                  ┌─► octaveShift → octaveGain ──┐
+  //                                  │                                │
+  //   player → pitchShift (tune) ────┼─► dry ─────────────────────────┤
+  //                                  │                                │
+  //                                  ├─► delay → delayGain ───────────┤
+  //                                  │                                ▼
+  //                                  └─► reverb → reverbGain ───► compressor → gain → out
+  //
+  // The EFFECT slider drives octaveGain / delayGain / reverbGain in
+  // parallel, so 0 = near-dry tuned vocal, 1 = full "booth" stack.
   const pitchShift = new Tone.PitchShift({
     pitch:      0,
-    windowSize: 0.08,
+    windowSize: 0.05,   // tighter than before — grainier, more "autotuned"
     feedback:   0,
   });
-  const chorus = new Tone.Chorus({
-    frequency: 4,
-    delayTime: 2.5,
-    depth:     0.7,
-    feedback:  0.3,
-    spread:    180,
-    wet:       0.5,         // default effect amount — noticeable but not cartoonish
-  }).start();
+  // Parallel +12 harmony (the "Travis stack").
+  const octaveShift = new Tone.PitchShift({
+    pitch:      12,
+    windowSize: 0.05,
+    feedback:   0,
+  });
+  const octaveGain = new Tone.Gain(0);   // ramped by EFFECT
+  // Slap delay — eighth-note at the master BPM. Clamped to a sane
+  // 60–220 ms range so it stays "slap"-like even at extreme tempos.
+  // Low feedback for tightness; the wet IS the bus send (no internal
+  // mix), the overall amount is controlled by delayGain downstream.
+  const slapTime = Math.max(0.06, Math.min(0.22, (60 / bpm) / 2));
+  const delay = new Tone.FeedbackDelay({
+    delayTime: slapTime,
+    feedback:  0.22,
+    wet:       1,
+  });
+  const delayGain = new Tone.Gain(0);
+  // Plate-ish reverb — tight pre-delay, ~1.6 s tail.
+  const reverb = new Tone.Reverb({
+    decay:     1.6,
+    preDelay:  0.02,
+    wet:       1,                     // again wet 100% on the bus; reverbGain controls the send
+  });
+  const reverbGain = new Tone.Gain(0);
+  // Bus comp to glue everything together. Trap vocals are typically
+  // smashed — heavy ratio, fast attack, slow release.
+  const compressor = new Tone.Compressor({
+    threshold: -22,
+    ratio:     4,
+    attack:    0.005,
+    release:   0.2,
+    knee:      6,
+  });
 
-  // Mute / volume node downstream of the FX so the dB target lands on
-  // the wet signal.
+  // Mute / volume node downstream of the entire wash.
   const gain = new Tone.Gain(1.0);
 
   player.disconnect();
+  // Player → pitch (tune)
   player.connect(pitchShift);
-  pitchShift.connect(chorus);
-  chorus.connect(gain);
+
+  // Parallel branches off the tuned signal.
+  pitchShift.connect(compressor);              // dry branch
+  pitchShift.connect(octaveShift);
+  octaveShift.connect(octaveGain);
+  octaveGain.connect(compressor);
+  pitchShift.connect(delay);
+  delay.connect(delayGain);
+  delayGain.connect(compressor);
+  pitchShift.connect(reverb);
+  reverb.connect(reverbGain);
+  reverbGain.connect(compressor);
+
+  compressor.connect(gain);
   gain.toDestination();
 
   const offset = phaseAlignedOffset(player);
@@ -357,7 +420,13 @@ export async function assignVocalSlot(
     player.start(Tone.now(), offset);
   } catch (err) {
     console.error("[jamEngine] vocal player start failed:", err);
-    try { player.dispose(); gain.dispose(); pitchShift.dispose(); chorus.dispose(); } catch { /* ignore */ }
+    try {
+      player.dispose();      gain.dispose();
+      pitchShift.dispose();  octaveShift.dispose();
+      octaveGain.dispose();  delay.dispose();
+      delayGain.dispose();   reverb.dispose();
+      reverbGain.dispose();  compressor.dispose();
+    } catch { /* ignore */ }
     return;
   }
 
@@ -372,8 +441,16 @@ export async function assignVocalSlot(
     // with the band.
     nativeBpm:   null,
     recordedBpm: bpm,
-    vocalFx:     { pitchShift, chorus },
+    vocalFx: {
+      pitchShift, octaveShift, octaveGain,
+      delay, delayGain, reverb, reverbGain,
+      compressor,
+    },
   });
+
+  // Apply the default effect amount immediately so the chain matches
+  // the slider's default position (the popover defaults to 0.5).
+  setVocalAutotune(slotId, { effect: 0.5 });
 
   // Vocal slot also gets the drop-in whoosh.
   void playJamWhoosh();
@@ -383,8 +460,11 @@ export async function assignVocalSlot(
  * Update the autotune parameters on a vocal slot in place. Safe to
  * call on non-vocal slots (no-op) and at any rate (no audible glitch).
  *
- *   - pitch:  -12..+12 semitones (Tone.PitchShift.pitch)
- *   - effect: 0..1 chorus wet amount + depth scale
+ *   - pitch:  -12..+12 semitones — sets Tone.PitchShift.pitch; the
+ *             octave harmony tracks the tune (+12 on top).
+ *   - effect: 0..1 — drives the octave-harmony, slap-delay, and
+ *             reverb send levels in parallel. 0 ≈ dry tuned vocal,
+ *             1 ≈ full Travis-style stack.
  */
 export function setVocalAutotune(
   slotId: string,
@@ -392,14 +472,19 @@ export function setVocalAutotune(
 ): void {
   const slot = slots.get(slotId);
   if (!slot?.vocalFx) return;
+  const fx = slot.vocalFx;
   if (typeof params.pitch === "number") {
-    slot.vocalFx.pitchShift.pitch = params.pitch;
+    fx.pitchShift.pitch  = params.pitch;
+    // Keep the harmony locked one octave above the tuned lead.
+    fx.octaveShift.pitch = params.pitch + 12;
   }
   if (typeof params.effect === "number") {
     const e = Math.max(0, Math.min(1, params.effect));
-    slot.vocalFx.chorus.wet.value = e;
-    // Slight depth scaling so 0 = dry, 1 = full wash. Keeps the
-    // chorus character recognisable across the slider range.
-    slot.vocalFx.chorus.depth = 0.2 + e * 0.6;
+    // Tuned ratios — octave harmony stays slightly under the dry
+    // lead, slap delay subtle, reverb on top. Numbers picked by ear
+    // to match recognisable trap-vocal mixes.
+    fx.octaveGain.gain.rampTo(e * 0.55, 0.05);
+    fx.delayGain.gain.rampTo (e * 0.35, 0.05);
+    fx.reverbGain.gain.rampTo(e * 0.40, 0.05);
   }
 }
