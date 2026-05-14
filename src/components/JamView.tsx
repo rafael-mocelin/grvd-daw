@@ -1529,7 +1529,7 @@ export function JamView() {
               // visual spot at any viewport size; size scales with
               // roomSize so it shrinks/grows in lockstep with the
               // characters when the room shrinks on mobile.
-              pos={{ x: 50, y: 45 }}
+              pos={{ x: 45, y: 50 }}
               size={Math.max(60, Math.round(roomSize * 0.175))}
               jamCount={jamSongs.length}
               onClick={() => setLibraryOpen(true)}
