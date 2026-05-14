@@ -107,12 +107,12 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
   // so the "air" effect feels visually present even when the player
   // isn't currently twisting the knob.
   const sparkles = useRef(
-    Array.from({ length: 10 }, (_, i) => ({
+    Array.from({ length: 14 }, (_, i) => ({
       id:    i,
       left:  10 + Math.random() * 80,    // %
       delay: Math.random() * 2.4,        // s
       dur:   2.2 + Math.random() * 1.6,  // s
-      size:  4 + Math.random() * 7,
+      size:  6 + Math.random() * 10,
     }))
   ).current;
 
@@ -123,14 +123,14 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
   return (
     <div
       style={{
-        width: "min(60vw, 275px)",
+        width: "min(92vw, 420px)",
         padding: 0,
-        borderRadius: 14,
+        borderRadius: 18,
         overflow: "hidden",
         background: "linear-gradient(180deg, #d8f3fb 0%, #a4d8eb 50%, #6aa9c8 100%)",
-        border: "2px solid #0a0f1c",
+        border: "2.5px solid #0a0f1c",
         boxShadow:
-          "inset 0 2px 0 rgba(255,255,255,0.7), 0 4px 0 rgba(0,0,0,0.5), 0 16px 32px rgba(0,0,0,0.65), 0 0 22px rgba(125, 249, 255, 0.45)",
+          "inset 0 2px 0 rgba(255,255,255,0.7), 0 6px 0 rgba(0,0,0,0.5), 0 24px 50px rgba(0,0,0,0.65), 0 0 32px rgba(125, 249, 255, 0.45)",
         position: "relative",
       }}
     >
@@ -139,31 +139,31 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
         style={{
           display: "flex",
           alignItems: "center",
-          padding: "7px 10px",
+          padding: "10px 14px",
           background: "linear-gradient(180deg, #1a2438 0%, #0a1020 100%)",
-          borderBottom: "1.5px solid rgba(0,0,0,0.5)",
+          borderBottom: "2px solid rgba(0,0,0,0.5)",
           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.10)",
         }}
       >
-        <span style={{ fontSize: 11, marginRight: 6 }}>{fx.icon}</span>
+        <span style={{ fontSize: 16, marginRight: 8 }}>{fx.icon}</span>
         <div
           style={{
             fontFamily: "'Lilita One', system-ui",
-            fontSize: 12,
+            fontSize: 18,
             color: "#7df9ff",
-            letterSpacing: 0.6,
-            textShadow: "0 1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(125, 249, 255, 0.7)",
+            letterSpacing: 0.8,
+            textShadow: "0 1px 0 rgba(0,0,0,0.7), 0 0 12px rgba(125, 249, 255, 0.7)",
           }}
         >
           {fx.name}
         </div>
         <div
           style={{
-            marginLeft: 7,
-            paddingLeft: 7,
-            borderLeft: "1px solid rgba(255,255,255,0.20)",
+            marginLeft: 10,
+            paddingLeft: 10,
+            borderLeft: "1.5px solid rgba(255,255,255,0.20)",
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 6,
+            fontSize: 9,
             color: "rgba(255,255,255,0.55)",
             letterSpacing: "0.18em",
             textTransform: "uppercase",
@@ -176,12 +176,12 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
           onClick={onClose}
           aria-label="close"
           style={{
-            width: 18, height: 18, borderRadius: 9,
-            border: "1px solid rgba(255,255,255,0.30)",
+            width: 26, height: 26, borderRadius: 13,
+            border: "1.5px solid rgba(255,255,255,0.30)",
             background: "rgba(255,255,255,0.06)",
             color: "rgba(255,255,255,0.85)",
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 8, fontWeight: 700,
+            fontSize: 11, fontWeight: 700,
             cursor: "pointer",
             padding: 0, lineHeight: 1,
           }}
@@ -194,8 +194,8 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
       <div
         style={{
           position: "relative",
-          padding: "14px 12px 10px",
-          minHeight: 170,
+          padding: "22px 18px 16px",
+          minHeight: 260,
         }}
       >
         {/* Floating sparkles */}
@@ -229,8 +229,8 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 5,
-            marginBottom: 12,
+            gap: 8,
+            marginBottom: 18,
             position: "relative",
             zIndex: 1,
           }}
@@ -238,7 +238,7 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
           <span
             style={{
               fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 6,
+              fontSize: 9,
               color: "rgba(10, 20, 36, 0.7)",
               letterSpacing: "0.20em",
               textTransform: "uppercase",
@@ -250,11 +250,11 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
           <div
             style={{
               flex: 1,
-              height: 7,
-              borderRadius: 4,
+              height: 10,
+              borderRadius: 6,
               background: "rgba(10, 20, 36, 0.25)",
-              border: "1px solid rgba(10, 20, 36, 0.55)",
-              boxShadow: "inset 0 1px 0 rgba(0,0,0,0.25)",
+              border: "1.5px solid rgba(10, 20, 36, 0.55)",
+              boxShadow: "inset 0 2px 0 rgba(0,0,0,0.25)",
               overflow: "hidden",
               position: "relative",
             }}
@@ -264,7 +264,7 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
                 width: `${meterFillPct}%`,
                 height: "100%",
                 background: "linear-gradient(90deg, #b8e8f5 0%, #7df9ff 60%, #ffffff 100%)",
-                boxShadow: "0 0 7px rgba(125, 249, 255, 0.8)",
+                boxShadow: "0 0 10px rgba(125, 249, 255, 0.8)",
                 animation: amount > 0 ? "shimmerMeterGlow 1.6s ease-in-out infinite" : undefined,
               }}
             />
@@ -272,10 +272,10 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
           <span
             style={{
               fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 7,
+              fontSize: 10,
               fontWeight: 700,
               color: "#0a1424",
-              minWidth: 24,
+              minWidth: 36,
               textAlign: "right",
             }}
           >
@@ -290,13 +290,13 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
             justifyContent: "center",
             position: "relative",
             zIndex: 1,
-            marginBottom: 9,
+            marginBottom: 14,
           }}
         >
           <PluginKnob
             value={amount}
             onChange={onChange}
-            size={118}
+            size={180}
             accent="#7df9ff"
             body={["#1a2438", "#0a1020"]}
             label="AMOUNT"
@@ -307,11 +307,11 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
         <div
           style={{
             background: "linear-gradient(180deg, rgba(10, 20, 36, 0.85) 0%, rgba(10, 20, 36, 0.65) 100%)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            borderRadius: 7,
-            padding: "5px 8px",
+            border: "1.5px solid rgba(255,255,255,0.18)",
+            borderRadius: 10,
+            padding: "8px 12px",
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 7,
+            fontSize: 10,
             color: "#a4d8eb",
             letterSpacing: "0.06em",
             textAlign: "center",
@@ -327,20 +327,20 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
       {/* Footer brand strip */}
       <div
         style={{
-          padding: "4px 9px",
+          padding: "6px 14px",
           background: "linear-gradient(180deg, #0a1020 0%, #06091a 100%)",
-          borderTop: "1.5px solid rgba(0,0,0,0.6)",
+          borderTop: "2px solid rgba(0,0,0,0.6)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          gap: 4,
+          gap: 6,
         }}
       >
-        <span style={{ fontSize: 7 }}>✦</span>
+        <span style={{ fontSize: 10 }}>✦</span>
         <span
           style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 6,
+            fontSize: 8,
             color: "rgba(125, 249, 255, 0.7)",
             letterSpacing: "0.30em",
             textTransform: "uppercase",
@@ -348,7 +348,7 @@ function ShimmerFace({ fx, amount, onChange, onClose }: FaceProps) {
         >
           GRVD AUDIO · SHIMMER
         </span>
-        <span style={{ fontSize: 7 }}>✦</span>
+        <span style={{ fontSize: 10 }}>✦</span>
       </div>
     </div>
   );
@@ -369,14 +369,14 @@ function GenericFace({ fx, amount, onChange, onClose }: FaceProps) {
   return (
     <div
       style={{
-        width: "min(60vw, 247px)",
+        width: "min(92vw, 380px)",
         padding: 0,
-        borderRadius: 12,
+        borderRadius: 18,
         overflow: "hidden",
         background: "linear-gradient(180deg, #243358 0%, #0f1828 100%)",
-        border: "2px solid #0a0f1c",
+        border: "2.5px solid #0a0f1c",
         boxShadow:
-          "inset 0 2px 0 rgba(255,255,255,0.18), 0 4px 0 rgba(0,0,0,0.5), 0 16px 32px rgba(0,0,0,0.65), 0 0 16px rgba(250, 204, 21, 0.30)",
+          "inset 0 2px 0 rgba(255,255,255,0.18), 0 6px 0 rgba(0,0,0,0.5), 0 24px 50px rgba(0,0,0,0.65), 0 0 24px rgba(250, 204, 21, 0.30)",
       }}
     >
       {/* Top chrome */}
@@ -384,30 +384,30 @@ function GenericFace({ fx, amount, onChange, onClose }: FaceProps) {
         style={{
           display: "flex",
           alignItems: "center",
-          padding: "7px 10px",
+          padding: "10px 14px",
           background: "linear-gradient(180deg, #1a2438 0%, #0a1020 100%)",
-          borderBottom: "1.5px solid rgba(0,0,0,0.5)",
+          borderBottom: "2px solid rgba(0,0,0,0.5)",
         }}
       >
-        <span style={{ fontSize: 11, marginRight: 6 }}>{fx.icon}</span>
+        <span style={{ fontSize: 16, marginRight: 8 }}>{fx.icon}</span>
         <div
           style={{
             fontFamily: "'Lilita One', system-ui",
-            fontSize: 12,
+            fontSize: 18,
             color: "#facc15",
-            letterSpacing: 0.6,
-            textShadow: "0 1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(250, 204, 21, 0.55)",
+            letterSpacing: 0.8,
+            textShadow: "0 1px 0 rgba(0,0,0,0.7), 0 0 12px rgba(250, 204, 21, 0.55)",
           }}
         >
           {fx.name}
         </div>
         <div
           style={{
-            marginLeft: 7,
-            paddingLeft: 7,
-            borderLeft: "1px solid rgba(255,255,255,0.20)",
+            marginLeft: 10,
+            paddingLeft: 10,
+            borderLeft: "1.5px solid rgba(255,255,255,0.20)",
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 6,
+            fontSize: 9,
             color: "rgba(255,255,255,0.55)",
             letterSpacing: "0.18em",
             textTransform: "uppercase",
@@ -420,12 +420,12 @@ function GenericFace({ fx, amount, onChange, onClose }: FaceProps) {
           onClick={onClose}
           aria-label="close"
           style={{
-            width: 18, height: 18, borderRadius: 9,
-            border: "1px solid rgba(255,255,255,0.30)",
+            width: 26, height: 26, borderRadius: 13,
+            border: "1.5px solid rgba(255,255,255,0.30)",
             background: "rgba(255,255,255,0.06)",
             color: "rgba(255,255,255,0.85)",
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 8, fontWeight: 700,
+            fontSize: 11, fontWeight: 700,
             cursor: "pointer",
             padding: 0, lineHeight: 1,
           }}
@@ -437,17 +437,17 @@ function GenericFace({ fx, amount, onChange, onClose }: FaceProps) {
       {/* Face */}
       <div
         style={{
-          padding: "14px 12px 12px",
+          padding: "22px 18px 18px",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: 10,
+          gap: 16,
         }}
       >
         <PluginKnob
           value={amount}
           onChange={onChange}
-          size={104}
+          size={160}
           accent="#facc15"
           body={["#2a3142", "#0c1119"]}
           label="AMOUNT"
@@ -455,7 +455,7 @@ function GenericFace({ fx, amount, onChange, onClose }: FaceProps) {
         <div
           style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 7,
+            fontSize: 11,
             fontWeight: 700,
             color: amount > 0 ? "#facc15" : "rgba(255,255,255,0.5)",
             letterSpacing: "0.10em",
@@ -467,11 +467,11 @@ function GenericFace({ fx, amount, onChange, onClose }: FaceProps) {
         <div
           style={{
             background: "rgba(0, 0, 0, 0.35)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 7,
-            padding: "5px 8px",
+            border: "1.5px solid rgba(255,255,255,0.12)",
+            borderRadius: 10,
+            padding: "8px 12px",
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 7,
+            fontSize: 10,
             color: "rgba(255,255,255,0.65)",
             letterSpacing: "0.06em",
             textAlign: "center",
@@ -485,19 +485,19 @@ function GenericFace({ fx, amount, onChange, onClose }: FaceProps) {
       {/* Footer brand strip */}
       <div
         style={{
-          padding: "4px 9px",
+          padding: "6px 14px",
           background: "linear-gradient(180deg, #0a1020 0%, #06091a 100%)",
-          borderTop: "1.5px solid rgba(0,0,0,0.6)",
+          borderTop: "2px solid rgba(0,0,0,0.6)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          gap: 4,
+          gap: 6,
         }}
       >
         <span
           style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 6,
+            fontSize: 8,
             color: "rgba(250, 204, 21, 0.7)",
             letterSpacing: "0.30em",
             textTransform: "uppercase",
