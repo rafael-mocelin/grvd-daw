@@ -50,7 +50,11 @@ import {
 } from "../data/characterSkins";
 import { getPlaceable, PLACEABLE_CHARS, type PlaceableChar } from "../data/placeableChars";
 import { CHARACTER_SKINS } from "../data/characterSkins";
-import { JamArrange, ARRANGE_ACCENT, characterIconFor, playerArrangeRow, type ArrangeRow } from "./jam/JamArrange";
+import { JamArrange, ARRANGE_ACCENT, characterIconFor, playerArrangeRow, type ArrangeRow, SECTIONS as ARRANGE_SECTIONS } from "./jam/JamArrange";
+import { CassetteRack } from "./jam/CassetteRack";
+import { JamLibrary } from "./jam/JamLibrary";
+import { useJamStore } from "../store/useJamStore";
+import type { JamSong, JamSlotSnapshot, JamPlacementSnapshot } from "../data/jamSongs";
 import { useJamAudioFrame } from "../hooks/useJamAudioFrame";
 import { ComboCodex } from "./jam/ComboCodex";
 import {
@@ -68,6 +72,7 @@ import {
 } from "../audio/jamEngine";
 import { ensureAudio, recordVocal } from "../audio/engine";
 import { playJamComboSting, playMetronomeTick } from "../audio/jamSfx";
+import * as Tone from "tone";
 import { C } from "../ui/burst/tokens";
 
 /**
@@ -222,6 +227,34 @@ export function JamView() {
 
   // Whether the floating CharacterPalette popup is open.
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // ── Saved-jams state ──
+  // Cassette rack opens this overlay; RECORD button can either save
+  // instantly (no arrange unlocked) or run an interactive recording
+  // pass through the unlocked sections.
+  const jamSongs   = useJamStore((s) => s.songs);
+  const saveJam    = useJamStore((s) => s.saveJam);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  /** Active recording pass — null when idle. Shape:
+   *  { startedAtSec, durationSec, mode }. mode = 'arrange' runs a
+   *  playhead pass; mode = 'instant' fires immediately. */
+  const [recordingPass, setRecordingPass] = useState<
+    { startedAtSec: number; durationSec: number } | null
+  >(null);
+  /** Save-confirm overlay state. Shows a name field after a recording
+   *  pass completes (or on Back when there are unsaved changes). */
+  const [saveDialog, setSaveDialog] = useState<{
+    nameDraft: string;
+    /** If set, on confirm/cancel we also exit the stage. */
+    exitAfter: boolean;
+  } | null>(null);
+  /** Tracks whether the current jam state has unsaved changes (i.e.,
+   *  the player has dropped a character / recorded since the last
+   *  RECORD commit). Used to fire the back-prompt. */
+  const [dirty, setDirty] = useState(false);
+  /** Vocal AudioBuffer kept in a ref so the save snapshot can capture
+   *  it without polluting slotState (AudioBuffer isn't JSON). */
+  const vocalBufferRef = useRef<AudioBuffer | null>(null);
 
   // ── Arrange per-section mute state ──
   // Keyed `${slotId}:${sectionId}`. true = that slot is silent during
@@ -711,6 +744,197 @@ export function JamView() {
     // / X / Esc closes it.
   }
 
+  // ── Dirty tracking ──
+  // Flip to true whenever the jam state changes from its last-saved
+  // baseline. The first render is skipped via a ref so a freshly-
+  // mounted JamView isn't immediately "dirty". commitSave / handleLoadJam
+  // both reset this flag.
+  const firstDirtyRenderRef = useRef(true);
+  useEffect(() => {
+    if (firstDirtyRenderRef.current) {
+      firstDirtyRenderRef.current = false;
+      return;
+    }
+    setDirty(true);
+  }, [bandPlacements, slotState, arrangeMutes, playerPlaced, playerPos, bpm]);
+
+  // ── Arrange-derived song length ──
+  // Sum the bars of every section the player has unlocked, then turn
+  // that into seconds at the current BPM. This is the duration of one
+  // "recording pass" when the arrange feature is unlocked.
+  const arrangeUnlocked  = totalXP >= ARRANGE_UNLOCK_XP;
+  const unlockedSongBars = ARRANGE_SECTIONS.reduce((n, s) =>
+    (s.baseUnlocked || totalXP >= s.xpRequired) ? n + s.bars : n,
+    0,
+  );
+  const songDurationSec  = unlockedSongBars > 0
+    ? (unlockedSongBars * 4) / (bpm / 60)
+    : 0;
+
+  /** Build a JamSong-shaped snapshot of the current jam state for
+   *  saving / passing to the store. Vocal buffer is captured by ref
+   *  alongside (not JSON-serializable). */
+  function snapshotForSave(name: string): Omit<JamSong, "id" | "createdAt"> {
+    const placements: Record<string, JamPlacementSnapshot> = {};
+    for (const [slotId, p] of Object.entries(bandPlacements)) {
+      if (!p) continue;
+      placements[slotId] = {
+        characterKind: slotId as CharacterKind,
+        soundId:       p.soundId,
+        pos:           p.pos,
+      };
+    }
+    const slots: Record<string, JamSlotSnapshot> = {};
+    for (const [slotId, st] of Object.entries(slotState)) {
+      if (!st.soundId && slotId !== PLAYER_SLOT_ID) continue;
+      slots[slotId] = {
+        soundId:        st.soundId,
+        muted:          st.muted,
+        volume:         st.volume,
+        syncToBpm:      st.syncToBpm,
+        autotunePitch:  st.autotunePitch,
+        autotuneEffect: st.autotuneEffect,
+      };
+    }
+    return {
+      name,
+      bpm,
+      placements,
+      slots,
+      playerPlaced,
+      playerPos,
+      arrangeMutes,
+      vocalBuffer: vocalBufferRef.current ?? undefined,
+    };
+  }
+
+  /** Commit a save with the given (player-typed) name and reset the
+   *  dirty flag so the back-prompt doesn't trigger again. */
+  function commitSave(name: string) {
+    saveJam(snapshotForSave(name));
+    setDirty(false);
+  }
+
+  /** Start a recording pass. With the arrange feature unlocked, this
+   *  seeks the transport back to bar 0 and watches the elapsed time;
+   *  once a full song length has played, we capture the snapshot and
+   *  open the name prompt. Without the arrange feature, we skip the
+   *  pass and open the prompt instantly (the underlying loop already
+   *  represents a single 'verse' worth of song). */
+  function startRecordingPass() {
+    if (saveDialog) return;     // a save is already in flight
+    if (!arrangeUnlocked) {
+      setSaveDialog({ nameDraft: "", exitAfter: false });
+      return;
+    }
+    if (songDurationSec <= 0) {
+      setSaveDialog({ nameDraft: "", exitAfter: false });
+      return;
+    }
+    // Reset the playhead so the recording pass starts at the song's
+    // beginning. We can't easily restart the underlying audio loops,
+    // so this is a visual + accounting reset — the song character
+    // remains the same.
+    Tone.getTransport().seconds = 0;
+    setRecordingPass({
+      startedAtSec: Tone.getTransport().seconds,
+      durationSec:  songDurationSec,
+    });
+  }
+  /** Cancel an in-flight recording pass without saving. */
+  function cancelRecordingPass() {
+    setRecordingPass(null);
+  }
+
+  // Watcher — once the in-flight recording pass reaches its duration,
+  // open the save dialog and clear the pass.
+  useEffect(() => {
+    if (!recordingPass) return;
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      if (cancelled) return;
+      const elapsed = Tone.getTransport().seconds - recordingPass.startedAtSec;
+      if (elapsed >= recordingPass.durationSec) {
+        setRecordingPass(null);
+        setSaveDialog({ nameDraft: "", exitAfter: false });
+      }
+    }, 80);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [recordingPass]);
+
+  /** Load a saved jam back into the stage — tears down the current
+   *  audio chain, rebuilds it from the snapshot, restores every bit
+   *  of state. Caller closes the library overlay separately. */
+  async function handleLoadJam(song: JamSong) {
+    // Tear down existing audio.
+    clearAllSlots();
+
+    // Restore positions + slot state synchronously so React renders
+    // the right characters / playerAtMic immediately.
+    const placements: Partial<Record<CharacterKind, { soundId: string; pos: { x: number; y: number } }>> = {};
+    for (const [slotId, p] of Object.entries(song.placements)) {
+      placements[slotId as CharacterKind] = { soundId: p.soundId, pos: p.pos };
+    }
+    setBandPlacements(placements);
+
+    const nextSlotState: Record<string, SlotState> = {
+      [PLAYER_SLOT_ID]: { ...EMPTY_SLOT },
+    };
+    for (const [slotId, snap] of Object.entries(song.slots)) {
+      nextSlotState[slotId] = {
+        soundId:        snap.soundId,
+        muted:          snap.muted,
+        volume:         snap.volume,
+        syncToBpm:      snap.syncToBpm,
+        autotunePitch:  snap.autotunePitch,
+        autotuneEffect: snap.autotuneEffect,
+      };
+    }
+    setSlotState(nextSlotState);
+    setPlayerPlaced(song.playerPlaced);
+    setPlayerPos(song.playerPos);
+    setArrangeMutes(song.arrangeMutes);
+    setBpm(song.bpm);
+    setMasterBpm(song.bpm);
+
+    // Rebuild audio. Band slots first.
+    try { await ensureAudio(); } catch { /* ignore */ }
+    for (const [slotId, p] of Object.entries(song.placements)) {
+      try { await assignSlot(slotId, p.soundId, song.bpm); } catch { /* ignore */ }
+    }
+    // Player slot — needs the vocal buffer, which only survives the
+    // current session (see jamSongs.ts). If a saved jam came back
+    // from localStorage without a vocal buffer attached, we still
+    // restore the visual at the mic but the slot stays silent.
+    if (song.playerPlaced && song.vocalBuffer) {
+      vocalBufferRef.current = song.vocalBuffer;
+      try { await assignVocalSlot(PLAYER_SLOT_ID, song.vocalBuffer, song.bpm); } catch { /* ignore */ }
+      const sp = song.slots[PLAYER_SLOT_ID];
+      if (sp) {
+        setVocalAutotune(PLAYER_SLOT_ID, {
+          pitch:  sp.autotunePitch  ?? 0,
+          effect: sp.autotuneEffect ?? 0.5,
+        });
+        if (sp.muted)     setSlotMuted(PLAYER_SLOT_ID, true);
+        if (sp.volume !== 1.0) setSlotVolume(PLAYER_SLOT_ID, sp.volume);
+        setVocalSync(PLAYER_SLOT_ID, sp.syncToBpm, song.bpm);
+      }
+    }
+    // Apply mute/volume on band slots after they're assigned.
+    for (const [slotId, snap] of Object.entries(song.slots)) {
+      if (slotId === PLAYER_SLOT_ID) continue;
+      if (snap.muted)        setSlotMuted(slotId, true);
+      if (snap.volume !== 1) setSlotVolume(slotId, snap.volume);
+    }
+
+    setLibraryOpen(false);
+    setDirty(false);
+    firstDirtyRenderRef.current = true;   // skip the next dirty fire
+  }
+
   /** Drag-to-reposition. Fired by BandSlot when a placed character
    *  is dragged past the threshold and released. The audio bus
    *  doesn't need to be touched — only the iso position changes.
@@ -789,6 +1013,9 @@ export function JamView() {
    * slot as filled with the vocal sentinel id, close the overlay.
    */
   async function handleVocalRecorded(slotId: string, buffer: AudioBuffer) {
+    // Stash the buffer in a ref so saved jams can capture it without
+    // having to round-trip through slotState (AudioBuffer isn't JSON).
+    vocalBufferRef.current = buffer;
     setSlotState((prev) => ({
       ...prev,
       // syncToBpm: false — fresh recordings start unsynced; the player
@@ -934,6 +1161,13 @@ export function JamView() {
       >
         <button
           onClick={() => {
+            // Unsaved work? Prompt to save before leaving. Save
+            // dialog's exitAfter flag triggers the actual exit once
+            // the player commits or discards.
+            if (dirty && (Object.keys(bandPlacements).length > 0 || playerPlaced)) {
+              setSaveDialog({ nameDraft: "", exitAfter: true });
+              return;
+            }
             clearAllSlots();
             setStage("home");
           }}
@@ -987,6 +1221,76 @@ export function JamView() {
           }}
         >
           ★ codex {discoveredIds.size}/{COMBOS.length}
+        </button>
+
+        {/* RECORD button — saves the current jam as a cassette. With
+         *  the arrange feature unlocked it kicks off a recording
+         *  pass (playhead sweeps once, then prompts a save). Without,
+         *  it pops the save prompt instantly. Disabled when nothing
+         *  is placed yet. Press again while recording to cancel. */}
+        <button
+          onClick={() => {
+            if (recordingPass) {
+              cancelRecordingPass();
+              return;
+            }
+            // Need at least one character (band OR player) to save.
+            if (Object.keys(bandPlacements).length === 0 && !playerPlaced) return;
+            startRecordingPass();
+          }}
+          disabled={
+            !recordingPass &&
+            Object.keys(bandPlacements).length === 0 &&
+            !playerPlaced
+          }
+          aria-label={recordingPass ? "cancel recording" : "record this jam"}
+          title={recordingPass ? "tap to cancel" : "record this jam to a cassette"}
+          style={{
+            padding: "6px 14px",
+            borderRadius: 999,
+            border: "2px solid #0a0f1c",
+            background: recordingPass
+              ? "linear-gradient(180deg, #ff7a8e, #b8253a)"
+              : "linear-gradient(180deg, #c084fc, #7e22ce)",
+            color: "#fff",
+            fontFamily: "'Lilita One', system-ui",
+            fontSize: 12,
+            letterSpacing: 0.6,
+            cursor:
+              !recordingPass &&
+              Object.keys(bandPlacements).length === 0 &&
+              !playerPlaced
+                ? "not-allowed"
+                : "pointer",
+            opacity:
+              !recordingPass &&
+              Object.keys(bandPlacements).length === 0 &&
+              !playerPlaced
+                ? 0.4
+                : 1,
+            boxShadow: recordingPass
+              ? "inset 0 2px 0 rgba(255,255,255,0.4), 0 3px 0 rgba(0,0,0,0.45), 0 0 18px rgba(233, 69, 96, 0.7)"
+              : "inset 0 2px 0 rgba(255,255,255,0.4), 0 3px 0 rgba(0,0,0,0.45), 0 0 14px rgba(192, 132, 252, 0.5)",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          {recordingPass ? (
+            <>
+              <span
+                style={{
+                  width: 8, height: 8, borderRadius: "50%",
+                  background: "#fff",
+                  boxShadow: "0 0 8px rgba(255,255,255,0.9)",
+                  animation: "recDot 0.9s ease-in-out infinite",
+                }}
+              />
+              RECORDING…
+            </>
+          ) : (
+            <>● RECORD</>
+          )}
         </button>
 
         {/* Master play / pause — controls every assigned slot at once.
@@ -1213,6 +1517,17 @@ export function JamView() {
                 />
               </div>
             )}
+
+            {/* Cassette rack — clickable room furniture that opens
+             *  the saved-jam library. Sized as a fraction of the room
+             *  so it scales with the viewport just like the band
+             *  characters. */}
+            <CassetteRack
+              pos={{ x: 14, y: 82 }}
+              size={Math.max(48, Math.round(roomSize * 0.14))}
+              jamCount={jamSongs.length}
+              onClick={() => setLibraryOpen(true)}
+            />
 
             {/* Floating "characters" button — draggable, persists to
              *  localStorage. Tap to toggle the popup; if placement
@@ -1453,6 +1768,53 @@ export function JamView() {
           onClose={() => setCodexOpen(false)}
         />
       )}
+
+      {/* Cassette library — modal grid of every saved jam. */}
+      {libraryOpen && (
+        <JamLibrary
+          onLoad={(song) => { void handleLoadJam(song); }}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
+
+      {/* Save-name dialog. Triggered by RECORD pass completion OR by
+       *  Back when there are unsaved changes. Commits the snapshot
+       *  via commitSave(), then optionally exits the stage. */}
+      {saveDialog && (
+        <SaveJamDialog
+          nameDraft={saveDialog.nameDraft}
+          onChange={(v) => setSaveDialog({ ...saveDialog, nameDraft: v })}
+          onSave={() => {
+            commitSave(saveDialog.nameDraft);
+            const shouldExit = saveDialog.exitAfter;
+            setSaveDialog(null);
+            if (shouldExit) {
+              clearAllSlots();
+              setStage("home");
+            }
+          }}
+          onDiscard={() => {
+            const shouldExit = saveDialog.exitAfter;
+            setSaveDialog(null);
+            if (shouldExit) {
+              clearAllSlots();
+              setStage("home");
+            }
+          }}
+          onCancel={() => setSaveDialog(null)}
+          showDiscard={saveDialog.exitAfter}
+        />
+      )}
+
+      {/* RECORD button pulse keyframe — defined once at the JamView
+       *  root so the dot animation works whether the button is in
+       *  its idle or recording variant. */}
+      <style>{`
+        @keyframes recDot {
+          0%, 100% { transform: scale(1);    opacity: 1;   }
+          50%      { transform: scale(0.6);  opacity: 0.4; }
+        }
+      `}</style>
 
       {/* Character popup — replaces the v1 sidebar palette. Opens via
        *  the floating "+" button. Tapping a tile picks the character
@@ -2158,6 +2520,136 @@ interface BpmControlProps {
   bpm:    number;
   /** Called with a delta. Parent clamps to MIN_BPM..MAX_BPM. */
   onNudge: (delta: number) => void;
+}
+
+/* -------------------------------------------------------------------------- */
+/* SaveJamDialog — name-this-jam overlay shown after a recording pass or       */
+/* when the player hits Back with unsaved changes.                              */
+/* -------------------------------------------------------------------------- */
+
+interface SaveJamDialogProps {
+  nameDraft:    string;
+  onChange:     (v: string) => void;
+  onSave:       () => void;
+  onDiscard:    () => void;
+  onCancel:     () => void;
+  /** True when the dialog was triggered by Back. Shows a Discard
+   *  option (toss the jam and exit anyway). False when triggered by
+   *  RECORD completion — the user is saving, not deciding whether
+   *  to. */
+  showDiscard:  boolean;
+}
+
+function SaveJamDialog({
+  nameDraft, onChange, onSave, onDiscard, onCancel, showDiscard,
+}: SaveJamDialogProps) {
+  return (
+    <>
+      <div
+        onClick={onCancel}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 400,
+          background: "rgba(8, 12, 24, 0.7)",
+          backdropFilter: "blur(6px)",
+          WebkitBackdropFilter: "blur(6px)",
+        }}
+      />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed",
+          left:  "50%",
+          top:   "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 401,
+          width: "min(94vw, 380px)",
+          padding: 22,
+          borderRadius: 20,
+          background: "linear-gradient(180deg, #243358 0%, #0f1828 100%)",
+          border: "2.5px solid #0a0f1c",
+          boxShadow:
+            "inset 0 2px 0 rgba(255,255,255,0.18), 0 6px 0 rgba(0,0,0,0.5), 0 18px 38px rgba(0,0,0,0.6), 0 0 28px rgba(192, 132, 252, 0.35)",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontSize: 36, marginBottom: 4 }}>📼</div>
+        <div
+          style={{
+            fontFamily: "'Lilita One', system-ui",
+            fontSize: 20,
+            color: "#fff",
+            letterSpacing: 0.5,
+            marginBottom: 10,
+            textShadow: "0 2px 0 rgba(0,0,0,0.6), 0 0 14px rgba(192, 132, 252, 0.45)",
+          }}
+        >
+          NAME YOUR CASSETTE
+        </div>
+        <input
+          autoFocus
+          value={nameDraft}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter")  { e.preventDefault(); onSave(); }
+            if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+          }}
+          placeholder="untitled mix"
+          style={{
+            width: "100%",
+            padding: "9px 12px",
+            marginBottom: 14,
+            borderRadius: 10,
+            border: "2px solid rgba(192, 132, 252, 0.5)",
+            background: "rgba(0,0,0,0.3)",
+            color: "#fff",
+            fontFamily: "'Lilita One', system-ui",
+            fontSize: 14,
+            letterSpacing: 0.3,
+            outline: "none",
+            textAlign: "center",
+          }}
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+          <button onClick={onSave} style={saveBtn()}>SAVE</button>
+          {showDiscard && (
+            <button onClick={onDiscard} style={discardBtn()}>DISCARD</button>
+          )}
+          <button onClick={onCancel} style={secondaryBtn()}>CANCEL</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function saveBtn(): React.CSSProperties {
+  return {
+    padding: "10px 22px",
+    borderRadius: 14,
+    border: "2px solid #0a0f1c",
+    background: "linear-gradient(180deg, #c084fc, #7e22ce)",
+    color: "#fff",
+    fontFamily: "'Lilita One', system-ui",
+    fontSize: 14,
+    letterSpacing: 0.5,
+    cursor: "pointer",
+    boxShadow: "inset 0 2px 0 rgba(255,255,255,0.35), 0 4px 0 rgba(0,0,0,0.45)",
+  };
+}
+function discardBtn(): React.CSSProperties {
+  return {
+    padding: "10px 18px",
+    borderRadius: 14,
+    border: "2px solid #0a0f1c",
+    background: "linear-gradient(180deg, #4a4a4a, #2a2a2a)",
+    color: "#fff",
+    fontFamily: "'Lilita One', system-ui",
+    fontSize: 12,
+    letterSpacing: 0.5,
+    cursor: "pointer",
+    boxShadow: "inset 0 2px 0 rgba(255,255,255,0.25), 0 4px 0 rgba(0,0,0,0.45)",
+  };
 }
 
 function BpmControl({ bpm, onNudge }: BpmControlProps) {
