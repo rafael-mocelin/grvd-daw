@@ -210,6 +210,7 @@ const ARRANGE_UNLOCK_XP = 300;
 export function JamView() {
   const setStage = useStore((s) => s.setStage);
   const totalXP  = useStore((s) => s.totalXP);
+  const addXP    = useStore((s) => s.addXP);
 
   // Per-slot state, keyed by the slot id. Band slots use the
   // characterKind as their slotId ("drum-guy" / "beat-guy" /
@@ -505,6 +506,33 @@ export function JamView() {
     for (const s of REAL_SOUNDS) m.set(s.id, s);
     return m;
   }, []);
+
+  /** Resolve a SoundOption for ANY soundId — catalog entries via
+   *  soundsById, custom drum presets via a synthesized SoundOption
+   *  built from the persistent useCustomPresets store. Returning null
+   *  here is what triggered the post-BAKE grey-out bug: BandSlot saw
+   *  sound=null and rendered the empty / unclickable state. */
+  function resolveSound(soundId: string): SoundOption | null {
+    const catalog = soundsById.get(soundId);
+    if (catalog) return catalog;
+    if (soundId.startsWith("custom-drum-")) {
+      const p = customDrumPresets.find((x) => x.id === soundId);
+      if (p) {
+        return {
+          id:        p.id,
+          kind:      "drums",
+          name:      p.name,
+          glyph:     "🥁",
+          variant:   "custom",
+          tags:      ["custom"],
+          vibe:      `your custom drum loop · ${p.bpm} bpm`,
+          fileUrl:   "",
+          nativeBpm: p.bpm,
+        };
+      }
+    }
+    return null;
+  }
 
   /** Set of soundIds currently assigned to ANY slot — drives the
    *  "in use" ring on the palette tiles. */
@@ -977,10 +1005,15 @@ export function JamView() {
 
   /** Receive a BAKE from DrummaStation. Offline-renders the pattern
    *  to a 1-bar AudioBuffer, caches it in jamEngine, persists the
-   *  config to the customPresets store, then assigns drum-guy's slot
-   *  to the new preset and exits the station so the player drops
-   *  back into the jam with their new sound playing immediately. */
-  async function handleBakeDrumma(input: { name: string; pattern: DrumPattern; bpm: number }) {
+   *  config to the customPresets store, awards XP based on the
+   *  player's game score, then assigns drum-guy's slot to the new
+   *  preset and exits the station. */
+  async function handleBakeDrumma(input: {
+    name:    string;
+    pattern: DrumPattern;
+    bpm:     number;
+    score:   number;
+  }) {
     // Render first — if this throws, the station's catch keeps the
     // dialog open so the player can retry without losing their grid.
     const buffer = await renderPatternToBuffer(input.pattern, input.bpm);
@@ -1011,6 +1044,14 @@ export function JamView() {
     }));
     try { await ensureAudio(); } catch { /* ignore */ }
     await assignCustomDrumSlot(slotId, preset.id, bpm);
+
+    // Award XP based on game score: a perfect run gives 200 XP, a
+    // sloppy one still earns 20 (floor) so the player progresses
+    // even when they're learning. The XP feeds the same store the
+    // admin panel exposes (also drives the arrange-timeline unlock
+    // gate and future per-character FX unlocks).
+    const xpEarned = Math.max(20, Math.round(input.score * 200));
+    addXP(xpEarned, `drumma · ${preset.name}`);
 
     handleCloseStation();
   }
@@ -1514,7 +1555,7 @@ export function JamView() {
               if (!placement) return null;
               const state = slotState[slotId];
               const sound = state?.soundId
-                ? soundsById.get(state.soundId) ?? null
+                ? resolveSound(state.soundId)
                 : null;
               if (!state) return null;
               return (
@@ -1800,7 +1841,7 @@ export function JamView() {
             const state = slotState[openControls];
             const sound = state?.soundId === VOCAL_DROP_ID
               ? VOCAL_PSEUDO_SOUND
-              : (state?.soundId ? soundsById.get(state.soundId) ?? null : null);
+              : (state?.soundId ? resolveSound(state.soundId) : null);
 
             // Build the sibling list for the sound cycler — every
             // PlaceableChar that shares this band slot's character

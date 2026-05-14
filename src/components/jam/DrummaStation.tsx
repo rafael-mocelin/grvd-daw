@@ -46,8 +46,15 @@ interface DrummaStationProps {
   /** Called when the player commits a BAKE. JamView is responsible
    *  for offline-rendering the pattern, registering the buffer with
    *  the audio engine, assigning the slot, persisting the preset to
-   *  the custom-presets store, and then exiting the station. */
-  onBake: (input: { name: string; pattern: DrumPattern; bpm: number }) => Promise<void>;
+   *  the custom-presets store, awarding XP based on the player's
+   *  game score, and then exiting the station. */
+  onBake: (input: {
+    name:    string;
+    pattern: DrumPattern;
+    bpm:     number;
+    /** 0..1 accuracy across the play session — drives XP earned. */
+    score:   number;
+  }) => Promise<void>;
 }
 
 /** Ordered genre list for the top row of buttons. */
@@ -103,15 +110,48 @@ export function DrummaStation({ onClose, onBake }: DrummaStationProps) {
     pattern.snare.some(Boolean) ||
     pattern.hat.some(Boolean);
 
-  // Polling loop for the playhead column highlight.
+  // ── Tap-along game state ──
+  // Player taps lane buttons (or A/S/D on desktop) in time with the
+  // hits coming up in the playhead column. Every successful hit logs
+  // a HypeBubble + bumps the score. BAKE is gated on completing at
+  // least one full loop while the sequencer is playing — without the
+  // game the player can't bake.
+  const [hits,    setHits]    = useState(0);
+  const [misses,  setMisses]  = useState(0);
+  const [loopsCompleted, setLoopsCompleted] = useState(0);
+  /** Transient floating hype bubbles fired on each hit. Each entry
+   *  has its own id so React can animate them out. */
+  const [bubbles, setBubbles] = useState<{ id: number; lane: RowKey; text: string }[]>([]);
+  const bubbleIdRef = useRef(0);
+  /** Track which (step, lane) cells we've already scored this loop so
+   *  pressing the lane button while still in the timing window of a
+   *  cell doesn't double-count. Reset each loop pass. */
+  const scoredRef = useRef<Set<string>>(new Set());
+  /** Last seen step — used to detect loop completion (step wraps 15
+   *  → 0). */
+  const lastStepRef = useRef(-1);
+
+  // Polling loop for the playhead column highlight + loop-completion
+  // detection. Each frame we check the current step index; if it
+  // wrapped past 0 since last frame, count one completed loop and
+  // clear the per-step scored set so the next pass starts fresh.
   const rafRef = useRef<number | null>(null);
   useEffect(() => {
     if (!playing) {
       setStepIdx(-1);
+      lastStepRef.current = -1;
       return;
     }
     const tick = () => {
-      setStepIdx(getCurrentStepIndex());
+      const step = getCurrentStepIndex();
+      setStepIdx(step);
+      const prev = lastStepRef.current;
+      if (prev > step && prev !== -1) {
+        // Wrapped — count one full loop pass and reset hits-this-loop.
+        setLoopsCompleted((n) => n + 1);
+        scoredRef.current.clear();
+      }
+      lastStepRef.current = step;
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -157,6 +197,70 @@ export function DrummaStation({ onClose, onBake }: DrummaStationProps) {
     });
   }
 
+  // ── Tap-along hit detection ──
+  // A tap on a lane button is a "hit" iff the playhead is within
+  // ±1 step of an active cell in that lane that hasn't been scored
+  // this loop yet. ±1 step at 16 sixteenths/bar is generous on
+  // purpose so the game feels FORGIVING for beginners.
+  const HYPE_POOL = [
+    "yeah!", "let's go!", "that's it!", "ooh!",
+    "keep it up", "lock in", "we movin'", "ayy",
+    "🔥", "go off!", "smooth", "tight",
+  ];
+
+  function pickHype(): string {
+    return HYPE_POOL[Math.floor(Math.random() * HYPE_POOL.length)];
+  }
+
+  function pushBubble(lane: RowKey, text: string) {
+    const id = ++bubbleIdRef.current;
+    setBubbles((bs) => [...bs, { id, lane, text }]);
+    // Auto-remove after the animation runs.
+    window.setTimeout(() => {
+      setBubbles((bs) => bs.filter((b) => b.id !== id));
+    }, 900);
+  }
+
+  function tryHit(lane: RowKey) {
+    if (!playing || stepIdx < 0) {
+      // Tap with no playhead — soft miss, no penalty (don't punish
+      // pressing buttons before PLAY).
+      return;
+    }
+    const cells = pattern[lane];
+    // Check current step + neighbours for an active cell that we
+    // haven't already scored. Order: current, then -1 (just missed
+    // window), then +1 (just-too-early).
+    const candidates = [stepIdx, (stepIdx - 1 + 16) % 16, (stepIdx + 1) % 16];
+    for (const step of candidates) {
+      const key = `${lane}-${step}`;
+      if (cells[step] && !scoredRef.current.has(key)) {
+        scoredRef.current.add(key);
+        setHits((n) => n + 1);
+        pushBubble(lane, pickHype());
+        return;
+      }
+    }
+    // No matching cell — miss. Just bumps the counter; the lane
+    // button will flash red via its own state below.
+    setMisses((n) => n + 1);
+  }
+
+  // Keyboard shortcuts: A = kick, S = snare, D = hat. Keeps the
+  // game playable on desktop without aiming for tiny pixel buttons.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const k = e.key.toLowerCase();
+      if (k === "a") tryHit("kick");
+      else if (k === "s") tryHit("snare");
+      else if (k === "d") tryHit("hat");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, stepIdx, pattern]);
+
   /** Commit BAKE — hands the pattern + name + bpm to the parent and
    *  spins UI feedback while the parent renders / saves. The parent
    *  is responsible for closing the station on success. */
@@ -169,11 +273,17 @@ export function DrummaStation({ onClose, onBake }: DrummaStationProps) {
     // playback chatter while the engine re-renders.
     stopDrumPattern();
     setPlaying(false);
+    // Score = hits / (hits + misses). 1 = perfect, 0 = missed
+    // everything. Min 0.1 so even sloppy attempts earn a sliver of
+    // XP.
+    const totalAttempts = hits + misses;
+    const score = totalAttempts > 0 ? Math.max(0.1, hits / totalAttempts) : 0.1;
     try {
       await onBake({
         name:    bakeDraft.trim() || "MY DRUMS",
         pattern,
         bpm,
+        score,
       });
       // onBake closes the station via JamView; nothing more to do.
     } catch (err) {
@@ -402,39 +512,56 @@ export function DrummaStation({ onClose, onBake }: DrummaStationProps) {
         >
           {playing ? "❚❚" : "▶"}
         </button>
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              fontFamily: "'Lilita One', system-ui",
-              fontSize: 13,
-              color: "#fff",
-              letterSpacing: 0.4,
-              marginBottom: 2,
-            }}
-          >
-            {playing ? "FEELING IT" : "PICK A VIBE, HIT PLAY"}
+        {/* Lane tap buttons — the tap-along game. Press in time with
+         *  the playhead column to score hits. Keyboard A / S / D fire
+         *  the same buttons on desktop. */}
+        <div style={{ display: "flex", gap: 8, flex: 1 }}>
+          {ROW_ORDER.map((row) => (
+            <LaneTapButton
+              key={row}
+              row={row}
+              kbd={row === "kick" ? "A" : row === "snare" ? "S" : "D"}
+              onTap={() => tryHit(row)}
+              disabled={!playing}
+            />
+          ))}
+        </div>
+        {/* Score display — current loop hits + a running total. */}
+        <div
+          style={{
+            minWidth: 100,
+            textAlign: "right",
+            fontFamily: "'JetBrains Mono', monospace",
+            color: "rgba(255,255,255,0.7)",
+            fontSize: 10,
+            letterSpacing: "0.08em",
+            lineHeight: 1.4,
+          }}
+        >
+          <div style={{ fontFamily: "'Lilita One', system-ui", fontSize: 14, color: "#facc15" }}>
+            {hits} HIT{hits === 1 ? "" : "S"}
           </div>
-          <div
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 10,
-              color: "rgba(255,255,255,0.5)",
-              letterSpacing: "0.10em",
-            }}
-          >
-            tap the grid to add or remove hits · the tap-along game lands next commit
+          <div style={{ color: "rgba(255,255,255,0.45)" }}>
+            {misses} miss{misses === 1 ? "" : "es"}
+          </div>
+          <div style={{ color: "rgba(192,132,252,0.85)", marginTop: 2 }}>
+            {loopsCompleted} loop{loopsCompleted === 1 ? "" : "s"}
           </div>
         </div>
-        {/* BAKE button — opens the name prompt. Disabled while the
-         *  grid is empty (nothing to save) or while a bake is in
-         *  flight (so we don't double-fire). */}
+        {/* BAKE button — opens the name prompt. Gated three ways:
+         *  - pattern must have at least one hit (nothing to save),
+         *  - the player must have played through the loop at least
+         *    once (no one-tap-bake exploits),
+         *  - no bake currently in flight (so we don't double-fire). */}
         <button
           onClick={() => setBakeDraft(activeTemplate?.name ?? "MY DRUMS")}
-          disabled={!hasAnyHits || baking}
+          disabled={!hasAnyHits || loopsCompleted < 1 || baking}
           title={
             !hasAnyHits
               ? "add at least one hit before baking"
-              : "save this pattern to drum-guy's cycler"
+              : loopsCompleted < 1
+                ? "play through the loop at least once before baking"
+                : "save this pattern to drum-guy's cycler"
           }
           style={{
             padding: "10px 18px",
@@ -464,11 +591,56 @@ export function DrummaStation({ onClose, onBake }: DrummaStationProps) {
           0%   { opacity: 0; transform: translateY(8px); }
           100% { opacity: 1; transform: translateY(0);   }
         }
+        @keyframes hypeBubbleFloat {
+          0%   { transform: translate(-50%, 0)     scale(0.7); opacity: 0; }
+          15%  { transform: translate(-50%, -10px) scale(1.1); opacity: 1; }
+          100% { transform: translate(-50%, -50px) scale(1);   opacity: 0; }
+        }
         @keyframes bakeDialogPop {
           0%   { transform: translate(-50%, -50%) scale(0.94); opacity: 0; }
           100% { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
         }
       `}</style>
+
+      {/* ── Hype bubbles ── float up over the lane buttons on each
+       *  successful tap. Pure-CSS animation, auto-removed after the
+       *  keyframe. */}
+      <div
+        style={{
+          position: "absolute",
+          left:  0,
+          right: 0,
+          bottom: 72,           // sits just above the lane buttons
+          height: 1,
+          pointerEvents: "none",
+          zIndex: 5,
+        }}
+      >
+        {bubbles.map((b) => (
+          <div
+            key={b.id}
+            style={{
+              position: "absolute",
+              left: b.lane === "kick" ? "20%" : b.lane === "snare" ? "50%" : "80%",
+              bottom: 0,
+              transform: "translate(-50%, 0)",
+              padding: "5px 11px",
+              borderRadius: 14,
+              background: "#fff",
+              border: "2.5px solid #0a0f1c",
+              boxShadow: "0 3px 0 rgba(0, 0, 0, 0.45)",
+              fontFamily: "'Lilita One', system-ui",
+              fontSize: 12,
+              letterSpacing: 0.4,
+              color: "#0f1828",
+              whiteSpace: "nowrap",
+              animation: "hypeBubbleFloat 0.9s ease-out forwards",
+            }}
+          >
+            {b.text}
+          </div>
+        ))}
+      </div>
 
       {/* ── BAKE name prompt ──
        *  Modal-style overlay. Submit → call onBake (parent handles
@@ -672,5 +844,81 @@ function SequencerRow({ row, cells, playhead, onToggle }: SequencerRowProps) {
         })}
       </div>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* LaneTapButton — big tap target for the rhythm game, one per drum voice.   */
+/* -------------------------------------------------------------------------- */
+
+interface LaneTapButtonProps {
+  row:      RowKey;
+  kbd:      string;
+  onTap:    () => void;
+  disabled: boolean;
+}
+
+function LaneTapButton({ row, kbd, onTap, disabled }: LaneTapButtonProps) {
+  const accent = ROW_ACCENT[row];
+  const [flashing, setFlashing] = useState(false);
+
+  function handleTap() {
+    if (disabled) return;
+    setFlashing(true);
+    window.setTimeout(() => setFlashing(false), 140);
+    onTap();
+  }
+
+  return (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); handleTap(); }}
+      disabled={disabled}
+      aria-label={`tap ${row}`}
+      title={`${ROW_LABEL[row]} (${kbd})`}
+      style={{
+        flex: 1,
+        height: 56,
+        borderRadius: 14,
+        border: `2px solid ${disabled ? "rgba(0,0,0,0.55)" : "#0a0f1c"}`,
+        background: disabled
+          ? "linear-gradient(180deg, rgba(36, 51, 88, 0.4), rgba(15, 24, 40, 0.4))"
+          : flashing
+            ? `linear-gradient(180deg, ${accent}, ${accent}88)`
+            : `linear-gradient(180deg, ${accent}aa, ${accent}55)`,
+        color: "#0a0f1c",
+        fontFamily: "'Lilita One', system-ui",
+        fontSize: 14,
+        letterSpacing: 0.5,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        boxShadow: disabled
+          ? "none"
+          : flashing
+            ? `inset 0 2px 0 rgba(255,255,255,0.5), 0 1px 0 rgba(0,0,0,0.55), 0 0 22px ${accent}cc`
+            : `inset 0 2px 0 rgba(255,255,255,0.35), 0 4px 0 rgba(0,0,0,0.45), 0 0 12px ${accent}55`,
+        textShadow: "0 1px 0 rgba(255,255,255,0.35)",
+        transition: "background 0.08s, box-shadow 0.08s",
+        position: "relative",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        touchAction: "manipulation",
+      }}
+    >
+      <div>{ROW_LABEL[row]}</div>
+      <div
+        style={{
+          position: "absolute",
+          right: 8,
+          top:   6,
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 9,
+          fontWeight: 700,
+          color: "rgba(10, 15, 28, 0.55)",
+          letterSpacing: "0.05em",
+        }}
+      >
+        {kbd}
+      </div>
+    </button>
   );
 }
