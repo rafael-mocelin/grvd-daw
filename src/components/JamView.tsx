@@ -54,6 +54,9 @@ import { JamArrange, ARRANGE_ACCENT, characterIconFor, playerArrangeRow, type Ar
 import { CassetteRack } from "./jam/CassetteRack";
 import { JamLibrary } from "./jam/JamLibrary";
 import { DrummaStation } from "./jam/DrummaStation";
+import { renderPatternToBuffer, type DrumPattern } from "../audio/drummaEngine";
+import { assignCustomDrumSlot, registerCustomDrumBuffer } from "../audio/jamEngine";
+import { useCustomPresets } from "../store/useCustomPresets";
 import { useJamStore } from "../store/useJamStore";
 import type { JamSong, JamSlotSnapshot, JamPlacementSnapshot } from "../data/jamSongs";
 import { useJamAudioFrame } from "../hooks/useJamAudioFrame";
@@ -237,6 +240,10 @@ export function JamView() {
   const [activeStation, setActiveStation] = useState<
     { kind: "drumma"; slotId: string } | null
   >(null);
+  /** Custom drum presets baked out of DRUMMA. Persists across page
+   *  reloads via the useCustomPresets store. */
+  const customDrumPresets = useCustomPresets((s) => s.drumPresets);
+  const saveDrumPreset    = useCustomPresets((s) => s.saveDrumPreset);
 
   // ── Saved-jams state ──
   // Cassette rack opens this overlay; RECORD button can either save
@@ -968,6 +975,46 @@ export function JamView() {
     }
   }
 
+  /** Receive a BAKE from DrummaStation. Offline-renders the pattern
+   *  to a 1-bar AudioBuffer, caches it in jamEngine, persists the
+   *  config to the customPresets store, then assigns drum-guy's slot
+   *  to the new preset and exits the station so the player drops
+   *  back into the jam with their new sound playing immediately. */
+  async function handleBakeDrumma(input: { name: string; pattern: DrumPattern; bpm: number }) {
+    // Render first — if this throws, the station's catch keeps the
+    // dialog open so the player can retry without losing their grid.
+    const buffer = await renderPatternToBuffer(input.pattern, input.bpm);
+    // Persist the config (pattern + name + bpm). The buffer itself
+    // isn't persisted; it lives in jamEngine's in-memory cache and
+    // will be re-rendered on demand after a page reload.
+    const preset = saveDrumPreset({
+      name:    input.name,
+      pattern: input.pattern,
+      bpm:     input.bpm,
+    });
+    registerCustomDrumBuffer(preset.id, buffer, input.bpm);
+
+    // Promote drum-guy to this new sound. Place the character at
+    // their existing spot if already on stage; otherwise spawn them
+    // at the default band-back-center so the player sees what they
+    // just made on the floor.
+    const slotId = "drum-guy" as CharacterKind;
+    const existing = bandPlacements[slotId];
+    const pos = existing?.pos ?? { x: 50, y: 60 };
+    setBandPlacements((prev) => ({
+      ...prev,
+      [slotId]: { soundId: preset.id, pos },
+    }));
+    setSlotState((prev) => ({
+      ...prev,
+      [slotId]: { soundId: preset.id, muted: false, volume: 1.0, syncToBpm: false },
+    }));
+    try { await ensureAudio(); } catch { /* ignore */ }
+    await assignCustomDrumSlot(slotId, preset.id, bpm);
+
+    handleCloseStation();
+  }
+
   /** Drag-to-reposition. Fired by BandSlot when a placed character
    *  is dragged past the threshold and released. The audio bus
    *  doesn't need to be touched — only the iso position changes.
@@ -1027,7 +1074,14 @@ export function JamView() {
     });
 
     try { await ensureAudio(); } catch { /* ignore */ }
-    await assignSlot(slotId, newSoundId, bpm);
+    // Custom drum presets live in the in-memory buffer cache; route
+    // them through assignCustomDrumSlot. Catalog sounds use the
+    // standard catalog-URL path.
+    if (newSoundId.startsWith("custom-drum-")) {
+      await assignCustomDrumSlot(slotId, newSoundId, bpm);
+    } else {
+      await assignSlot(slotId, newSoundId, bpm);
+    }
   }
 
   /** Master play/pause — toggles every slot at once via the engine. */
@@ -1750,17 +1804,31 @@ export function JamView() {
 
             // Build the sibling list for the sound cycler — every
             // PlaceableChar that shares this band slot's character
-            // kind. For the player slot openControls === PLAYER_SLOT_ID,
-            // which has no PlaceableChar entries, so the cycler is
-            // hidden automatically.
+            // kind, PLUS every custom preset the player baked for
+            // that kind. For the player slot openControls ===
+            // PLAYER_SLOT_ID, which has no PlaceableChar entries, so
+            // the cycler is hidden automatically.
             const siblings = openControls !== PLAYER_SLOT_ID
-              ? PLACEABLE_CHARS
-                  .filter((c) => c.characterKind === openControls)
-                  .map((c) => ({
-                    soundId: c.soundId,
-                    name:    c.name.toLowerCase(),
-                    iconSrc: c.iconSrc,
-                  }))
+              ? [
+                  ...PLACEABLE_CHARS
+                    .filter((c) => c.characterKind === openControls)
+                    .map((c) => ({
+                      soundId: c.soundId,
+                      name:    c.name.toLowerCase(),
+                      iconSrc: c.iconSrc,
+                    })),
+                  // Custom drum presets show up only on the drum-guy
+                  // popover today. Using the first catalog skin's
+                  // pose as the icon so they fit the strip visually;
+                  // the name carries the player-typed identity.
+                  ...(openControls === "drum-guy"
+                    ? customDrumPresets.map((p) => ({
+                        soundId: p.id,
+                        name:    p.name.toLowerCase(),
+                        iconSrc: characterIconFor("drum-guy", PLACEABLE_CHARS[0].soundId),
+                      }))
+                    : []),
+                ]
               : undefined;
 
             return (
@@ -1820,7 +1888,10 @@ export function JamView() {
       {/* DEN training station — covers the screen while open. Today
        *  only the drum-guy slot has a station (DRUMMA). */}
       {activeStation?.kind === "drumma" && (
-        <DrummaStation onClose={handleCloseStation} />
+        <DrummaStation
+          onClose={handleCloseStation}
+          onBake={handleBakeDrumma}
+        />
       )}
 
       {/* Save-name dialog. Triggered by RECORD pass completion OR by

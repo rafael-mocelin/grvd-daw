@@ -231,6 +231,84 @@ export function getJamMasterTransportSeconds(): number {
   return Tone.getTransport().seconds;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Custom drum presets — buffers baked out of DRUMMA station                  */
+/* -------------------------------------------------------------------------- */
+
+/** In-memory cache of pre-rendered drum patterns, keyed by preset id.
+ *  The id format is "custom-drum-...", matching the CustomDrumPreset
+ *  store. Buffers don't survive a page reload — JamView re-renders
+ *  them on first use after a reload. */
+const customDrumBuffers = new Map<string, { buffer: AudioBuffer; nativeBpm: number }>();
+
+/** Stash a rendered AudioBuffer so a slot can later be assigned to
+ *  this preset id. Called by JamView after drummaEngine.renderPattern
+ *  ToBuffer completes during a BAKE. */
+export function registerCustomDrumBuffer(
+  presetId: string,
+  buffer: AudioBuffer,
+  nativeBpm: number,
+): void {
+  customDrumBuffers.set(presetId, { buffer, nativeBpm });
+}
+
+export function hasCustomDrumBuffer(presetId: string): boolean {
+  return customDrumBuffers.has(presetId);
+}
+
+/**
+ * Assign a slot to play back a custom drum preset. Same audio shape
+ * as catalog band slots (Tone.Player + Gain, rate-stretched to the
+ * master BPM, phase-locked) but the buffer comes from the in-memory
+ * cache instead of a file URL.
+ */
+export async function assignCustomDrumSlot(
+  slotId: string,
+  presetId: string,
+  bpm: number,
+): Promise<void> {
+  await ensureAudio();
+  ensureJamTransport(bpm);
+
+  const entry = customDrumBuffers.get(presetId);
+  if (!entry) {
+    console.warn(`[jamEngine] no buffer for custom drum preset ${presetId}`);
+    return;
+  }
+
+  // Tear down whatever was on this slot before.
+  clearSlot(slotId);
+
+  const rate = bpm / entry.nativeBpm;
+  const player = new Tone.Player(entry.buffer);
+  player.loop         = true;
+  player.playbackRate = rate;
+
+  const gain = new Tone.Gain(1.0);
+  player.connect(gain);
+  gain.toDestination();
+
+  const offset = phaseAlignedOffset(player);
+  try {
+    player.start(Tone.now(), offset);
+  } catch (err) {
+    console.error("[jamEngine] custom drum player start failed:", err);
+    try { player.dispose(); gain.dispose(); } catch { /* ignore */ }
+    return;
+  }
+
+  slots.set(slotId, {
+    player,
+    gain,
+    unmutedGain: 1.0,
+    muted:       false,
+    soundId:     presetId,
+    nativeBpm:   entry.nativeBpm,
+  });
+
+  void playJamWhoosh();
+}
+
 /**
  * Scrub support — set the master transport position. Pair with
  * resyncJamSlotsToTransport() on pointer-up to glitch-stitch every

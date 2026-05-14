@@ -43,6 +43,11 @@ interface DrummaStationProps {
   /** Called when the player exits the station — JamView restores the
    *  jam-stage audio. */
   onClose: () => void;
+  /** Called when the player commits a BAKE. JamView is responsible
+   *  for offline-rendering the pattern, registering the buffer with
+   *  the audio engine, assigning the slot, persisting the preset to
+   *  the custom-presets store, and then exiting the station. */
+  onBake: (input: { name: string; pattern: DrumPattern; bpm: number }) => Promise<void>;
 }
 
 /** Ordered genre list for the top row of buttons. */
@@ -67,7 +72,7 @@ const ROW_LABEL = {
 type RowKey = keyof typeof ROW_ACCENT;
 const ROW_ORDER: RowKey[] = ["kick", "snare", "hat"];
 
-export function DrummaStation({ onClose }: DrummaStationProps) {
+export function DrummaStation({ onClose, onBake }: DrummaStationProps) {
   /** Active genre tab. Defaults to TRAP so the player sees content
    *  immediately on open. */
   const [genre, setGenre] = useState<Genre>("trap");
@@ -84,6 +89,19 @@ export function DrummaStation({ onClose }: DrummaStationProps) {
   const [playing, setPlaying] = useState(false);
   /** Playhead step index (0..15) or -1 when stopped. Driven by rAF. */
   const [stepIdx, setStepIdx] = useState(-1);
+  /** Open BAKE name-prompt overlay. Null = closed. */
+  const [bakeDraft, setBakeDraft] = useState<string | null>(null);
+  /** True while the offline-render + audio-engine wiring is happening
+   *  (post-BAKE). Disables UI so the user can't double-fire. */
+  const [baking, setBaking] = useState(false);
+
+  /** Does the current pattern actually have any hits? BAKE is
+   *  disabled for an empty grid since "save an empty drum loop" is
+   *  not a useful outcome. */
+  const hasAnyHits =
+    pattern.kick.some(Boolean) ||
+    pattern.snare.some(Boolean) ||
+    pattern.hat.some(Boolean);
 
   // Polling loop for the playhead column highlight.
   const rafRef = useRef<number | null>(null);
@@ -137,6 +155,32 @@ export function DrummaStation({ onClose }: DrummaStationProps) {
       if (playing) updateDrumPattern(next);
       return next;
     });
+  }
+
+  /** Commit BAKE — hands the pattern + name + bpm to the parent and
+   *  spins UI feedback while the parent renders / saves. The parent
+   *  is responsible for closing the station on success. */
+  async function submitBake() {
+    if (bakeDraft === null) return;
+    if (baking) return;
+    if (!hasAnyHits) return;
+    setBaking(true);
+    // Stop the live loop so the BAKE process doesn't double up with
+    // playback chatter while the engine re-renders.
+    stopDrumPattern();
+    setPlaying(false);
+    try {
+      await onBake({
+        name:    bakeDraft.trim() || "MY DRUMS",
+        pattern,
+        bpm,
+      });
+      // onBake closes the station via JamView; nothing more to do.
+    } catch (err) {
+      console.error("[DrummaStation] bake failed:", err);
+      setBaking(false);
+      // Leave the dialog open so the player can retry.
+    }
   }
 
   const templates = templatesByGenre(genre);
@@ -381,23 +425,34 @@ export function DrummaStation({ onClose }: DrummaStationProps) {
             tap the grid to add or remove hits · the tap-along game lands next commit
           </div>
         </div>
-        {/* BAKE button — disabled stub for this commit. Future commit
-         *  will wire it to the name prompt + custom-sound integration. */}
+        {/* BAKE button — opens the name prompt. Disabled while the
+         *  grid is empty (nothing to save) or while a bake is in
+         *  flight (so we don't double-fire). */}
         <button
-          disabled
-          title="bake your pattern (coming next commit)"
+          onClick={() => setBakeDraft(activeTemplate?.name ?? "MY DRUMS")}
+          disabled={!hasAnyHits || baking}
+          title={
+            !hasAnyHits
+              ? "add at least one hit before baking"
+              : "save this pattern to drum-guy's cycler"
+          }
           style={{
             padding: "10px 18px",
             borderRadius: 14,
             border: "2px solid #0a0f1c",
-            background: "linear-gradient(180deg, #4a4a4a, #2a2a2a)",
-            color: "rgba(255,255,255,0.6)",
+            background: hasAnyHits && !baking
+              ? "linear-gradient(180deg, #facc15, #b88a06)"
+              : "linear-gradient(180deg, #4a4a4a, #2a2a2a)",
+            color: hasAnyHits && !baking ? "#0a0f1c" : "rgba(255,255,255,0.6)",
             fontFamily: "'Lilita One', system-ui",
             fontSize: 13,
             letterSpacing: 0.5,
-            cursor: "not-allowed",
-            opacity: 0.55,
-            boxShadow: "inset 0 2px 0 rgba(255,255,255,0.20), 0 3px 0 rgba(0,0,0,0.45)",
+            cursor: hasAnyHits && !baking ? "pointer" : "not-allowed",
+            opacity: hasAnyHits && !baking ? 1 : 0.55,
+            textShadow: hasAnyHits && !baking ? "0 1px 0 rgba(255,255,255,0.4)" : undefined,
+            boxShadow: hasAnyHits && !baking
+              ? "inset 0 2px 0 rgba(255,255,255,0.40), 0 3px 0 rgba(0,0,0,0.45), 0 0 14px rgba(250, 204, 21, 0.55)"
+              : "inset 0 2px 0 rgba(255,255,255,0.20), 0 3px 0 rgba(0,0,0,0.45)",
           }}
         >
           🍞 BAKE
@@ -409,7 +464,133 @@ export function DrummaStation({ onClose }: DrummaStationProps) {
           0%   { opacity: 0; transform: translateY(8px); }
           100% { opacity: 1; transform: translateY(0);   }
         }
+        @keyframes bakeDialogPop {
+          0%   { transform: translate(-50%, -50%) scale(0.94); opacity: 0; }
+          100% { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
+        }
       `}</style>
+
+      {/* ── BAKE name prompt ──
+       *  Modal-style overlay. Submit → call onBake (parent handles
+       *  rendering + audio engine + store + closing the station).
+       *  Stays open while baking is in flight; the parent flips us
+       *  off via onClose once everything is wired. */}
+      {bakeDraft !== null && (
+        <>
+          <div
+            onClick={() => !baking && setBakeDraft(null)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 600,
+              background: "rgba(8, 12, 24, 0.7)",
+              backdropFilter: "blur(6px)",
+              WebkitBackdropFilter: "blur(6px)",
+            }}
+          />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left:  "50%",
+              top:   "50%",
+              transform: "translate(-50%, -50%)",
+              zIndex: 601,
+              width: "min(94vw, 380px)",
+              padding: 22,
+              borderRadius: 20,
+              background: "linear-gradient(180deg, #243358 0%, #0f1828 100%)",
+              border: "2.5px solid #0a0f1c",
+              boxShadow:
+                "inset 0 2px 0 rgba(255,255,255,0.18), 0 6px 0 rgba(0,0,0,0.5), 0 18px 38px rgba(0,0,0,0.6), 0 0 28px rgba(250, 204, 21, 0.35)",
+              textAlign: "center",
+              animation: "bakeDialogPop 0.22s cubic-bezier(.34,1.56,.64,1) both",
+            }}
+          >
+            <div style={{ fontSize: 36, marginBottom: 4 }}>🍞</div>
+            <div
+              style={{
+                fontFamily: "'Lilita One', system-ui",
+                fontSize: 20,
+                color: "#fff",
+                letterSpacing: 0.5,
+                marginBottom: 10,
+                textShadow: "0 2px 0 rgba(0,0,0,0.6), 0 0 14px rgba(250, 204, 21, 0.45)",
+              }}
+            >
+              NAME YOUR DRUMS
+            </div>
+            <input
+              autoFocus
+              value={bakeDraft}
+              onChange={(e) => setBakeDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter")  { e.preventDefault(); void submitBake(); }
+                if (e.key === "Escape") { e.preventDefault(); if (!baking) setBakeDraft(null); }
+              }}
+              disabled={baking}
+              placeholder="MY DRUMS"
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                marginBottom: 14,
+                borderRadius: 10,
+                border: "2px solid rgba(250, 204, 21, 0.55)",
+                background: "rgba(0,0,0,0.3)",
+                color: "#fff",
+                fontFamily: "'Lilita One', system-ui",
+                fontSize: 14,
+                letterSpacing: 0.3,
+                outline: "none",
+                textAlign: "center",
+              }}
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              <button
+                onClick={() => void submitBake()}
+                disabled={baking}
+                style={{
+                  padding: "10px 22px",
+                  borderRadius: 14,
+                  border: "2px solid #0a0f1c",
+                  background: baking
+                    ? "linear-gradient(180deg, #4a4a4a, #2a2a2a)"
+                    : "linear-gradient(180deg, #facc15, #b88a06)",
+                  color: baking ? "rgba(255,255,255,0.55)" : "#0a0f1c",
+                  fontFamily: "'Lilita One', system-ui",
+                  fontSize: 14,
+                  letterSpacing: 0.5,
+                  cursor: baking ? "wait" : "pointer",
+                  textShadow: baking ? undefined : "0 1px 0 rgba(255,255,255,0.4)",
+                  boxShadow: "inset 0 2px 0 rgba(255,255,255,0.35), 0 4px 0 rgba(0,0,0,0.45)",
+                }}
+              >
+                {baking ? "BAKING…" : "🍞 BAKE"}
+              </button>
+              <button
+                onClick={() => setBakeDraft(null)}
+                disabled={baking}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 12,
+                  border: "1.5px solid rgba(255,255,255,0.2)",
+                  background: "transparent",
+                  color: "rgba(255,255,255,0.7)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  cursor: baking ? "not-allowed" : "pointer",
+                  opacity: baking ? 0.4 : 1,
+                }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

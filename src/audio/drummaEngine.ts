@@ -126,3 +126,57 @@ export function getCurrentStepIndex(): number {
   const sixteenth = Math.floor(parseFloat(parts[2]));
   return ((beats * 4) + sixteenth) % 16;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Offline rendering — pattern → AudioBuffer that loops one bar cleanly       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Render a 16-step drum pattern at the given BPM to an AudioBuffer.
+ * The buffer is exactly one bar long (4 beats = 16 sixteenths) so a
+ * looped Tone.Player wraps cleanly. Voices are synthesized inline
+ * (same MembraneSynth / NoiseSynth / MetalSynth as the live engine
+ * so the baked sound matches the preview).
+ *
+ * Resolves with the underlying AudioBuffer (not Tone's wrapper) so
+ * the buffer can be handed to a standard Tone.Player({ url: buffer })
+ * downstream, same shape vocals use.
+ */
+export async function renderPatternToBuffer(
+  pattern: DrumPattern,
+  bpm: number,
+): Promise<AudioBuffer> {
+  const barSec  = (60 / bpm) * 4;       // 1 bar = 4 beats
+  const stepSec = barSec / 16;
+
+  const tab = await Tone.Offline(() => {
+    const kick = new Tone.MembraneSynth({
+      pitchDecay: 0.04, octaves: 4,
+      envelope: { attack: 0.001, decay: 0.22, sustain: 0, release: 0.05 },
+      volume: -4,
+    }).toDestination();
+    const snare = new Tone.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.001, decay: 0.16, sustain: 0, release: 0.08 },
+      volume: -10,
+    }).toDestination();
+    const hat = new Tone.MetalSynth({
+      envelope: { attack: 0.001, decay: 0.04, release: 0.03 },
+      harmonicity: 5.1, modulationIndex: 32,
+      resonance: 4000, octaves: 1.5,
+      volume: -22,
+    }).toDestination();
+
+    for (let step = 0; step < 16; step++) {
+      const t = step * stepSec;
+      if (pattern.kick[step])  kick.triggerAttackRelease("C2", "16n", t);
+      if (pattern.snare[step]) snare.triggerAttackRelease("16n", t);
+      if (pattern.hat[step])   hat.triggerAttackRelease("C5", "32n", t, 0.6);
+    }
+  }, barSec);
+
+  // Tone.Offline returns a ToneAudioBuffer; .get() unwraps to AudioBuffer.
+  const ab = tab.get();
+  if (!ab) throw new Error("[drummaEngine] offline render returned no buffer");
+  return ab;
+}
