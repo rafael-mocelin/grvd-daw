@@ -54,6 +54,10 @@ interface CharacterControlsProps {
   autotunePitch?:  number;
   autotuneEffect?: number;
   onAutotuneChange?: (params: { pitch?: number; effect?: number }) => void;
+  /** Optional — wires a TRAIN button into the popover. Tapping it
+   *  opens the character's DEN training station (DRUMMA for the
+   *  drum-guy, etc.). Hidden when undefined. */
+  onTrain?:        () => void;
   /** Anchor position in the parent's coord space (px from top-left). */
   anchorLeft: number;
   anchorTop:  number;
@@ -68,6 +72,7 @@ export function CharacterControls({
   onMuteToggle, onVolume, onSyncToggle, onClear, onClose,
   siblings, currentSoundId, onSwap,
   autotunePitch, autotuneEffect, onAutotuneChange,
+  onTrain,
   anchorLeft, anchorTop,
 }: CharacterControlsProps) {
   const isVocal = sound?.kind === "vocal";
@@ -338,6 +343,33 @@ export function CharacterControls({
               <CycleArrow direction="next" onClick={() => cycleSwap(+1)} />
             </div>
           </div>
+        )}
+
+        {/* TRAIN button — opens the character's DEN training station.
+         *  Only rendered when the parent wires onTrain (currently the
+         *  drum-guy slot in JamView). Sits above mute so it reads as
+         *  the "main action" once the player has a character placed. */}
+        {onTrain && (
+          <button
+            onClick={onTrain}
+            style={{
+              width: "100%",
+              padding: "10px 10px",
+              marginBottom: 10,
+              borderRadius: 12,
+              border: "2px solid #0a0f1c",
+              background: "linear-gradient(180deg, #c084fc, #7e22ce)",
+              color: "#fff",
+              fontFamily: "'Lilita One', system-ui",
+              fontSize: 13,
+              letterSpacing: 0.6,
+              cursor: "pointer",
+              boxShadow:
+                "inset 0 2px 0 rgba(255,255,255,0.4), inset 0 -2px 0 rgba(0,0,0,0.3), 0 3px 0 rgba(0,0,0,0.45), 0 0 14px rgba(192, 132, 252, 0.6)",
+            }}
+          >
+            🎮 TRAIN
+          </button>
         )}
 
         {/* Mute toggle — chunky pill */}

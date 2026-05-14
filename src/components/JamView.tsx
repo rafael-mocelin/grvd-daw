@@ -53,6 +53,7 @@ import { CHARACTER_SKINS } from "../data/characterSkins";
 import { JamArrange, ARRANGE_ACCENT, characterIconFor, playerArrangeRow, type ArrangeRow, SECTIONS as ARRANGE_SECTIONS } from "./jam/JamArrange";
 import { CassetteRack } from "./jam/CassetteRack";
 import { JamLibrary } from "./jam/JamLibrary";
+import { DrummaStation } from "./jam/DrummaStation";
 import { useJamStore } from "../store/useJamStore";
 import type { JamSong, JamSlotSnapshot, JamPlacementSnapshot } from "../data/jamSongs";
 import { useJamAudioFrame } from "../hooks/useJamAudioFrame";
@@ -227,6 +228,15 @@ export function JamView() {
 
   // Whether the floating CharacterPalette popup is open.
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // ── DEN training station ──
+  // Right-clicking / long-pressing a band character + tapping TRAIN
+  // in the popover sets this. While non-null, the station overlay
+  // takes over the screen and the jam-stage audio is paused. Today
+  // only drum-guy has a station (DRUMMA).
+  const [activeStation, setActiveStation] = useState<
+    { kind: "drumma"; slotId: string } | null
+  >(null);
 
   // ── Saved-jams state ──
   // Cassette rack opens this overlay; RECORD button can either save
@@ -933,6 +943,29 @@ export function JamView() {
     setLibraryOpen(false);
     setDirty(false);
     firstDirtyRenderRef.current = true;   // skip the next dirty fire
+  }
+
+  /** Open a DEN training station for the given slot. Today only
+   *  drum-guy has a station wired up; future commits add 808 /
+   *  sample / vocal. Pauses the jam audio so the station's metronome
+   *  / sequencer doesn't fight the band loops, and closes any open
+   *  popover. */
+  function handleOpenStation(slotId: string) {
+    if (slotId !== "drum-guy") return;
+    setOpenControls(null);
+    pauseJam();
+    setPlaying(false);
+    setActiveStation({ kind: "drumma", slotId });
+  }
+
+  /** Exit the station. Restores the jam audio if there was anything
+   *  to restore (placements present). */
+  function handleCloseStation() {
+    setActiveStation(null);
+    if (Object.keys(bandPlacements).length > 0 || playerPlaced) {
+      resumeJam();
+      setPlaying(true);
+    }
   }
 
   /** Drag-to-reposition. Fired by BandSlot when a placed character
@@ -1744,6 +1777,7 @@ export function JamView() {
                 autotunePitch={state.autotunePitch}
                 autotuneEffect={state.autotuneEffect}
                 onAutotuneChange={(p) => handleAutotuneChange(openControls, p)}
+                onTrain={openControls === "drum-guy" ? () => handleOpenStation(openControls) : undefined}
                 onMuteToggle={() => handleMuteToggle(openControls)}
                 onVolume={(v) => handleVolume(openControls, v)}
                 onSyncToggle={() => handleSyncToggle(openControls)}
@@ -1781,6 +1815,12 @@ export function JamView() {
           onLoad={(song) => { void handleLoadJam(song); }}
           onClose={() => setLibraryOpen(false)}
         />
+      )}
+
+      {/* DEN training station — covers the screen while open. Today
+       *  only the drum-guy slot has a station (DRUMMA). */}
+      {activeStation?.kind === "drumma" && (
+        <DrummaStation onClose={handleCloseStation} />
       )}
 
       {/* Save-name dialog. Triggered by RECORD pass completion OR by
