@@ -1523,13 +1523,14 @@ export function JamView() {
              *  so it scales with the viewport just like the band
              *  characters. */}
             <CassetteRack
-              // Floor spot right in front of the pink-framed canvas
-              // leaning on the back-left wall. iso pos is in % of the
-              // room-square so the rack stays in the same visual spot
-              // at any viewport size; size also scales with roomSize
-              // so it shrinks/grows in lockstep with the characters.
-              pos={{ x: 42, y: 68 }}
-              size={Math.max(48, Math.round(roomSize * 0.14))}
+              // Floor spot in the back-left area, right below the
+              // pink-framed canvas leaning on the wall. iso pos is %
+              // of the room-square so the rack stays in the same
+              // visual spot at any viewport size; size scales with
+              // roomSize so it shrinks/grows in lockstep with the
+              // characters when the room shrinks on mobile.
+              pos={{ x: 43, y: 63 }}
+              size={Math.max(60, Math.round(roomSize * 0.175))}
               jamCount={jamSongs.length}
               onClick={() => setLibraryOpen(true)}
             />
