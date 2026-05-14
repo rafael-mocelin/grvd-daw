@@ -19,6 +19,21 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SoundOption } from "../../data/types";
 
+/** One effect-knob row in the character's controls popover. Locked
+ *  entries render as a grey "🔒 NEED N XP" chip; unlocked entries
+ *  get a slider. */
+export interface FxEntry {
+  id:         string;
+  name:       string;
+  blurb:      string;
+  /** True until the player's totalXP crosses the threshold. */
+  locked:     boolean;
+  /** XP needed to unlock (shown on the locked chip). */
+  xpRequired: number;
+  /** Current wet 0..1, ignored when locked. */
+  amount:     number;
+}
+
 /** One option for the sound-cycler row — sibling sounds the placed
  *  character can swap to. */
 export interface SiblingSound {
@@ -58,6 +73,11 @@ interface CharacterControlsProps {
    *  opens the character's DEN training station (DRUMMA for the
    *  drum-guy, etc.). Hidden when undefined. */
   onTrain?:        () => void;
+  /** Per-character effect knobs. When provided, renders an EFFECTS
+   *  section that lists every effect in the pool — unlocked ones get
+   *  a slider, locked ones show a 🔒 + XP gate chip. */
+  fxEntries?:      FxEntry[];
+  onFxAmountChange?: (fxId: string, amount: number) => void;
   /** Anchor position in the parent's coord space (px from top-left). */
   anchorLeft: number;
   anchorTop:  number;
@@ -73,6 +93,7 @@ export function CharacterControls({
   siblings, currentSoundId, onSwap,
   autotunePitch, autotuneEffect, onAutotuneChange,
   onTrain,
+  fxEntries, onFxAmountChange,
   anchorLeft, anchorTop,
 }: CharacterControlsProps) {
   const isVocal = sound?.kind === "vocal";
@@ -452,6 +473,46 @@ export function CharacterControls({
          *  shifts) or stays at its recorded tempo (OFF). Default off
          *  so existing recordings don't change unexpectedly when the
          *  player nudges the master BPM. */}
+        {/* EFFECTS — per-character FX knobs unlocked by XP gates.
+         *  Unlocked entries get a slider; locked entries show a grey
+         *  chip with the XP threshold. Hidden entirely if no entries
+         *  are wired (e.g., vocal slot, beat-guy/guitar-guy until
+         *  their pools are authored). */}
+        {fxEntries && fxEntries.length > 0 && onFxAmountChange && (
+          <div
+            style={{
+              marginBottom: 10,
+              padding: "8px 10px",
+              borderRadius: 12,
+              border: "2px solid rgba(250, 204, 21, 0.45)",
+              background: "linear-gradient(180deg, rgba(250, 204, 21, 0.10), rgba(15, 24, 40, 0.55))",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px rgba(250, 204, 21, 0.25)",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'Lilita One', system-ui",
+                fontSize: 12,
+                color: "#facc15",
+                letterSpacing: 0.4,
+                marginBottom: 6,
+                textShadow: "0 1px 0 rgba(0,0,0,0.6)",
+              }}
+            >
+              🎛 EFFECTS
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {fxEntries.map((fx) => (
+                <FxRow
+                  key={fx.id}
+                  fx={fx}
+                  onChange={(amount) => onFxAmountChange(fx.id, amount)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* AUTOTUNE — vocal-only. TUNE (-12..+12 semitones) shifts the
          *  pitch; EFFECT (0..1) blends in the chorus wash that gives
          *  the produced / autotuned character. Hidden when the slot
@@ -623,6 +684,141 @@ export function CharacterControls({
 /* -------------------------------------------------------------------------- */
 /* CycleArrow — chunky round arrow button used by the sound cycler.           */
 /* -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- */
+/* FxRow — one effect row in the EFFECTS section: name + blurb + slider, or  */
+/* a locked chip with the XP threshold.                                       */
+/* -------------------------------------------------------------------------- */
+
+function FxRow({ fx, onChange }: { fx: FxEntry; onChange: (amount: number) => void }) {
+  if (fx.locked) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 8px",
+          borderRadius: 9,
+          background: "rgba(0, 0, 0, 0.25)",
+          border: "1px dashed rgba(255,255,255,0.10)",
+          opacity: 0.65,
+        }}
+      >
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            lineHeight: 1.1,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Lilita One', system-ui",
+              fontSize: 11,
+              color: "rgba(255,255,255,0.55)",
+              letterSpacing: 0.3,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {fx.name}
+          </div>
+          <div
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 8,
+              color: "rgba(255,255,255,0.30)",
+              letterSpacing: "0.06em",
+              marginTop: 1,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            🔒 NEED {fx.xpRequired} XP
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        padding: "5px 8px 4px",
+        borderRadius: 9,
+        background: "rgba(0, 0, 0, 0.22)",
+        border: "1px solid rgba(250, 204, 21, 0.25)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 8,
+          marginBottom: 2,
+        }}
+      >
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            lineHeight: 1.1,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "'Lilita One', system-ui",
+              fontSize: 11,
+              color: "#fff",
+              letterSpacing: 0.3,
+              textShadow: "0 1px 0 rgba(0,0,0,0.55)",
+            }}
+          >
+            {fx.name}
+          </span>{" "}
+          <span
+            style={{
+              fontFamily: "'Plus Jakarta Sans', system-ui",
+              fontSize: 9,
+              color: "rgba(255,255,255,0.45)",
+              fontStyle: "italic",
+            }}
+          >
+            {fx.blurb}
+          </span>
+        </div>
+        <span
+          style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 9,
+            fontWeight: 700,
+            color: fx.amount > 0 ? "#facc15" : "rgba(255,255,255,0.4)",
+            letterSpacing: "0.08em",
+            minWidth: 28,
+            textAlign: "right",
+          }}
+        >
+          {Math.round(fx.amount * 100)}%
+        </span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.02}
+        value={fx.amount}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        style={{
+          width: "100%",
+          accentColor: "#facc15",
+          margin: 0,
+        }}
+      />
+    </div>
+  );
+}
 
 function CycleArrow({ direction, onClick }: { direction: "prev" | "next"; onClick: () => void }) {
   return (

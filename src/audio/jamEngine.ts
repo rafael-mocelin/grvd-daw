@@ -27,6 +27,9 @@ import * as Tone from "tone";
 import { ensureAudio, setBpm } from "./engine";
 import { getSound } from "../data/sounds";
 import { playJamWhoosh, playJamThunk, playJamFwoop } from "./jamSfx";
+import { createDrumFxChain, type DrumFxChain } from "./drumFxChain";
+import { DRUM_FX } from "../data/jamFx";
+import { useFxUnlocks, readFxWet } from "../store/useFxUnlocks";
 
 interface Slot {
   player:    Tone.Player;
@@ -46,6 +49,11 @@ interface Slot {
    *  OFF, vocal stays at its recorded tempo regardless). undefined
    *  for non-vocal slots. */
   recordedBpm?: number;
+  /** Drum-guy effects chain — 8-effect insert (Fresh Air, Boom Room,
+   *  Decapitator, Head Kick, Wide Load, Ghost Rider, Sub Crusher,
+   *  Tape Warm). Built when the slot is drum-guy (catalog OR custom
+   *  preset). Each amount is driven by useFxUnlocks. */
+  drumFx?:   DrumFxChain;
   /** Vocal-only effects chain — Travis-Scott-flavoured trap stack.
    *  Real autotune does live pitch detection + scale quantization
    *  (Antares Auto-Tune Pro); without that DSP, the audible
@@ -126,8 +134,19 @@ export async function assignSlot(slotId: string, soundId: string, bpm: number): 
     playbackRate:  rate,
   });
   const gain = new Tone.Gain(1.0);
-  player.connect(gain);
+  // Drum-guy slots route through the 8-effect chain so unlocked FX
+  // (Fresh Air, Boom Room, Decapitator…) apply to catalog drums too,
+  // not just custom-baked ones. Other character kinds run dry until
+  // their own FX pools are wired.
+  const drumFx = slotId === "drum-guy" ? createDrumFxChain() : undefined;
+  if (drumFx) {
+    player.connect(drumFx.input);
+    drumFx.output.connect(gain);
+  } else {
+    player.connect(gain);
+  }
   gain.toDestination();
+  if (drumFx) applyDrumFxFromStore("drum-guy", drumFx);
 
   // Wait for the buffer to finish loading (poll up to 6 s) before we
   // schedule the start — without a loaded buffer phase-lock can't
@@ -163,6 +182,7 @@ export async function assignSlot(slotId: string, soundId: string, bpm: number): 
     muted:       false,
     soundId,
     nativeBpm:   sound.nativeBpm,
+    drumFx,
   });
 
   // Drop-in SFX — fire-and-forget. Stays quiet under the mix via sfxBus.
@@ -175,6 +195,9 @@ export function clearSlot(slotId: string): void {
   try { slot.player.stop(); } catch { /* ignore */ }
   try { slot.player.dispose(); } catch { /* ignore */ }
   try { slot.gain.dispose(); } catch { /* ignore */ }
+  if (slot.drumFx) {
+    try { slot.drumFx.dispose(); } catch { /* ignore */ }
+  }
   if (slot.vocalFx) {
     const fx = slot.vocalFx;
     try { fx.pitchShift.dispose();  } catch { /* ignore */ }
@@ -285,15 +308,22 @@ export async function assignCustomDrumSlot(
   player.playbackRate = rate;
 
   const gain = new Tone.Gain(1.0);
-  player.connect(gain);
+  const drumFx = slotId === "drum-guy" ? createDrumFxChain() : undefined;
+  if (drumFx) {
+    player.connect(drumFx.input);
+    drumFx.output.connect(gain);
+  } else {
+    player.connect(gain);
+  }
   gain.toDestination();
+  if (drumFx) applyDrumFxFromStore("drum-guy", drumFx);
 
   const offset = phaseAlignedOffset(player);
   try {
     player.start(Tone.now(), offset);
   } catch (err) {
     console.error("[jamEngine] custom drum player start failed:", err);
-    try { player.dispose(); gain.dispose(); } catch { /* ignore */ }
+    try { player.dispose(); gain.dispose(); drumFx?.dispose(); } catch { /* ignore */ }
     return;
   }
 
@@ -304,9 +334,40 @@ export async function assignCustomDrumSlot(
     muted:       false,
     soundId:     presetId,
     nativeBpm:   entry.nativeBpm,
+    drumFx,
   });
 
   void playJamWhoosh();
+}
+
+/* -------------------------------------------------------------------------- */
+/* FX amount control — public setter + helper that hydrates a fresh chain    */
+/* from the persisted unlock store.                                            */
+/* -------------------------------------------------------------------------- */
+
+/** Apply EVERY drum FX wet value from the store to a freshly-built
+ *  chain. Called once on chain creation so an already-unlocked
+ *  effect kicks in immediately rather than waiting for the player to
+ *  touch its slider. */
+function applyDrumFxFromStore(kind: string, chain: DrumFxChain): void {
+  const wets = useFxUnlocks.getState().wets;
+  for (const fx of DRUM_FX) {
+    const key = `${kind}:${fx.id}`;
+    const v   = typeof wets[key] === "number" ? wets[key] : 0;
+    chain.setAmount(fx.id, v);
+  }
+  // Silence unused warning; the helper is exported elsewhere.
+  void readFxWet;
+}
+
+/** Update a single effect's amount on the live audio chain for the
+ *  given slot. JamView calls this on every slider tick alongside
+ *  useFxUnlocks.setWet so the audio and the persisted state stay in
+ *  sync. No-ops if the slot doesn't have a drumFx chain. */
+export function setSlotFxAmount(slotId: string, fxId: string, amount: number): void {
+  const slot = slots.get(slotId);
+  if (!slot?.drumFx) return;
+  slot.drumFx.setAmount(fxId, amount);
 }
 
 /**

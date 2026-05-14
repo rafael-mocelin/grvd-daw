@@ -55,8 +55,10 @@ import { CassetteRack } from "./jam/CassetteRack";
 import { JamLibrary } from "./jam/JamLibrary";
 import { DrummaStation } from "./jam/DrummaStation";
 import { renderPatternToBuffer, type DrumPattern } from "../audio/drummaEngine";
-import { assignCustomDrumSlot, registerCustomDrumBuffer } from "../audio/jamEngine";
+import { assignCustomDrumSlot, registerCustomDrumBuffer, setSlotFxAmount } from "../audio/jamEngine";
 import { useCustomPresets } from "../store/useCustomPresets";
+import { useFxUnlocks } from "../store/useFxUnlocks";
+import { fxPoolFor } from "../data/jamFx";
 import { useJamStore } from "../store/useJamStore";
 import type { JamSong, JamSlotSnapshot, JamPlacementSnapshot } from "../data/jamSongs";
 import { useJamAudioFrame } from "../hooks/useJamAudioFrame";
@@ -245,6 +247,17 @@ export function JamView() {
    *  reloads via the useCustomPresets store. */
   const customDrumPresets = useCustomPresets((s) => s.drumPresets);
   const saveDrumPreset    = useCustomPresets((s) => s.saveDrumPreset);
+  /** Per-(kind, fxId) wet values. Drives the FX knobs in the popover
+   *  AND is the source-of-truth that jamEngine seeds the audio
+   *  chain from on slot creation. */
+  const fxWets   = useFxUnlocks((s) => s.wets);
+  const setFxWet = useFxUnlocks((s) => s.setWet);
+
+  /** Persist + apply a single FX wet change. Called per slider tick. */
+  function handleFxAmountChange(slotId: string, fxId: string, amount: number) {
+    setFxWet(slotId, fxId, amount);
+    setSlotFxAmount(slotId, fxId, amount);
+  }
 
   // ── Saved-jams state ──
   // Cassette rack opens this overlay; RECORD button can either save
@@ -1843,6 +1856,28 @@ export function JamView() {
               ? VOCAL_PSEUDO_SOUND
               : (state?.soundId ? resolveSound(state.soundId) : null);
 
+            // Build the per-character FX entry list: every effect in
+            // the pool for this slot's kind, with locked + amount
+            // resolved from totalXP + the persistent wet store.
+            const fxEntries = openControls !== PLAYER_SLOT_ID
+              ? fxPoolFor(openControls as CharacterKind).map((fx) => {
+                  const key = `${openControls}:${fx.id}`;
+                  const stored = fxWets[key];
+                  const unlocked = totalXP >= fx.xpRequired;
+                  const amount = unlocked
+                    ? (typeof stored === "number" ? stored : fx.defaultWet)
+                    : 0;
+                  return {
+                    id:         fx.id,
+                    name:       fx.name,
+                    blurb:      fx.blurb,
+                    locked:     !unlocked,
+                    xpRequired: fx.xpRequired,
+                    amount,
+                  };
+                })
+              : undefined;
+
             // Build the sibling list for the sound cycler — every
             // PlaceableChar that shares this band slot's character
             // kind, PLUS every custom preset the player baked for
@@ -1887,6 +1922,8 @@ export function JamView() {
                 autotuneEffect={state.autotuneEffect}
                 onAutotuneChange={(p) => handleAutotuneChange(openControls, p)}
                 onTrain={openControls === "drum-guy" ? () => handleOpenStation(openControls) : undefined}
+                fxEntries={fxEntries}
+                onFxAmountChange={(fxId, amount) => handleFxAmountChange(openControls, fxId, amount)}
                 onMuteToggle={() => handleMuteToggle(openControls)}
                 onVolume={(v) => handleVolume(openControls, v)}
                 onSyncToggle={() => handleSyncToggle(openControls)}
