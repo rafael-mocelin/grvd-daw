@@ -59,6 +59,7 @@ import { assignCustomDrumSlot, registerCustomDrumBuffer, setSlotFxAmount } from 
 import { useCustomPresets } from "../store/useCustomPresets";
 import { useFxUnlocks } from "../store/useFxUnlocks";
 import { fxPoolFor } from "../data/jamFx";
+import { FxBoard, type FxBoardEntry } from "./jam/FxBoard";
 import { useJamStore } from "../store/useJamStore";
 import type { JamSong, JamSlotSnapshot, JamPlacementSnapshot } from "../data/jamSongs";
 import { useJamAudioFrame } from "../hooks/useJamAudioFrame";
@@ -258,6 +259,8 @@ export function JamView() {
     setFxWet(slotId, fxId, amount);
     setSlotFxAmount(slotId, fxId, amount);
   }
+  /** Slot id whose FxBoard is currently open. null = closed. */
+  const [fxBoardSlotId, setFxBoardSlotId] = useState<string | null>(null);
 
   // ── Saved-jams state ──
   // Cassette rack opens this overlay; RECORD button can either save
@@ -1856,27 +1859,11 @@ export function JamView() {
               ? VOCAL_PSEUDO_SOUND
               : (state?.soundId ? resolveSound(state.soundId) : null);
 
-            // Build the per-character FX entry list: every effect in
-            // the pool for this slot's kind, with locked + amount
-            // resolved from totalXP + the persistent wet store.
-            const fxEntries = openControls !== PLAYER_SLOT_ID
-              ? fxPoolFor(openControls as CharacterKind).map((fx) => {
-                  const key = `${openControls}:${fx.id}`;
-                  const stored = fxWets[key];
-                  const unlocked = totalXP >= fx.xpRequired;
-                  const amount = unlocked
-                    ? (typeof stored === "number" ? stored : fx.defaultWet)
-                    : 0;
-                  return {
-                    id:         fx.id,
-                    name:       fx.name,
-                    blurb:      fx.blurb,
-                    locked:     !unlocked,
-                    xpRequired: fx.xpRequired,
-                    amount,
-                  };
-                })
-              : undefined;
+            // FX is available when the popover is on a character
+            // kind with at least one FxDef in its pool (today: drum-
+            // guy). Player slot has no FX pool.
+            const fxAvailable = openControls !== PLAYER_SLOT_ID &&
+              fxPoolFor(openControls as CharacterKind).length > 0;
 
             // Build the sibling list for the sound cycler — every
             // PlaceableChar that shares this band slot's character
@@ -1922,8 +1909,8 @@ export function JamView() {
                 autotuneEffect={state.autotuneEffect}
                 onAutotuneChange={(p) => handleAutotuneChange(openControls, p)}
                 onTrain={openControls === "drum-guy" ? () => handleOpenStation(openControls) : undefined}
-                fxEntries={fxEntries}
-                onFxAmountChange={(fxId, amount) => handleFxAmountChange(openControls, fxId, amount)}
+                fxAvailable={fxAvailable}
+                onOpenFx={fxAvailable ? () => setFxBoardSlotId(openControls) : undefined}
                 onMuteToggle={() => handleMuteToggle(openControls)}
                 onVolume={(v) => handleVolume(openControls, v)}
                 onSyncToggle={() => handleSyncToggle(openControls)}
@@ -1962,6 +1949,43 @@ export function JamView() {
           onClose={() => setLibraryOpen(false)}
         />
       )}
+
+      {/* FxBoard — full-screen overlay listing the open character's
+       *  effect tiles. Tap a tile to twist its slider; tap a locked
+       *  tile to see how much XP you still need. */}
+      {fxBoardSlotId && (() => {
+        const slotId = fxBoardSlotId;
+        const kind   = slotId as CharacterKind;
+        const pool   = fxPoolFor(kind);
+        if (pool.length === 0) return null;
+
+        const entries: FxBoardEntry[] = pool.map((def) => {
+          const stored   = fxWets[`${slotId}:${def.id}`];
+          const unlocked = totalXP >= def.xpRequired;
+          return {
+            def,
+            locked: !unlocked,
+            amount: unlocked
+              ? (typeof stored === "number" ? stored : def.defaultWet)
+              : 0,
+          };
+        });
+
+        // Title = current sound's name if filled, else the kind. Falls
+        // back to "EFFECTS" for unknown shapes.
+        const state  = slotState[slotId];
+        const sound  = state?.soundId ? resolveSound(state.soundId) : null;
+        const title  = `${(sound?.name ?? kind.replace("-guy", "")).toUpperCase()} · EFFECTS`;
+
+        return (
+          <FxBoard
+            title={title}
+            entries={entries}
+            onChange={(fxId, amount) => handleFxAmountChange(slotId, fxId, amount)}
+            onClose={() => setFxBoardSlotId(null)}
+          />
+        );
+      })()}
 
       {/* DEN training station — covers the screen while open. Today
        *  only the drum-guy slot has a station (DRUMMA). */}

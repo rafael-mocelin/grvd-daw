@@ -24,14 +24,18 @@ export interface FxDef {
   /** Stable id used by the audio chain to route the amount knob to
    *  the right Tone node. */
   id:         string;
-  /** Player-facing branded name shown on the knob row. */
+  /** Player-facing single-word brand name shown on the tile. */
   name:       string;
-  /** Short blurb under the name, hinting at the sound character. */
+  /** Big icon glyph shown above the name on the tile (image-first
+   *  layout — same vibe as the character tiles in the palette). */
+  icon:       string;
+  /** Short blurb shown under the slider when the tile expands.
+   *  Hints at the sound character. */
   blurb:      string;
   /** Which character kind this effect belongs to. */
   kind:       CharacterKind | "vocal";
-  /** XP threshold to unlock. Below this the slider is hidden behind
-   *  a 🔒 + 'NEED N XP' chip. */
+  /** XP threshold to unlock. Below this the tile shows the same
+   *  lock chip style the JamArrange section locks use. */
   xpRequired: number;
   /** Initial wet/amount value (0..1) when the effect first unlocks
    *  so the player hears something on first appearance instead of
@@ -45,17 +49,21 @@ export interface FxDef {
 
 export const DRUM_FX: FxDef[] = [
   // Tier 1 — first BAKE unlocks something.
+  // Keep the engine id stable ("fresh-air") so audio routing doesn't
+  // need to change; only the player-facing name + icon update.
   {
     id: "fresh-air",
-    name:  "FRESH AIR",
-    blurb: "top-end shimmer · hat sparkle",
+    name:  "SHIMMER",
+    icon:  "✨",
+    blurb: "top-end sparkle on the hats",
     kind:  "drum-guy",
     xpRequired: 100,
     defaultWet: 0.35,
   },
   {
     id: "boom-room",
-    name:  "BOOM ROOM",
+    name:  "CAVERN",
+    icon:  "🕳",
     blurb: "tight trap-room reverb",
     kind:  "drum-guy",
     xpRequired: 250,
@@ -65,15 +73,17 @@ export const DRUM_FX: FxDef[] = [
   // Tier 2 — couple more BAKEs.
   {
     id: "decapitator",
-    name:  "DECAPITATOR",
-    blurb: "saturation grit · 808 bite",
+    name:  "GRIT",
+    icon:  "🪓",
+    blurb: "saturation drive · 808 bite",
     kind:  "drum-guy",
     xpRequired: 500,
     defaultWet: 0.25,
   },
   {
     id: "head-kick",
-    name:  "HEAD KICK",
+    name:  "THUMP",
+    icon:  "👊",
     blurb: "transient punch · slap face",
     kind:  "drum-guy",
     xpRequired: 800,
@@ -83,15 +93,17 @@ export const DRUM_FX: FxDef[] = [
   // Tier 3 — committed grind.
   {
     id: "wide-load",
-    name:  "WIDE LOAD",
-    blurb: "stereo widener · hats fan out",
+    name:  "SPREAD",
+    icon:  "↔️",
+    blurb: "stereo wide · hats fan out",
     kind:  "drum-guy",
     xpRequired: 1200,
     defaultWet: 0.45,
   },
   {
     id: "ghost-rider",
-    name:  "GHOST RIDER",
+    name:  "PHANTOM",
+    icon:  "👻",
     blurb: "spectral ghost-note layer",
     kind:  "drum-guy",
     xpRequired: 1700,
@@ -101,7 +113,8 @@ export const DRUM_FX: FxDef[] = [
   // Tier 4 — endgame for now.
   {
     id: "sub-crusher",
-    name:  "SUB CRUSHER",
+    name:  "CRUSH",
+    icon:  "💥",
     blurb: "smashed parallel compression",
     kind:  "drum-guy",
     xpRequired: 2300,
@@ -109,7 +122,8 @@ export const DRUM_FX: FxDef[] = [
   },
   {
     id: "tape-warm",
-    name:  "TAPE WARM",
+    name:  "TAPE",
+    icon:  "📼",
     blurb: "vintage tape glue · lo-fi",
     kind:  "drum-guy",
     xpRequired: 3000,
