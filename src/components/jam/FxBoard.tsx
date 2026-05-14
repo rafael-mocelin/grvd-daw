@@ -4,9 +4,10 @@
  * the character's controls popover.
  *
  * Each tile is image-first (big icon glyph), name-second (single
- * word). Unlocked tiles expose a slider directly on the tile so the
- * player can twist the wet/amount knob; the slider updates the audio
- * chain and the persistent useFxUnlocks store in real time.
+ * word). Tapping an UNLOCKED tile opens FxPluginPopup — a branded,
+ * plugin-style popup with the effect's own face (big knob, blurb,
+ * brand chrome). The jam audio keeps playing the whole time so the
+ * player can actually hear what twisting the knob does.
  *
  * Locked tiles reuse the same visual language as the JamArrange
  * section locks — dashed border, dim icon, "🔒 600 XP" chip in
@@ -16,6 +17,7 @@
 
 import { useState } from "react";
 import type { FxDef } from "../../data/jamFx";
+import { FxPluginPopup } from "./FxPluginPopup";
 
 export interface FxBoardEntry {
   def:    FxDef;
@@ -41,6 +43,10 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
     setToast(msg);
     window.setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), 2000);
   }
+
+  /** Which FX tile currently has its plugin popup open. null = none. */
+  const [openFxId, setOpenFxId] = useState<string | null>(null);
+  const openEntry = openFxId ? entries.find((e) => e.def.id === openFxId) ?? null : null;
 
   return (
     <>
@@ -138,7 +144,7 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
             marginBottom: 14,
           }}
         >
-          twist a knob · 🔒 needs more XP
+          tap a tile to open · 🔒 needs more XP
         </div>
 
         {/* Tile grid */}
@@ -153,7 +159,7 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
             <FxTile
               key={e.def.id}
               entry={e}
-              onChange={(amount) => onChange(e.def.id, amount)}
+              onOpen={() => setOpenFxId(e.def.id)}
               onLockedTap={() => flashToast(`PROGRESS — NEED ${e.def.xpRequired} XP`)}
             />
           ))}
@@ -199,6 +205,17 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
           }
         `}</style>
       </div>
+
+      {/* Branded plugin popup — sits on top of the FxBoard. Closing it
+       *  leaves the FxBoard open so the player can poke another tile. */}
+      {openEntry && !openEntry.locked && (
+        <FxPluginPopup
+          fx={openEntry.def}
+          amount={openEntry.amount}
+          onChange={(amount) => onChange(openEntry.def.id, amount)}
+          onClose={() => setOpenFxId(null)}
+        />
+      )}
     </>
   );
 }
@@ -209,11 +226,11 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
 
 function FxTile({
   entry,
-  onChange,
+  onOpen,
   onLockedTap,
 }: {
   entry:       FxBoardEntry;
-  onChange:    (amount: number) => void;
+  onOpen:      () => void;
   onLockedTap: () => void;
 }) {
   const { def, locked, amount } = entry;
@@ -282,7 +299,8 @@ function FxTile({
   }
 
   return (
-    <div
+    <button
+      onClick={onOpen}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -294,7 +312,12 @@ function FxTile({
         border: "2px solid rgba(250, 204, 21, 0.45)",
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 3px 0 rgba(0,0,0,0.4), 0 0 14px rgba(250, 204, 21, 0.20)",
         userSelect: "none",
+        cursor: "pointer",
+        color: "inherit",
+        font: "inherit",
+        textAlign: "left",
       }}
+      aria-label={`open ${def.name}`}
     >
       <div
         style={{
@@ -342,19 +365,6 @@ function FxTile({
           {Math.round(amount * 100)}%
         </div>
       </div>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.02}
-        value={amount}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={{
-          width: "100%",
-          accentColor: "#facc15",
-          marginTop: 2,
-        }}
-      />
-    </div>
+    </button>
   );
 }

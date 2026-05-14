@@ -419,6 +419,18 @@ export function JamView() {
   // behaviour as before, just now with an explicit toggle.
   const [playing, setPlaying] = useState(true);
 
+  /** Open the FxBoard for a slot AND force the jam audio to be running
+   *  so the player can actually hear what the effect does. Without
+   *  this the user could pause the jam, twist SHIMMER, and wonder why
+   *  nothing changed. Mirrors the auto-start on drop. */
+  function handleOpenFxBoard(slotId: string) {
+    setFxBoardSlotId(slotId);
+    if (!playing) {
+      resumeJam();
+      setPlaying(true);
+    }
+  }
+
   // ── Master BPM ──
   // Live-editable from the top-bar BPM control. Changing it propagates
   // immediately to the jam engine (recomputes every active player's
@@ -1910,7 +1922,7 @@ export function JamView() {
                 onAutotuneChange={(p) => handleAutotuneChange(openControls, p)}
                 onTrain={openControls === "drum-guy" ? () => handleOpenStation(openControls) : undefined}
                 fxAvailable={fxAvailable}
-                onOpenFx={fxAvailable ? () => setFxBoardSlotId(openControls) : undefined}
+                onOpenFx={fxAvailable ? () => handleOpenFxBoard(openControls) : undefined}
                 onMuteToggle={() => handleMuteToggle(openControls)}
                 onVolume={(v) => handleVolume(openControls, v)}
                 onSyncToggle={() => handleSyncToggle(openControls)}
