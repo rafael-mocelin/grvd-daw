@@ -73,45 +73,45 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
           top:   "50%",
           transform: "translate(-50%, -50%)",
           zIndex: 501,
-          width: "min(94vw, 540px)",
+          width: "min(62vw, 351px)",
           maxHeight: "82vh",
           overflowY: "auto",
-          padding: "18px 18px 20px",
-          borderRadius: 22,
+          padding: "12px 12px 13px",
+          borderRadius: 14,
           background: "linear-gradient(180deg, #243358 0%, #0f1828 100%)",
-          border: "2.5px solid #0a0f1c",
+          border: "2px solid #0a0f1c",
           boxShadow:
-            "inset 0 2px 0 rgba(255,255,255,0.18), 0 6px 0 rgba(0,0,0,0.5), 0 18px 38px rgba(0,0,0,0.6), 0 0 28px rgba(250, 204, 21, 0.30)",
+            "inset 0 2px 0 rgba(255,255,255,0.18), 0 4px 0 rgba(0,0,0,0.5), 0 12px 25px rgba(0,0,0,0.6), 0 0 18px rgba(250, 204, 21, 0.30)",
           animation: "fxBoardPop 0.22s cubic-bezier(.34,1.56,.64,1) both",
         }}
       >
         {/* Header — title + back/close */}
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
           <button
             onClick={onClose}
             aria-label="back"
             style={{
-              width: 30, height: 30, borderRadius: 15,
-              border: "2px solid rgba(255,255,255,0.22)",
+              width: 20, height: 20, borderRadius: 10,
+              border: "1.5px solid rgba(255,255,255,0.22)",
               background: "rgba(255,255,255,0.08)",
               color: "rgba(255,255,255,0.85)",
               fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 12, fontWeight: 700,
+              fontSize: 8, fontWeight: 700,
               cursor: "pointer",
               padding: 0, lineHeight: 1,
-              marginRight: 8,
+              marginRight: 5,
             }}
           >
             ←
           </button>
-          <span style={{ fontSize: 22, marginRight: 8 }}>🎛</span>
+          <span style={{ fontSize: 14, marginRight: 5 }}>🎛</span>
           <div
             style={{
               fontFamily: "'Lilita One', system-ui",
-              fontSize: 20,
+              fontSize: 13,
               color: "#fff",
-              letterSpacing: 0.6,
-              textShadow: "0 2px 0 rgba(0,0,0,0.6), 0 0 14px rgba(250, 204, 21, 0.55)",
+              letterSpacing: 0.4,
+              textShadow: "0 1px 0 rgba(0,0,0,0.6), 0 0 9px rgba(250, 204, 21, 0.55)",
             }}
           >
             {title}
@@ -121,12 +121,12 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
             onClick={onClose}
             aria-label="close"
             style={{
-              width: 30, height: 30, borderRadius: 15,
-              border: "2px solid rgba(255,255,255,0.22)",
+              width: 20, height: 20, borderRadius: 10,
+              border: "1.5px solid rgba(255,255,255,0.22)",
               background: "rgba(255,255,255,0.08)",
               color: "rgba(255,255,255,0.85)",
               fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 12, fontWeight: 700,
+              fontSize: 8, fontWeight: 700,
               cursor: "pointer",
               padding: 0, lineHeight: 1,
             }}
@@ -137,11 +137,11 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
         <div
           style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 10,
+            fontSize: 7,
             color: "rgba(255,255,255,0.55)",
             letterSpacing: "0.16em",
             textTransform: "uppercase",
-            marginBottom: 14,
+            marginBottom: 9,
           }}
         >
           tap a tile to open · 🔒 needs more XP
@@ -151,8 +151,8 @@ export function FxBoard({ title, entries, onChange, onClose }: FxBoardProps) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-            gap: 10,
+            gridTemplateColumns: "repeat(auto-fill, minmax(91px, 1fr))",
+            gap: 7,
           }}
         >
           {entries.map((e) => (
@@ -243,11 +243,11 @@ function FxTile({
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: 4,
-          padding: 10,
-          borderRadius: 12,
+          gap: 3,
+          padding: 7,
+          borderRadius: 8,
           background: "rgba(0, 0, 0, 0.25)",
-          border: "1.5px dashed rgba(255,255,255,0.18)",
+          border: "1px dashed rgba(255,255,255,0.18)",
           cursor: "pointer",
           color: "inherit",
           font: "inherit",
@@ -259,12 +259,12 @@ function FxTile({
           style={{
             width: "100%",
             aspectRatio: "1 / 1",
-            borderRadius: 10,
+            borderRadius: 7,
             background: "rgba(255,255,255,0.03)",
-            border: "1.5px dashed rgba(255,255,255,0.18)",
+            border: "1px dashed rgba(255,255,255,0.18)",
             display: "grid",
             placeItems: "center",
-            fontSize: 36,
+            fontSize: 23,
             opacity: 0.35,
             filter: "grayscale(1)",
           }}
@@ -274,10 +274,10 @@ function FxTile({
         <div
           style={{
             fontFamily: "'Lilita One', system-ui",
-            fontSize: 12,
+            fontSize: 8,
             color: "rgba(255,255,255,0.55)",
-            letterSpacing: 0.4,
-            marginTop: 2,
+            letterSpacing: 0.3,
+            marginTop: 1,
           }}
         >
           {def.name}
@@ -285,7 +285,7 @@ function FxTile({
         <div
           style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 9,
+            fontSize: 6,
             fontWeight: 700,
             color: "rgba(255,255,255,0.45)",
             letterSpacing: "0.10em",
@@ -305,12 +305,12 @@ function FxTile({
         display: "flex",
         flexDirection: "column",
         alignItems: "stretch",
-        gap: 4,
-        padding: 10,
-        borderRadius: 12,
+        gap: 3,
+        padding: 7,
+        borderRadius: 8,
         background: "linear-gradient(180deg, rgba(36, 51, 88, 0.7) 0%, rgba(15, 24, 40, 0.7) 100%)",
-        border: "2px solid rgba(250, 204, 21, 0.45)",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 3px 0 rgba(0,0,0,0.4), 0 0 14px rgba(250, 204, 21, 0.20)",
+        border: "1.5px solid rgba(250, 204, 21, 0.45)",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 0 rgba(0,0,0,0.4), 0 0 9px rgba(250, 204, 21, 0.20)",
         userSelect: "none",
         cursor: "pointer",
         color: "inherit",
@@ -323,12 +323,12 @@ function FxTile({
         style={{
           width: "100%",
           aspectRatio: "1 / 1",
-          borderRadius: 10,
+          borderRadius: 7,
           background: "radial-gradient(ellipse at 50% 110%, rgba(250, 204, 21, 0.30), rgba(15, 24, 40, 0.7) 70%)",
-          border: "1.5px solid #0a0f1c",
+          border: "1px solid #0a0f1c",
           display: "grid",
           placeItems: "center",
-          fontSize: 48,
+          fontSize: 31,
           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
         }}
       >
@@ -339,15 +339,15 @@ function FxTile({
           display: "flex",
           alignItems: "baseline",
           justifyContent: "space-between",
-          marginTop: 2,
+          marginTop: 1,
         }}
       >
         <div
           style={{
             fontFamily: "'Lilita One', system-ui",
-            fontSize: 13,
+            fontSize: 9,
             color: "#fff",
-            letterSpacing: 0.4,
+            letterSpacing: 0.3,
             textShadow: "0 1px 0 rgba(0,0,0,0.55)",
           }}
         >
@@ -356,7 +356,7 @@ function FxTile({
         <div
           style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 10,
+            fontSize: 7,
             fontWeight: 700,
             color: amount > 0 ? "#facc15" : "rgba(255,255,255,0.4)",
             letterSpacing: "0.08em",
