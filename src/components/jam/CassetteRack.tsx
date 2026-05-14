@@ -111,14 +111,16 @@ export function CassetteRack({ pos, size, jamCount, onClick }: CassetteRackProps
         />
       </div>
 
-      {/* Count chip — bottom-right of the rack, only when there's
-       *  at least one cassette to brag about. */}
+      {/* Count chip — top-center of the rack, only when there's at
+       *  least one cassette to brag about. Floats just above the
+       *  rack's top edge so it reads as a 'badge' on the furniture. */}
       {hasCassettes && (
         <div
           style={{
             position: "absolute",
-            right: "-4%",
-            bottom: "8%",
+            top:  "-6%",
+            left: "50%",
+            transform: "translateX(-50%)",
             minWidth: 22,
             height:   22,
             padding:  "0 7px",
