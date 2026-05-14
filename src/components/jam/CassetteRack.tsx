@@ -80,12 +80,15 @@ export function CassetteRack({ pos, size, jamCount, onClick }: CassetteRackProps
         }}
       />
 
-      {/* ── Rack art ──
+      {/* ── Rack art + count chip ──
        *  Wrapper handles the gentle vertical bob (always-on
-       *  animation); the img handles the hover scale + filter so the
+       *  animation); both the img and the count chip live inside it
+       *  so the chip drifts up-and-down with the rack as a single
+       *  unit. The img handles the hover scale + filter so the
        *  two transforms don't fight. */}
       <div
         style={{
+          position: "relative",
           width:  "100%",
           height: "100%",
           animation: "rackBob 3.2s ease-in-out infinite",
@@ -109,37 +112,35 @@ export function CassetteRack({ pos, size, jamCount, onClick }: CassetteRackProps
             transition: "transform 0.18s ease-out, filter 0.18s",
           }}
         />
-      </div>
 
-      {/* Count chip — top-center of the rack, only when there's at
-       *  least one cassette to brag about. Floats just above the
-       *  rack's top edge so it reads as a 'badge' on the furniture. */}
-      {hasCassettes && (
-        <div
-          style={{
-            position: "absolute",
-            top:  "-6%",
-            left: "50%",
-            transform: "translateX(-50%)",
-            minWidth: 22,
-            height:   22,
-            padding:  "0 7px",
-            borderRadius: 11,
-            background: "linear-gradient(180deg, #c084fc, #7e22ce)",
-            border: "2px solid #0a0f1c",
-            fontFamily: "'Lilita One', system-ui",
-            fontSize: 11,
-            color: "#fff",
-            letterSpacing: 0.4,
-            display: "grid",
-            placeItems: "center",
-            boxShadow: "inset 0 2px 0 rgba(255,255,255,0.4), 0 2px 0 rgba(0,0,0,0.45), 0 0 12px rgba(192, 132, 252, 0.7)",
-            pointerEvents: "none",
-          }}
-        >
-          {jamCount}
-        </div>
-      )}
+        {/* Count chip — floats above the rack and bobs with it. */}
+        {hasCassettes && (
+          <div
+            style={{
+              position: "absolute",
+              top:  "-14%",
+              left: "50%",
+              transform: "translateX(-50%)",
+              minWidth: 22,
+              height:   22,
+              padding:  "0 7px",
+              borderRadius: 11,
+              background: "linear-gradient(180deg, #c084fc, #7e22ce)",
+              border: "2px solid #0a0f1c",
+              fontFamily: "'Lilita One', system-ui",
+              fontSize: 11,
+              color: "#fff",
+              letterSpacing: 0.4,
+              display: "grid",
+              placeItems: "center",
+              boxShadow: "inset 0 2px 0 rgba(255,255,255,0.4), 0 2px 0 rgba(0,0,0,0.45), 0 0 12px rgba(192, 132, 252, 0.7)",
+              pointerEvents: "none",
+            }}
+          >
+            {jamCount}
+          </div>
+        )}
+      </div>
 
       <style>{`
         @keyframes rackBob {
