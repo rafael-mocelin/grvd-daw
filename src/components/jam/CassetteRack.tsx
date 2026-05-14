@@ -46,7 +46,7 @@ export function CassetteRack({ pos, size, jamCount, onClick }: CassetteRackProps
       title={`open jam library · ${jamCount} cassette${jamCount === 1 ? "" : "s"}`}
     >
       <img
-        src="/crib/cassette-rack.png"
+        src="/crib/Cassette-Rack.png"
         alt=""
         draggable={false}
         style={{
